@@ -1,0 +1,10 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(./gradlew compileJava --console=plain)",
+      "Bash(rm -rf pretty-be/.git)",
+      "Bash(git remote *)",
+      "Bash(git add *)"
+    ]
+  }
+}
