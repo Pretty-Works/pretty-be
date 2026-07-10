@@ -5,7 +5,9 @@
       "Bash(rm -rf pretty-be/.git)",
       "Bash(git remote *)",
       "Bash(git add *)",
-      "PowerShell([Environment]::GetFolderPath\\(\"Desktop\"\\))"
+      "PowerShell([Environment]::GetFolderPath\\(\"Desktop\"\\))",
+      "PowerShell(if \\($env:JAVA_HOME\\) { Write-Output \"JAVA_HOME=$env:JAVA_HOME\" }; $j = Get-Command java -ErrorAction SilentlyContinue; if \\($j\\) { Write-Output \"java: $\\($j.Source\\)\" } else { Write-Output \"java not found on PATH\" })",
+      "PowerShell($env:JAVA_HOME = \"C:\\\\Program Files\\\\JetBrains\\\\IntelliJ IDEA 2026.1.3\\\\jbr\"; & .\\\\gradlew.bat compileJava --console=plain 2>&1 | Select-Object -Last 40)"
     ]
   }
 }
