@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestControllerAdvice;
 import org.springframework.web.servlet.mvc.method.annotation.ResponseBodyAdvice;
 
 // 컨트롤러가 반환한 값을 실제 응답으로 쓰기 직전에 BaseResponse 형태로 감싸는 전역 후처리기입니다.
-@RestControllerAdvice(basePackages = "hankyung.tossinvoice")
+@RestControllerAdvice(basePackages = "HK.PrettyWorks_BE")
 public class ResponseInterceptor implements ResponseBodyAdvice<Object> {
     @Override
     public boolean supports(
