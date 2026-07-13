@@ -1,7 +1,8 @@
 -- PrettyWorks MVP — 초기 DDL 스크립트
 -- 새 MySQL 데이터베이스(prettyworks_test)에서 한 번 실행하면 모든 테이블이 만들어집니다.
 -- ddl-auto: validate 정책이므로 엔티티가 바뀌면 이 파일도 같이 갱신해야 합니다.
--- 실행: mysql -uroot -p prettyworks_test < src/main/resources/db/init.sql
+-- Local 실행: mysql -uroot -p prettyworks_test < src/main/resources/db/init.sql
+-- Docker 실행 : Get-Content src\main\resources\db\init.sql | docker compose exec -T mysql mysql -uroot -p1234 prettyworks_test
 
 
 -- =============================================================================

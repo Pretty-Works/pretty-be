@@ -40,7 +40,7 @@ dependencies {
 	implementation 'org.springframework.boot:spring-boot-starter-kafka'
 
 	// Docker
-	// developmentOnly 'org.springframework.boot:spring-boot-docker-compose'
+	developmentOnly 'org.springframework.boot:spring-boot-docker-compose'
 
 	// Lombok
 	annotationProcessor 'org.projectlombok:lombok'
