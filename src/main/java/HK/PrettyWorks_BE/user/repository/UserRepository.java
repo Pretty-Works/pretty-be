@@ -1,6 +1,6 @@
-package HK.PrettyWorks_BE.auth.repository;
+package HK.PrettyWorks_BE.user.repository;
 
-import HK.PrettyWorks_BE.global.domain.UserEntity;
+import HK.PrettyWorks_BE.user.domain.UserEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.Optional;
