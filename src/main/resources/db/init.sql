@@ -57,10 +57,11 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 CREATE TABLE IF NOT EXISTS projects (
     id            BIGINT        NOT NULL AUTO_INCREMENT,
     name          VARCHAR(100)  NOT NULL          COMMENT '프로젝트명',
-    status        VARCHAR(20)   NOT NULL          COMMENT '상태 (ONGOING / HOLDING / DONE / ARCHIVED)',
+    status        VARCHAR(20)   NOT NULL          COMMENT '상태 (ONGOING / HOLDING / DROPPED / DONE / ARCHIVED)',
     start_date    DATE          NOT NULL          COMMENT '시작일',
     target_date   DATE          NOT NULL          COMMENT '목표일',
-    target_budget DECIMAL(15,2) NULL              COMMENT '목표 예산',
+    target_budget DECIMAL(15,2) NOT NULL          COMMENT '목표 예산 (0 = 제한 없음)',
+    description   VARCHAR(500)  NULL              COMMENT '설명',
     created_at    DATETIME(6)   NULL              COMMENT '생성 시각',
     modified_at   DATETIME(6)   NULL              COMMENT '수정 시각',
     PRIMARY KEY (id)
@@ -76,6 +77,7 @@ CREATE TABLE IF NOT EXISTS project_members (
     id          BIGINT      NOT NULL AUTO_INCREMENT,
     project_id  BIGINT      NOT NULL              COMMENT '프로젝트 FK',
     user_id     BIGINT      NOT NULL              COMMENT '사용자 FK',
+    is_owner    BOOLEAN     NOT NULL DEFAULT FALSE COMMENT '오너 여부 (생성자 true / 참여자 false)',
     role        VARCHAR(20) NULL                  COMMENT '역할',
     status      VARCHAR(20) NOT NULL              COMMENT '참여 상태 (ACTIVE / LEFT)',
     left_at     DATETIME(6) NULL                  COMMENT '탈퇴 시각 (참여중이면 NULL)',
@@ -86,6 +88,24 @@ CREATE TABLE IF NOT EXISTS project_members (
     CONSTRAINT fk_project_members_project FOREIGN KEY (project_id) REFERENCES projects (id),
     CONSTRAINT fk_project_members_user    FOREIGN KEY (user_id)    REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 멤버';
+
+
+-- =============================================================================
+-- milestones : 프로젝트 마일스톤 (시기별 목표)
+--   - target_date 는 프로젝트 기간(projects.start_date ~ target_date) 내여야 함 (앱 레벨 검증)
+--   - 목록은 target_date 오름차순 조회
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS milestones (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    project_id  BIGINT       NOT NULL          COMMENT '프로젝트 FK',
+    target_date DATE         NOT NULL          COMMENT '목표일',
+    goal        VARCHAR(200) NOT NULL          COMMENT '목표 내용',
+    created_at  DATETIME(6)  NULL              COMMENT '생성 시각',
+    modified_at DATETIME(6)  NULL              COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    KEY idx_milestones_project_target (project_id, target_date),
+    CONSTRAINT fk_milestones_project FOREIGN KEY (project_id) REFERENCES projects (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 마일스톤';
 
 
 -- =============================================================================
@@ -294,7 +314,7 @@ CREATE TABLE IF NOT EXISTS schedules (
     title       VARCHAR(200) NOT NULL           COMMENT '일정 제목',
     start_at    DATETIME(6)  NOT NULL           COMMENT '시작일시',
     end_at      DATETIME(6)  NOT NULL           COMMENT '종료일시',
-    all_day     TINYINT(1)   NOT NULL DEFAULT 0 COMMENT '종일 여부 (0/1)',
+    all_day     BOOLEAN      NOT NULL DEFAULT FALSE COMMENT '종일 여부',
     created_at  DATETIME(6)  NULL               COMMENT '생성 시각',
     modified_at DATETIME(6)  NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
