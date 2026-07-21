@@ -304,9 +304,10 @@ CREATE TABLE IF NOT EXISTS approval_references (
 
 
 -- =============================================================================
--- schedules : 일정 (개인이 직접 만드는 캘린더 일정만)
---   - 휴가는 union 으로 얹는 read-only 오버레이 (여기 없음)
---   - type 없이 색 통일 → 구분 컬럼 없음
+-- schedules : 일정 + 휴가 공통 캘린더 행
+--   - 휴가도 여기에 행으로 저장, 휴가 상세는 schedule_leaves 로 1:1 확장
+--   - "휴가 여부" = schedule_leaves 조인 매칭 여부
+--   - 회의/외근/개인은 구분 컬럼 없이 색 통일
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS schedules (
     id          BIGINT       NOT NULL AUTO_INCREMENT,
@@ -321,6 +322,24 @@ CREATE TABLE IF NOT EXISTS schedules (
     CONSTRAINT fk_schedules_user FOREIGN KEY (user_id) REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '일정';
 
+-- =============================================================================
+-- schedule_leaves : 휴가 상세 (schedules 와 1:1 확장)
+--   - 휴가도 schedules 에 행으로 저장 → 캘린더는 schedules 만 조회(union 불필요)
+--   - 승인 없음(결재 도메인과 분리) → 상태 컬럼 없음, 취소 = 일정 삭제(CASCADE)
+--   - surrogate id + UNIQUE(schedule_id) 로 1:1 (approval_details/approval_leaves 와 동일 패턴)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS schedule_leaves (
+                                               id          BIGINT       NOT NULL AUTO_INCREMENT,
+                                               schedule_id BIGINT       NOT NULL          COMMENT '일정 FK (1:1)',
+                                               leave_type  VARCHAR(20)  NOT NULL          COMMENT '휴가 유형 (ANNUAL 연차 / SICK 병가)',
+    reason      VARCHAR(255) NULL              COMMENT '사유',
+    days        INT          NOT NULL          COMMENT '일수 (연차 사용/잔여 계산용)',
+    created_at  DATETIME(6)  NULL              COMMENT '생성 시각',
+    modified_at DATETIME(6)  NULL              COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_schedule_leaves_schedule (schedule_id),
+    CONSTRAINT fk_schedule_leaves_schedule FOREIGN KEY (schedule_id) REFERENCES schedules (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '휴가 상세';
 
 -- =============================================================================
 -- schedule_participants : 일정 참가자 (작성자 포함, role 로 구분)

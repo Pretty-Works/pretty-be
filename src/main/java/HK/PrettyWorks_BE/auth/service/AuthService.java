@@ -4,11 +4,14 @@ import HK.PrettyWorks_BE.auth.constant.AuthConstant;
 import HK.PrettyWorks_BE.auth.domain.RefreshTokenEntity;
 import HK.PrettyWorks_BE.auth.dto.req.LoginRequest;
 import HK.PrettyWorks_BE.auth.dto.req.ReissueRequest;
+import HK.PrettyWorks_BE.auth.dto.req.SignupRequest;
 import HK.PrettyWorks_BE.auth.dto.res.JwtTokenResponse;
+import HK.PrettyWorks_BE.auth.dto.res.SignupResponse;
 import HK.PrettyWorks_BE.auth.jwt.JwtUtil;
 import HK.PrettyWorks_BE.auth.repository.RefreshTokenRepository;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
+import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
@@ -92,5 +95,37 @@ public class AuthService {
         }
 
         return issueTokensAndPersist(userId);
+    }
+
+    @Transactional
+    public SignupResponse signup(SignupRequest request) {
+        // 사번/이메일은 unique 제약이라 저장 전에 중복을 먼저 걸러 명확한 에러로 응답합니다.
+        if (userRepository.existsByEmployeeNo(request.employeeNo())) {
+            throw BaseException.type(AuthErrorCode.EMPLOYEE_NO_DUPLICATED);
+        }
+        if (userRepository.existsByEmail(request.email())) {
+            throw BaseException.type(AuthErrorCode.EMAIL_DUPLICATED);
+        }
+
+        // 원문 비밀번호는 저장하지 않고 BCrypt 해시만 보관합니다. 신규 가입자는 재직중(ACTIVE)으로 시작합니다.
+        UserEntity user = UserEntity.builder()
+                .employeeNo(request.employeeNo())
+                .passwordHash(passwordEncoder.encode(request.password()))
+                .name(request.name())
+                .email(request.email())
+                .phoneNumber(request.phoneNumber())
+                .birthDate(request.birthDate())
+                .gender(request.gender())
+                .department(request.department())
+                .position(request.position())
+                .status(StatusType.ACTIVE)
+                .hireDate(request.hireDate())
+                .build();
+
+        UserEntity saved = userRepository.save(user);
+
+        return SignupResponse.builder()
+                .userId(saved.getId())
+                .build();
     }
 }
