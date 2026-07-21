@@ -11,8 +11,9 @@ import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
+// 프로젝트 생성/수정 공용 요청 DTO (두 API의 body 구조가 동일).
 @Builder
-public record ProjectCreateRequest(
+public record ProjectRequest(
         @NotBlank(message = "프로젝트명을 입력해주세요.")
         @Size(max = 100, message = "프로젝트명은 최대 100자까지 입력 가능합니다.")
         String name,

@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS project_members (
     modified_at DATETIME(6) NULL                  COMMENT '수정 시각',
     PRIMARY KEY (id),
     UNIQUE KEY uk_project_members_user_project (user_id, project_id),
+    KEY idx_project_members_project_status (project_id, status),
     CONSTRAINT fk_project_members_project FOREIGN KEY (project_id) REFERENCES projects (id),
     CONSTRAINT fk_project_members_user    FOREIGN KEY (user_id)    REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 멤버';
@@ -329,9 +330,9 @@ CREATE TABLE IF NOT EXISTS schedules (
 --   - surrogate id + UNIQUE(schedule_id) 로 1:1 (approval_details/approval_leaves 와 동일 패턴)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS schedule_leaves (
-                                               id          BIGINT       NOT NULL AUTO_INCREMENT,
-                                               schedule_id BIGINT       NOT NULL          COMMENT '일정 FK (1:1)',
-                                               leave_type  VARCHAR(20)  NOT NULL          COMMENT '휴가 유형 (ANNUAL 연차 / SICK 병가)',
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    schedule_id BIGINT       NOT NULL          COMMENT '일정 FK (1:1)',
+    leave_type  VARCHAR(20)  NOT NULL          COMMENT '휴가 유형 (ANNUAL 연차 / SICK 병가)',
     reason      VARCHAR(255) NULL              COMMENT '사유',
     days        INT          NOT NULL          COMMENT '일수 (연차 사용/잔여 계산용)',
     created_at  DATETIME(6)  NULL              COMMENT '생성 시각',
