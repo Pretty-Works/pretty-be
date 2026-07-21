@@ -53,4 +53,22 @@ public class ProjectMemberEntity extends BaseTimeEntity {
         this.leftAt = leftAt;
     }
 
+    // 직무 역할 변경 (오너 역할 갱신 / 참여자 역할 변경)
+    public void updateRole(String role) {
+        this.role = role;
+    }
+
+    // 참여 종료(soft delete): 상태를 LEFT로 바꾸고 탈퇴 시각을 기록
+    public void leave(LocalDateTime leftAt) {
+        this.status = ProjectMemberStatus.LEFT;
+        this.leftAt = leftAt;
+    }
+
+    // 재참여: 다시 ACTIVE로 되살리고 탈퇴 시각 제거, 역할도 갱신
+    public void reactivate(String role) {
+        this.status = ProjectMemberStatus.ACTIVE;
+        this.leftAt = null;
+        this.role = role;
+    }
+
 }
