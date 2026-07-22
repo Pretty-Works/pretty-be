@@ -4,7 +4,9 @@ import HK.PrettyWorks_BE.calendar.schedule.constant.ParticipantRole;
 import HK.PrettyWorks_BE.calendar.schedule.domain.ScheduleEntity;
 import HK.PrettyWorks_BE.calendar.schedule.domain.ScheduleParticipantEntity;
 import HK.PrettyWorks_BE.calendar.schedule.dto.req.ScheduleCreateRequest;
+import HK.PrettyWorks_BE.calendar.schedule.dto.req.ScheduleUpdateRequest;
 import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleCreateResponse;
+import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleUpdateResponse;
 import HK.PrettyWorks_BE.calendar.schedule.exception.ScheduleErrorCode;
 import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleParticipantRepository;
 import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleRepository;
@@ -105,6 +107,99 @@ public class ScheduleService {
 
         // 6) 생성된 일정 id 반환
         return ScheduleCreateResponse.builder()
+                .scheduleId(schedule.getId())
+                .build();
+    }
+
+    @Transactional
+    public void delete(Long userId, Long scheduleId) {
+        // 1) 일정 조회 — 없으면 SCHEDULE_001(404)
+        ScheduleEntity schedule = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> BaseException.type(ScheduleErrorCode.SCHEDULE_NOT_FOUND));
+
+        // 2) 소유권 검증 — 작성자(user_id) 본인만 삭제 가능, 아니면 SCHEDULE_003(403)
+        if (!schedule.getUserId().equals(userId)) {
+            throw BaseException.type(ScheduleErrorCode.NO_SCHEDULE_PERMISSION);
+        }
+
+        // 3) 하드 삭제. schedule_participants·schedule_leaves는 FK ON DELETE CASCADE로 DB가 함께 정리한다.
+        scheduleRepository.delete(schedule);
+    }
+
+    @Transactional
+    public ScheduleUpdateResponse update(Long userId, Long scheduleId, ScheduleUpdateRequest request) {
+        // 1) 일정 조회 — 없으면 SCHEDULE_001(404). 영속 상태로 로드되어 더티 체킹 대상이 된다.
+        ScheduleEntity schedule = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> BaseException.type(ScheduleErrorCode.SCHEDULE_NOT_FOUND));
+
+        // 2) 소유권 검증 — 작성자 본인만 수정 가능, 아니면 SCHEDULE_003(403)
+        if (!schedule.getUserId().equals(userId)) {
+            throw BaseException.type(ScheduleErrorCode.NO_SCHEDULE_PERMISSION);
+        }
+
+        // 3) TODO(휴가): schedule_leaves가 있는 '휴가 일정'은 수정 대상 아님(취소 후 재신청) — 휴가 도메인 구현 시 체크 추가.
+
+        // 4) 최종값 병합 — 전달된(non-null) 필드만 반영하고 나머지는 기존값을 유지한다.
+        String title = request.title() != null ? request.title() : schedule.getTitle();
+        boolean allDay = request.allDay() != null ? request.allDay() : schedule.isAllDay();
+        LocalDateTime startAt = request.startAt() != null ? request.startAt() : schedule.getStartAt();
+        LocalDateTime endAt = request.endAt() != null ? request.endAt() : schedule.getEndAt();
+
+        // 4-1) allDay면 최종 시각 정규화(00:00:00 ~ 23:59:59)
+        if (allDay) {
+            startAt = startAt.toLocalDate().atStartOfDay();
+            endAt = endAt.toLocalDate().atTime(23, 59, 59);
+        }
+        // 4-2) 기간 검증(SCHEDULE_002): '최종값' 기준. 같은 시각 허용.
+        if (startAt.isAfter(endAt)) {
+            throw BaseException.type(ScheduleErrorCode.INVALID_PERIOD);
+        }
+
+        // 5) 일정 필드 갱신 — 더티 체킹으로 커밋 시 UPDATE (save 불필요)
+        schedule.update(title, startAt, endAt, allDay);
+
+        // 6) 참가자 교체 — participantUserIds가 '전달된 경우에만'. null이면 기존 참가자 그대로 유지.
+        if (request.participantUserIds() != null) {
+            // 6-1) 기존 PARTICIPANT 행 삭제 후 즉시 flush.
+            //      Hibernate는 flush 시 INSERT를 DELETE보다 먼저 실행하므로, 여기서 삭제를 확정하지 않으면
+            //      교체 목록에 기존 참가자가 겹칠 때 UNIQUE(user_id, schedule_id) 충돌이 난다.
+            scheduleParticipantRepository.deleteByScheduleIdAndRole(scheduleId, ParticipantRole.PARTICIPANT);
+            scheduleParticipantRepository.flush();
+
+            // 6-2) 새 참가자 정리 — 작성자 제외, null·중복 제거(입력 순서 유지)
+            Set<Long> participantIds = new LinkedHashSet<>();
+            for (Long participantId : request.participantUserIds()) {
+                if (participantId == null || participantId.equals(userId)) {
+                    continue;
+                }
+                participantIds.add(participantId);
+            }
+            // 6-3) 존재 검증(USER_002) + 퇴사자 차단(USER_003). 빈 배열이면 이 블록을 건너뛰어 작성자 혼자로 축소된다.
+            if (!participantIds.isEmpty()) {
+                List<UserEntity> found = userRepository.findAllById(participantIds);
+                if (found.size() != participantIds.size()) {
+                    throw BaseException.type(UserErrorCode.USER_NOT_FOUND);
+                }
+                for (UserEntity participant : found) {
+                    if (participant.getStatus() == StatusType.RESIGNED) {
+                        throw BaseException.type(UserErrorCode.RESIGNED_USER);
+                    }
+                }
+                // 6-4) 새 PARTICIPANT 행 저장
+                List<ScheduleParticipantEntity> newParticipants = new ArrayList<>();
+                for (Long participantId : participantIds) {
+                    newParticipants.add(ScheduleParticipantEntity.builder()
+                            .scheduleId(scheduleId)
+                            .userId(participantId)
+                            .role(ParticipantRole.PARTICIPANT)
+                            .build());
+                }
+                scheduleParticipantRepository.saveAll(newParticipants);
+            }
+        }
+
+        // 7) 수정된 일정 id 반환
+        return ScheduleUpdateResponse.builder()
                 .scheduleId(schedule.getId())
                 .build();
     }
