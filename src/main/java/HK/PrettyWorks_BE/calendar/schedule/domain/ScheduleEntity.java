@@ -47,4 +47,13 @@ public class ScheduleEntity extends BaseTimeEntity {
         this.allDay = allDay;
     }
 
+    // 부분 수정용. 서비스에서 '기존값 + 전달값'을 합친 최종값으로 호출한다.
+    // 영속 상태 엔티티라 필드만 바꾸면 트랜잭션 커밋 시 더티 체킹으로 UPDATE가 나간다(save 불필요).
+    public void update(String title, LocalDateTime startAt, LocalDateTime endAt, boolean allDay) {
+        this.title = title;
+        this.startAt = startAt;
+        this.endAt = endAt;
+        this.allDay = allDay;
+    }
+
 }
