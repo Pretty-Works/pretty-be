@@ -29,6 +29,9 @@ public final class ProjectPolicy {
                 || ROLE_PM.equals(callerMembership.getRole());
     }
 
-    // 참고 — 향후 삭제 API에서 추가할 권한 규칙:
-    //  - 삭제(canDelete) : 생성자 본인(오너)만
+    // 상태 변경 권한: 오너(생성자)만 프로젝트 상태를 변경할 수 있습니다. (수정 권한과 달리 PM은 불가)
+    public static boolean canChangeStatus(ProjectMemberEntity callerMembership) {
+        return callerMembership.isOwner();
+    }
+
 }

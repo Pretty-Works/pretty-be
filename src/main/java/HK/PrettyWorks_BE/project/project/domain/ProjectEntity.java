@@ -63,4 +63,9 @@ public class ProjectEntity extends BaseTimeEntity {
         this.description = description;
     }
 
+    // 상태 변경 API: 프로젝트 진행 상태만 변경합니다.
+    public void changeStatus(ProjectStatus status) {
+        this.status = status;
+    }
+
 }

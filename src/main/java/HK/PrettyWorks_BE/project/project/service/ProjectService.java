@@ -12,6 +12,7 @@ import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest.MemberRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest.MilestoneRequest;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectResponse;
+import HK.PrettyWorks_BE.project.project.dto.res.ProjectStatusResponse;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.MilestoneRepository;
@@ -162,6 +163,35 @@ public class ProjectService {
 
         return ProjectResponse.builder()
                 .projectId(project.getId())
+                .build();
+    }
+
+    @Transactional
+    public ProjectStatusResponse changeStatus(Long userId, Long projectId, String statusStr) {
+        // 1) 대상 프로젝트 조회 (PROJECT_004)
+        ProjectEntity project = projectRepository.findById(projectId)
+                .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
+
+        // 2) 상태 변경 권한 (PROJECT_017): 호출자의 참여중(ACTIVE) 멤버십이 오너여야 함
+        ProjectMemberEntity caller = projectMemberRepository
+                .findByProjectIdAndUserIdAndStatus(projectId, userId, ProjectMemberStatus.ACTIVE)
+                .orElseThrow(() -> BaseException.type(ProjectErrorCode.NO_STATUS_CHANGE_PERMISSION));
+        if (!ProjectPolicy.canChangeStatus(caller)) {
+            throw BaseException.type(ProjectErrorCode.NO_STATUS_CHANGE_PERMISSION);
+        }
+
+        // 3) 상태 값 파싱 (PROJECT_018)
+        ProjectStatus target = parseStatus(statusStr);
+
+        // 4) 전이 규칙 검증 (PROJECT_019): 종료 상태(COMPLETED/ARCHIVED)의 되돌림 차단
+        validateTransition(project.getStatus(), target);
+
+        // 5) 상태 변경 (영속 엔티티 → dirty checking으로 UPDATE)
+        project.changeStatus(target);
+
+        return ProjectStatusResponse.builder()
+                .projectId(project.getId())
+                .status(target)
                 .build();
     }
 
@@ -318,5 +348,24 @@ public class ProjectService {
             }
         }
         return true;
+    }
+
+    // 상태 문자열을 ProjectStatus로 변환한다. 정의된 값이 아니면 PROJECT_018.
+    private ProjectStatus parseStatus(String statusStr) {
+        try {
+            return ProjectStatus.valueOf(statusStr);
+        } catch (IllegalArgumentException e) {
+            throw BaseException.type(ProjectErrorCode.INVALID_STATUS);
+        }
+    }
+
+    // 종료 상태 전이 규칙: ARCHIVED는 완전 종료, COMPLETED는 ARCHIVED로만 전이 가능(PROJECT_019).
+    private void validateTransition(ProjectStatus current, ProjectStatus target) {
+        if (current == ProjectStatus.ARCHIVED) {
+            throw BaseException.type(ProjectErrorCode.STATUS_NOT_REVERTIBLE);
+        }
+        if (current == ProjectStatus.COMPLETED && target != ProjectStatus.ARCHIVED) {
+            throw BaseException.type(ProjectErrorCode.STATUS_NOT_REVERTIBLE);
+        }
     }
 }
