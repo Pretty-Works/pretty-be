@@ -1,13 +1,16 @@
 package HK.PrettyWorks_BE.project.project.controller;
 
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
+import HK.PrettyWorks_BE.project.project.dto.req.ProjectStatusRequest;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectResponse;
+import HK.PrettyWorks_BE.project.project.dto.res.ProjectStatusResponse;
 import HK.PrettyWorks_BE.project.project.service.ProjectService;
 import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -34,13 +37,25 @@ public class ProjectController {
 
     // 대상 프로젝트의 기본 정보·참여자·마일스톤을 수정합니다.
     @Operation(summary = "프로젝트 수정", description = "대상 프로젝트의 오너 또는 프로젝트 내 역할이 PM인 사용자만 수정 가능")
-    @PutMapping("/api/v1/projects/{projectId}")
-    public ResponseEntity<ProjectResponse> update(
+      public ResponseEntity<ProjectResponse> update(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long projectId,
             @Valid @RequestBody ProjectRequest request
     ) {
         ProjectResponse response = projectService.update(userId, projectId, request);
+
+        return ResponseEntity.ok(response);
+    }
+
+    // 프로젝트의 진행 상태만 변경합니다. (오너 전용)
+    @Operation(summary = "프로젝트 상태 변경", description = "대상 프로젝트의 오너만 상태 변경 가능")
+    @PatchMapping("/api/v1/projects/{projectId}/status")
+    public ResponseEntity<ProjectStatusResponse> changeStatus(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long projectId,
+            @Valid @RequestBody ProjectStatusRequest request
+    ) {
+        ProjectStatusResponse response = projectService.changeStatus(userId, projectId, request.status());
 
         return ResponseEntity.ok(response);
     }
