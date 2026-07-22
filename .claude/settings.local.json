@@ -16,7 +16,8 @@
       "PowerShell(docker compose ps --format 'table {{.Service}}\\\\t{{.Status}}\\\\t{{.Ports}}' 2>&1)",
       "Bash(./gradlew compileJava -q)",
       "PowerShell(Write-Output \"JAVA_HOME=$env:JAVA_HOME\"; try { $j = \\(Get-Command java -ErrorAction Stop\\).Source; Write-Output \"java=$j\" } catch { Write-Output \"java not on PATH\" }; Get-ChildItem \"C:\\\\Program Files\\\\Java\",\"C:\\\\Program Files\\\\Eclipse Adoptium\",\"$env:LOCALAPPDATA\\\\Programs\" -ErrorAction SilentlyContinue | Select-Object FullName)",
-      "PowerShell($roots = @\\(\"C:\\\\Program Files\",\"C:\\\\Program Files \\(x86\\)\",\"$env:USERPROFILE\\\\.jdks\",\"$env:USERPROFILE\\\\.gradle\",\"$env:LOCALAPPDATA\\\\JetBrains\",\"$env:APPDATA\\\\JetBrains\",\"$env:LOCALAPPDATA\\\\Programs\"\\); foreach \\($r in $roots\\) { if \\(Test-Path $r\\) { Get-ChildItem -Path $r -Recurse -Filter \"java.exe\" -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 10 -ExpandProperty FullName } })"
+      "PowerShell($roots = @\\(\"C:\\\\Program Files\",\"C:\\\\Program Files \\(x86\\)\",\"$env:USERPROFILE\\\\.jdks\",\"$env:USERPROFILE\\\\.gradle\",\"$env:LOCALAPPDATA\\\\JetBrains\",\"$env:APPDATA\\\\JetBrains\",\"$env:LOCALAPPDATA\\\\Programs\"\\); foreach \\($r in $roots\\) { if \\(Test-Path $r\\) { Get-ChildItem -Path $r -Recurse -Filter \"java.exe\" -ErrorAction SilentlyContinue -Depth 5 | Select-Object -First 10 -ExpandProperty FullName } })",
+      "Bash(git fetch *)"
     ]
   }
 }
