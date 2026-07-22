@@ -343,7 +343,7 @@ CREATE TABLE IF NOT EXISTS schedule_leaves (
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '휴가 상세';
 
 -- =============================================================================
--- schedule_participants : 일정 참가자 (작성자 포함, role 로 구분)
+-- schedule_participants : 일정 참가자 (작성자 포함, is_writer 로 구분)
 --   - UNIQUE(user_id, schedule_id) : 중복 참가 방지 + "내 일정" 조회 인덱스 겸용
 --   - 일정 삭제 시 참가자 행 정리 → schedule FK 는 ON DELETE CASCADE
 --   - user FK 는 CASCADE 금지 (기록 보관) — users 는 soft delete 라 어차피 안 지워짐
@@ -352,7 +352,7 @@ CREATE TABLE IF NOT EXISTS schedule_participants (
     id          BIGINT      NOT NULL AUTO_INCREMENT,
     schedule_id BIGINT      NOT NULL           COMMENT '일정 FK',
     user_id     BIGINT      NOT NULL           COMMENT '참가자 (users FK)',
-    role        VARCHAR(20) NOT NULL           COMMENT '역할 (WRITER 작성자 / PARTICIPANT 참가자)',
+    is_writer   BOOLEAN     NOT NULL           COMMENT '작성자 여부 (1: WRITER 작성자 / 0: PARTICIPANT 참가자)',
     created_at  DATETIME(6) NULL               COMMENT '생성 시각',
     modified_at DATETIME(6) NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
