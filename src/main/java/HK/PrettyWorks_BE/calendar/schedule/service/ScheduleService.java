@@ -6,6 +6,10 @@ import HK.PrettyWorks_BE.calendar.schedule.domain.ScheduleParticipantEntity;
 import HK.PrettyWorks_BE.calendar.schedule.dto.req.ScheduleCreateRequest;
 import HK.PrettyWorks_BE.calendar.schedule.dto.req.ScheduleUpdateRequest;
 import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleCreateResponse;
+import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleListResponse;
+import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleListResponse.Owner;
+import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleListResponse.Participant;
+import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleListResponse.ScheduleItem;
 import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleUpdateResponse;
 import HK.PrettyWorks_BE.calendar.schedule.exception.ScheduleErrorCode;
 import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleParticipantRepository;
@@ -20,11 +24,14 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Set;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -202,5 +209,86 @@ public class ScheduleService {
         return ScheduleUpdateResponse.builder()
                 .scheduleId(schedule.getId())
                 .build();
+    }
+
+    @Transactional(readOnly = true)
+    public ScheduleListResponse list(Long userId, LocalDate from, LocalDate to, List<Long> userIds) {
+        // 1) 기간 검증(SCHEDULE_004): 조회 시작일이 종료일보다 늦으면 차단
+        if (from.isAfter(to)) {
+            throw BaseException.type(ScheduleErrorCode.INVALID_SEARCH_PERIOD);
+        }
+
+        // 2) 대상 사용자 = 본인 ∪ userIds. 본인은 항상 포함, null·중복 제거.
+        //    존재하지 않는 id는 참가자 테이블에 없어 자연히 무시된다(명세: 존재하지 않는 userIds 무시).
+        Set<Long> targetUserIds = new LinkedHashSet<>();
+        targetUserIds.add(userId);
+        if (userIds != null) {
+            for (Long id : userIds) {
+                if (id != null) {
+                    targetUserIds.add(id);
+                }
+            }
+        }
+
+        // 3) 날짜를 일시 범위로 변환: from 00:00:00 ~ to 23:59:59
+        LocalDateTime fromStart = from.atStartOfDay();
+        LocalDateTime toEnd = to.atTime(23, 59, 59);
+
+        // 4) [쿼리1] 기간과 겹치고 + 대상 사용자가 참가자인 일정 (startAt ASC)
+        List<ScheduleEntity> schedules =
+                scheduleRepository.findOverlappingByParticipants(fromStart, toEnd, new ArrayList<>(targetUserIds));
+        if (schedules.isEmpty()) {
+            return ScheduleListResponse.builder().schedules(List.of()).build();
+        }
+
+        // 5) [쿼리2] 결과 일정들의 참가자 전부 (IN 절 한 번)
+        List<Long> scheduleIds = schedules.stream().map(ScheduleEntity::getId).toList();
+        List<ScheduleParticipantEntity> participants = scheduleParticipantRepository.findByScheduleIdIn(scheduleIds);
+
+        // 6) [쿼리3] 참가자들의 이름 (userId → name 맵)
+        Set<Long> participantUserIds = participants.stream()
+                .map(ScheduleParticipantEntity::getUserId)
+                .collect(Collectors.toSet());
+        Map<Long, String> nameById = userRepository.findAllById(participantUserIds).stream()
+                .collect(Collectors.toMap(UserEntity::getId, UserEntity::getName));
+
+        // 7) 일정별 참가자 그룹핑 (scheduleId → 참가자 목록)
+        Map<Long, List<ScheduleParticipantEntity>> participantsByScheduleId = participants.stream()
+                .collect(Collectors.groupingBy(ScheduleParticipantEntity::getScheduleId));
+
+        // 8) 조립 — 일정마다 owner(WRITER)와 참가자 목록(이름 포함)을 만든다.
+        List<ScheduleItem> items = new ArrayList<>();
+        for (ScheduleEntity schedule : schedules) {
+            List<ScheduleParticipantEntity> scheduleParticipants =
+                    participantsByScheduleId.getOrDefault(schedule.getId(), List.of());
+
+            Owner owner = null;
+            List<Participant> participantDtos = new ArrayList<>();
+            for (ScheduleParticipantEntity p : scheduleParticipants) {
+                String name = nameById.get(p.getUserId());
+                participantDtos.add(Participant.builder()
+                        .userId(p.getUserId())
+                        .name(name)
+                        .role(p.getRole().name())
+                        .build());
+                if (p.getRole() == ParticipantRole.WRITER) {
+                    owner = Owner.builder().userId(p.getUserId()).name(name).build();
+                }
+            }
+
+            items.add(ScheduleItem.builder()
+                    .id(schedule.getId())
+                    .title(schedule.getTitle())
+                    .startAt(schedule.getStartAt())
+                    .endAt(schedule.getEndAt())
+                    .allDay(schedule.isAllDay())
+                    // A안: 휴가 도메인 전까지 항상 false. TODO(휴가): schedule_leaves 조인으로 isLeave·leaveType 계산.
+                    .isLeave(false)
+                    .owner(owner)
+                    .participants(participantDtos)
+                    .build());
+        }
+
+        return ScheduleListResponse.builder().schedules(items).build();
     }
 }
