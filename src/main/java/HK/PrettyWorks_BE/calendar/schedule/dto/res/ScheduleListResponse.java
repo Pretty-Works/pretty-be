@@ -18,6 +18,7 @@ public record ScheduleListResponse(
             LocalDateTime startAt,
             LocalDateTime endAt,
             boolean allDay,
+            String type,
             boolean isLeave,
             // 휴가일 때만 값이 있고, 일반 일정이면 null이라 응답에서 생략된다. (휴가 도메인 구현 시 채워짐)
             @JsonInclude(JsonInclude.Include.NON_NULL)
