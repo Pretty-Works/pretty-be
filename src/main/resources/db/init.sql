@@ -1,8 +1,10 @@
 -- PrettyWorks MVP — 초기 DDL 스크립트
 -- 새 MySQL 데이터베이스(prettyworks_test)에서 한 번 실행하면 모든 테이블이 만들어집니다.
 -- ddl-auto: validate 정책이므로 엔티티가 바뀌면 이 파일도 같이 갱신해야 합니다.
--- Local 실행: mysql -uroot -p prettyworks_test < src/main/resources/db/init.sql
--- Docker 실행 : Get-Content src\main\resources\db\init.sql | docker compose exec -T mysql mysql -uroot -p1234 prettyworks_test
+-- 로드(한글 안전, 자세한 절차는 같은 폴더 README.md):
+--   docker cp src\main\resources\db\init.sql <컨테이너>:/tmp/init.sql
+--   docker exec -i <컨테이너> sh -c "mysql -uroot -p1234 --default-character-set=utf8mb4 prettyworks_test < /tmp/init.sql"
+-- ※ Get-Content ... | docker ... (PowerShell 파이프)와 docker compose cp 는 한글 깨짐/파일 누락으로 금지.
 
 
 -- =============================================================================
@@ -121,7 +123,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     project_id  BIGINT       NULL                   COMMENT '프로젝트 FK (개인 할 일이면 NULL)',
     assignee_id BIGINT       NOT NULL               COMMENT '담당자 (users FK, 현재는 작성자 본인)',
     content     VARCHAR(100) NOT NULL               COMMENT '할 일 내용 (한 줄)',
-    done        BOOLEAN      NOT NULL DEFAULT FALSE  COMMENT '완료 여부',
+    completed_at DATETIME(6) NULL                   COMMENT '완료 시각 (null이면 미완료)',
     due_date    DATE         NOT NULL               COMMENT '마감일',
     created_at  DATETIME(6)  NULL                   COMMENT '생성 시각',
     modified_at DATETIME(6)  NULL                   COMMENT '수정 시각',
