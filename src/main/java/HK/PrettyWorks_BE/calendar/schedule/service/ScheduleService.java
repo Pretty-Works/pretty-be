@@ -1,6 +1,7 @@
 package HK.PrettyWorks_BE.calendar.schedule.service;
 
 import HK.PrettyWorks_BE.calendar.schedule.constant.ParticipantRole;
+import HK.PrettyWorks_BE.calendar.schedule.constant.ScheduleType;
 import HK.PrettyWorks_BE.calendar.schedule.domain.ScheduleEntity;
 import HK.PrettyWorks_BE.calendar.schedule.domain.ScheduleParticipantEntity;
 import HK.PrettyWorks_BE.calendar.schedule.dto.req.ScheduleCreateRequest;
@@ -93,6 +94,7 @@ public class ScheduleService {
                 .startAt(startAt)
                 .endAt(endAt)
                 .allDay(allDay)
+                .type(request.type())
                 .build();
         scheduleRepository.save(schedule);
 
@@ -149,6 +151,7 @@ public class ScheduleService {
         // 4) 최종값 병합 — 전달된(non-null) 필드만 반영하고 나머지는 기존값을 유지한다.
         String title = request.title() != null ? request.title() : schedule.getTitle();
         boolean allDay = request.allDay() != null ? request.allDay() : schedule.isAllDay();
+        ScheduleType type = request.type() != null ? request.type() : schedule.getType();
         LocalDateTime startAt = request.startAt() != null ? request.startAt() : schedule.getStartAt();
         LocalDateTime endAt = request.endAt() != null ? request.endAt() : schedule.getEndAt();
 
@@ -163,7 +166,7 @@ public class ScheduleService {
         }
 
         // 5) 일정 필드 갱신 — 더티 체킹으로 커밋 시 UPDATE (save 불필요)
-        schedule.update(title, startAt, endAt, allDay);
+        schedule.update(title, startAt, endAt, allDay, type);
 
         // 6) 참가자 교체 — participantUserIds가 '전달된 경우에만'. null이면 기존 참가자 그대로 유지.
         if (request.participantUserIds() != null) {
@@ -282,6 +285,7 @@ public class ScheduleService {
                     .startAt(schedule.getStartAt())
                     .endAt(schedule.getEndAt())
                     .allDay(schedule.isAllDay())
+                    .type(schedule.getType().name())
                     // A안: 휴가 도메인 전까지 항상 false. TODO(휴가): schedule_leaves 조인으로 isLeave·leaveType 계산.
                     .isLeave(false)
                     .owner(owner)
