@@ -167,9 +167,10 @@ CREATE TABLE IF NOT EXISTS meetings (
     purpose       VARCHAR(500) NULL              COMMENT '회의 목적',
     content       TEXT         NULL              COMMENT '주요 내용',
     follow_up     TEXT         NULL              COMMENT '후속 조치',
-    recording_url VARCHAR(500) NULL              COMMENT '녹취 파일 URL (GCS)',
+    recording VARCHAR(500) NULL              COMMENT '녹취 파일 URL (GCS)',
     created_at    DATETIME(6)  NULL              COMMENT '생성 시각',
     modified_at   DATETIME(6)  NULL              COMMENT '수정 시각',
+    deleted_at    DATETIME(6)  NULL              COMMENT '삭제 시각',
     PRIMARY KEY (id),
     UNIQUE KEY uk_meetings_document_no (document_no),
     CONSTRAINT fk_meetings_project FOREIGN KEY (project_id) REFERENCES projects (id),
@@ -196,6 +197,114 @@ CREATE TABLE IF NOT EXISTS meeting_attendees (
     CONSTRAINT fk_meeting_attendees_meeting FOREIGN KEY (meeting_id) REFERENCES meetings (id),
     CONSTRAINT fk_meeting_attendees_user    FOREIGN KEY (user_id)    REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '회의록 참석자';
+
+
+/* 결재라인 수정 예정!!
+-- =============================================================================
+-- approvals : 결재 문서 (척추)
+--   - status(PENDING/APPROVED/REJECTED)는 라인의 롤업 캐시, 정본은 approval_lines
+--   - version : 낙관적 락 (@Version)
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS approvals (
+    id                 BIGINT       NOT NULL AUTO_INCREMENT,
+    document_no        VARCHAR(30)  NOT NULL          COMMENT '문서번호',
+    title              VARCHAR(200) NOT NULL          COMMENT '제목',
+    doc_type           VARCHAR(20)  NOT NULL          COMMENT '문서종류 (DRAFT 품의 / LEAVE 휴가 / ...)',
+    drafted_at         DATE         NOT NULL          COMMENT '기안일',
+    status             VARCHAR(20)  NOT NULL          COMMENT '상태 (PENDING / APPROVED / REJECTED)',
+    drafter_id         BIGINT       NOT NULL          COMMENT '상신자 (users FK)',
+    drafter_name       VARCHAR(20)  NOT NULL          COMMENT '상신자 이름 (기안 시점 스냅샷)',
+    drafter_department VARCHAR(30)  NOT NULL          COMMENT '상신자 부서 (스냅샷)',
+    drafter_position   VARCHAR(30)  NOT NULL          COMMENT '상신자 직책 (스냅샷)',
+    version            BIGINT       NOT NULL DEFAULT 0 COMMENT '낙관적 락 버전',
+    created_at         DATETIME(6)  NULL              COMMENT '생성 시각',
+    modified_at        DATETIME(6)  NULL              COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_approvals_document_no (document_no),
+    CONSTRAINT fk_approvals_drafter FOREIGN KEY (drafter_id) REFERENCES users (id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '결재 문서';
+
+
+-- =============================================================================
+-- approval_details : 결재 기본 상세 (품의 등) — approval 과 1:1
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS approval_details (
+    id          BIGINT NOT NULL AUTO_INCREMENT,
+    approval_id BIGINT NOT NULL              COMMENT '결재 FK (1:1)',
+    project_id  BIGINT NULL                  COMMENT '프로젝트 FK (없을 수 있음)',
+    content     TEXT   NULL                  COMMENT '내용',
+    created_at  DATETIME(6) NULL             COMMENT '생성 시각',
+    modified_at DATETIME(6) NULL             COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_approval_details_approval (approval_id),
+    CONSTRAINT fk_approval_details_approval FOREIGN KEY (approval_id) REFERENCES approvals (id),
+    CONSTRAINT fk_approval_details_project  FOREIGN KEY (project_id)  REFERENCES projects (id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '결재 기본 상세';
+
+
+-- =============================================================================
+-- approval_leaves : 결재 휴가 상세 — approval 과 1:1
+--   - days : 잔여 연차 계산용 (승인된 것만 합산)
+--   - 생일 휴가(생일 ±7일) 제약은 앱 레벨 검증
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS approval_leaves (
+    id          BIGINT      NOT NULL AUTO_INCREMENT,
+    approval_id BIGINT      NOT NULL          COMMENT '결재 FK (1:1)',
+    start_date  DATE        NOT NULL          COMMENT '시작일',
+    end_date    DATE        NOT NULL          COMMENT '마감일',
+    reason      VARCHAR(255) NULL             COMMENT '사유',
+    leave_type  VARCHAR(20) NOT NULL          COMMENT '휴가종류 (ANNUAL 연차 / BIRTHDAY 생일 / ...)',
+    days        INT         NOT NULL          COMMENT '일수 (잔여 계산용)',
+    created_at  DATETIME(6) NULL              COMMENT '생성 시각',
+    modified_at DATETIME(6) NULL              COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_approval_leaves_approval (approval_id),
+    CONSTRAINT fk_approval_leaves_approval FOREIGN KEY (approval_id) REFERENCES approvals (id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '결재 휴가 상세';
+
+
+-- =============================================================================
+-- approval_lines : 결재선 (결재자만, 상신자 제외)
+--   - UNIQUE(approval_id, step)    : 순서 중복 방지
+--   - UNIQUE(approval_id, user_id) : 같은 사람 중복 방지
+--   - 현재 차례 = 미승인(status<>APPROVED) 중 step 최소인 사람
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS approval_lines (
+    id                  BIGINT      NOT NULL AUTO_INCREMENT,
+    approval_id         BIGINT      NOT NULL          COMMENT '결재 FK',
+    user_id             BIGINT      NOT NULL          COMMENT '결재자 (users FK)',
+    step                INT         NOT NULL          COMMENT '결재순서',
+    status              VARCHAR(20) NOT NULL          COMMENT '승인상태 (PENDING / APPROVED / REJECTED)',
+    approver_name       VARCHAR(20) NOT NULL          COMMENT '결재자 이름 (스냅샷)',
+    approver_department VARCHAR(30) NOT NULL          COMMENT '결재자 부서 (스냅샷)',
+    approver_position   VARCHAR(30) NOT NULL          COMMENT '결재자 직책 (스냅샷)',
+    reject_reason       VARCHAR(255) NULL             COMMENT '반려 사유 (반려 시)',
+    processed_at        DATETIME(6) NULL              COMMENT '처리일시 (미처리면 NULL)',
+    created_at          DATETIME(6) NULL              COMMENT '생성 시각',
+    modified_at         DATETIME(6) NULL              COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_approval_lines_step (approval_id, step),
+    UNIQUE KEY uk_approval_lines_user (approval_id, user_id),
+    CONSTRAINT fk_approval_lines_approval FOREIGN KEY (approval_id) REFERENCES approvals (id),
+    CONSTRAINT fk_approval_lines_user     FOREIGN KEY (user_id)     REFERENCES users (id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '결재선';
+
+
+-- =============================================================================
+-- approval_references : 결재 참조자
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS approval_references (
+    id          BIGINT      NOT NULL AUTO_INCREMENT,
+    approval_id BIGINT      NOT NULL          COMMENT '결재 FK',
+    user_id     BIGINT      NOT NULL          COMMENT '참조자 (users FK)',
+    created_at  DATETIME(6) NULL              COMMENT '생성 시각',
+    modified_at DATETIME(6) NULL              COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_approval_references_user (approval_id, user_id),
+    CONSTRAINT fk_approval_references_approval FOREIGN KEY (approval_id) REFERENCES approvals (id),
+    CONSTRAINT fk_approval_references_user     FOREIGN KEY (user_id)     REFERENCES users (id)
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '결재 참조';
+ */
 
 
 -- =============================================================================
