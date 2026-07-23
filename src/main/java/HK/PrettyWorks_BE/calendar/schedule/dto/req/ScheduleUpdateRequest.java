@@ -1,5 +1,6 @@
 package HK.PrettyWorks_BE.calendar.schedule.dto.req;
 
+import HK.PrettyWorks_BE.calendar.schedule.constant.ScheduleType;
 import jakarta.validation.constraints.Pattern;
 import jakarta.validation.constraints.Size;
 import lombok.Builder;
@@ -19,6 +20,9 @@ public record ScheduleUpdateRequest(
         LocalDateTime endAt,
 
         Boolean allDay,
+
+        // 유형(선택). 미전달(null)이면 기존 유지.
+        ScheduleType type,
 
         // null = 참가자 그대로 유지 / 빈 배열 = 작성자 혼자로 축소 / 값 있음 = 그 목록으로 교체.
         List<Long> participantUserIds

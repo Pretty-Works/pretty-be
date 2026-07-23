@@ -211,6 +211,7 @@ CREATE TABLE IF NOT EXISTS schedules (
     start_at    DATETIME(6)  NOT NULL           COMMENT '시작일시',
     end_at      DATETIME(6)  NOT NULL           COMMENT '종료일시',
     all_day     BOOLEAN      NOT NULL DEFAULT FALSE COMMENT '종일 여부',
+    type        VARCHAR(20)  NOT NULL DEFAULT 'PERSONAL' COMMENT '유형 (MEETING 회의 / FIELDWORK 외근 / PERSONAL 개인)',
     created_at  DATETIME(6)  NULL               COMMENT '생성 시각',
     modified_at DATETIME(6)  NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
