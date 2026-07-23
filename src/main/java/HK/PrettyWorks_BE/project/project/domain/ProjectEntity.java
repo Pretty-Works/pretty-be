@@ -53,4 +53,19 @@ public class ProjectEntity extends BaseTimeEntity {
         this.description = description;
     }
 
+    // 수정 API: 프로젝트 기본 정보를 갱신합니다. (상태·id는 이 API로 바꾸지 않음)
+    public void update(String name, LocalDate startDate, LocalDate targetDate,
+                       BigDecimal targetBudget, String description) {
+        this.name = name;
+        this.startDate = startDate;
+        this.targetDate = targetDate;
+        this.targetBudget = targetBudget;
+        this.description = description;
+    }
+
+    // 상태 변경 API: 프로젝트 진행 상태만 변경합니다.
+    public void changeStatus(ProjectStatus status) {
+        this.status = status;
+    }
+
 }

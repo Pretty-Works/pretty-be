@@ -57,7 +57,7 @@ CREATE TABLE IF NOT EXISTS refresh_tokens (
 CREATE TABLE IF NOT EXISTS projects (
     id            BIGINT        NOT NULL AUTO_INCREMENT,
     name          VARCHAR(100)  NOT NULL          COMMENT '프로젝트명',
-    status        VARCHAR(20)   NOT NULL          COMMENT '상태 (ONGOING / HOLDING / DROPPED / DONE / ARCHIVED)',
+    status        VARCHAR(20)   NOT NULL          COMMENT '상태 (ONGOING / HOLDING / DROPPED / COMPLETED / ARCHIVED)',
     start_date    DATE          NOT NULL          COMMENT '시작일',
     target_date   DATE          NOT NULL          COMMENT '목표일',
     target_budget DECIMAL(15,2) NOT NULL          COMMENT '목표 예산 (0 = 제한 없음)',
@@ -85,6 +85,7 @@ CREATE TABLE IF NOT EXISTS project_members (
     modified_at DATETIME(6) NULL                  COMMENT '수정 시각',
     PRIMARY KEY (id),
     UNIQUE KEY uk_project_members_user_project (user_id, project_id),
+    KEY idx_project_members_project_status (project_id, status),
     CONSTRAINT fk_project_members_project FOREIGN KEY (project_id) REFERENCES projects (id),
     CONSTRAINT fk_project_members_user    FOREIGN KEY (user_id)    REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 멤버';
@@ -109,25 +110,27 @@ CREATE TABLE IF NOT EXISTS milestones (
 
 
 -- =============================================================================
--- todos : 할일 (프로젝트별 · 담당자별)
---   - 제목만 저장(짧은 VARCHAR), 본문 없음
+-- tasks : 할 일 (프로젝트별 · 개인 할 일 포함)
+--   - content 한 줄만 저장(본문 없음)
+--   - project_id NULL 이면 개인 할 일 (어느 프로젝트에도 안 묶임)
+--   - 담당자는 현재 작성자 본인. 추후 타인 배정 확장 시 author_id 분리
 --   - 홈: 담당자별 프로젝트 그룹 + 마감일 정렬 / 상세: 프로젝트별
 -- =============================================================================
-CREATE TABLE IF NOT EXISTS todos (
+CREATE TABLE IF NOT EXISTS tasks (
     id          BIGINT       NOT NULL AUTO_INCREMENT,
-    project_id  BIGINT       NOT NULL             COMMENT '프로젝트 FK',
-    assignee_id BIGINT       NOT NULL             COMMENT '담당자 (users FK)',
-    title       VARCHAR(100) NOT NULL             COMMENT '할일 제목',
-    status      VARCHAR(20)  NOT NULL             COMMENT '상태 (IN_PROGRESS / DONE)',
-    due_date    DATE         NULL                 COMMENT '마감일',
-    created_at  DATETIME(6)  NULL                 COMMENT '생성 시각',
-    modified_at DATETIME(6)  NULL                 COMMENT '수정 시각',
+    project_id  BIGINT       NULL                   COMMENT '프로젝트 FK (개인 할 일이면 NULL)',
+    assignee_id BIGINT       NOT NULL               COMMENT '담당자 (users FK, 현재는 작성자 본인)',
+    content     VARCHAR(100) NOT NULL               COMMENT '할 일 내용 (한 줄)',
+    done        BOOLEAN      NOT NULL DEFAULT FALSE  COMMENT '완료 여부',
+    due_date    DATE         NOT NULL               COMMENT '마감일',
+    created_at  DATETIME(6)  NULL                   COMMENT '생성 시각',
+    modified_at DATETIME(6)  NULL                   COMMENT '수정 시각',
     PRIMARY KEY (id),
-    KEY idx_todos_assignee_project (assignee_id, project_id, due_date),
-    KEY idx_todos_project_due (project_id, due_date),
-    CONSTRAINT fk_todos_project  FOREIGN KEY (project_id)  REFERENCES projects (id),
-    CONSTRAINT fk_todos_assignee FOREIGN KEY (assignee_id) REFERENCES users (id)
-    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '할일';
+    KEY idx_tasks_assignee_project_due (assignee_id, project_id, due_date),
+    KEY idx_tasks_project_due (project_id, due_date),
+    CONSTRAINT fk_tasks_project  FOREIGN KEY (project_id)  REFERENCES projects (id),
+    CONSTRAINT fk_tasks_assignee FOREIGN KEY (assignee_id) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '할 일';
 
 
 -- =============================================================================
@@ -317,11 +320,13 @@ CREATE TABLE IF NOT EXISTS schedules (
     start_at    DATETIME(6)  NOT NULL           COMMENT '시작일시',
     end_at      DATETIME(6)  NOT NULL           COMMENT '종료일시',
     all_day     BOOLEAN      NOT NULL DEFAULT FALSE COMMENT '종일 여부',
+    type        VARCHAR(20)  NOT NULL DEFAULT 'PERSONAL' COMMENT '유형 (MEETING 회의 / FIELDWORK 외근 / PERSONAL 개인)',
     created_at  DATETIME(6)  NULL               COMMENT '생성 시각',
     modified_at DATETIME(6)  NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
     CONSTRAINT fk_schedules_user FOREIGN KEY (user_id) REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '일정';
+
 
 -- =============================================================================
 -- schedule_leaves : 휴가 상세 (schedules 와 1:1 확장)
@@ -330,9 +335,9 @@ CREATE TABLE IF NOT EXISTS schedules (
 --   - surrogate id + UNIQUE(schedule_id) 로 1:1 (approval_details/approval_leaves 와 동일 패턴)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS schedule_leaves (
-                                               id          BIGINT       NOT NULL AUTO_INCREMENT,
-                                               schedule_id BIGINT       NOT NULL          COMMENT '일정 FK (1:1)',
-                                               leave_type  VARCHAR(20)  NOT NULL          COMMENT '휴가 유형 (ANNUAL 연차 / SICK 병가)',
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    schedule_id BIGINT       NOT NULL          COMMENT '일정 FK (1:1)',
+    leave_type  VARCHAR(20)  NOT NULL          COMMENT '휴가 유형 (ANNUAL 연차 / SICK 병가)',
     reason      VARCHAR(255) NULL              COMMENT '사유',
     days        INT          NOT NULL          COMMENT '일수 (연차 사용/잔여 계산용)',
     created_at  DATETIME(6)  NULL              COMMENT '생성 시각',
@@ -342,8 +347,9 @@ CREATE TABLE IF NOT EXISTS schedule_leaves (
     CONSTRAINT fk_schedule_leaves_schedule FOREIGN KEY (schedule_id) REFERENCES schedules (id) ON DELETE CASCADE
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '휴가 상세';
 
+
 -- =============================================================================
--- schedule_participants : 일정 참가자 (작성자 포함, role 로 구분)
+-- schedule_participants : 일정 참가자 (작성자 포함, is_writer 로 구분)
 --   - UNIQUE(user_id, schedule_id) : 중복 참가 방지 + "내 일정" 조회 인덱스 겸용
 --   - 일정 삭제 시 참가자 행 정리 → schedule FK 는 ON DELETE CASCADE
 --   - user FK 는 CASCADE 금지 (기록 보관) — users 는 soft delete 라 어차피 안 지워짐
@@ -352,7 +358,7 @@ CREATE TABLE IF NOT EXISTS schedule_participants (
     id          BIGINT      NOT NULL AUTO_INCREMENT,
     schedule_id BIGINT      NOT NULL           COMMENT '일정 FK',
     user_id     BIGINT      NOT NULL           COMMENT '참가자 (users FK)',
-    role        VARCHAR(20) NOT NULL           COMMENT '역할 (WRITER 작성자 / PARTICIPANT 참가자)',
+    is_writer   BOOLEAN     NOT NULL           COMMENT '작성자 여부 (1: WRITER 작성자 / 0: PARTICIPANT 참가자)',
     created_at  DATETIME(6) NULL               COMMENT '생성 시각',
     modified_at DATETIME(6) NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
