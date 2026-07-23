@@ -8,6 +8,7 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "tasks")
@@ -31,8 +32,9 @@ public class TaskEntity extends BaseTimeEntity {
     @Column(name = "content", nullable = false, length = 100)
     private String content;
 
-    @Column(name = "done", nullable = false)
-    private boolean done;
+    // 완료 시각. null이면 미완료, 값이 있으면 완료. (완료 여부는 이 값의 null 여부로 파생)
+    @Column(name = "completed_at")
+    private LocalDateTime completedAt;
 
     // 마감일(필수). D-day는 저장하지 않고 조회 시 dueDate - today 로 파생 계산.
     @Column(name = "due_date", nullable = false)
@@ -44,14 +46,25 @@ public class TaskEntity extends BaseTimeEntity {
         this.assigneeId = assigneeId;
         this.content = content;
         this.dueDate = dueDate;
-        this.done = false;   // 생성 시 항상 미완료
+        // 생성 시 completedAt은 null(미완료) — 별도 세팅 불필요
     }
 
-    // 수정 API: 내용·소속(projectId)·마감일을 갱신합니다. (done·assignee는 이 API로 바꾸지 않음)
+    // 수정 API: 내용·소속(projectId)·마감일을 갱신합니다. (완료 상태·assignee는 이 API로 바꾸지 않음)
     public void update(String content, Long projectId, LocalDate dueDate) {
         this.content = content;
         this.projectId = projectId;
         this.dueDate = dueDate;
+    }
+
+    // 완료 토글: done=true면 미완료였을 때만 완료 시각 기록(멱등), done=false면 완료 취소.
+    public void toggleDone(boolean done, LocalDateTime now) {
+        if (done) {
+            if (this.completedAt == null) {
+                this.completedAt = now;
+            }
+        } else {
+            this.completedAt = null;
+        }
     }
 
 }
