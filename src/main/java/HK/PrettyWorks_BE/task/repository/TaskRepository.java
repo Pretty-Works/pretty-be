@@ -37,4 +37,12 @@ public interface TaskRepository extends JpaRepository<TaskEntity, Long> {
     List<TaskProjectRow> findTaskProjectRows(@Param("projectId") Long projectId,
                                              @Param("weekStart") LocalDate weekStart,
                                              @Param("weekEnd") LocalDate weekEnd);
+
+    // 프로젝트 기간 축소 검증: 새 기간을 벗어나는 마감일이 남는지 확인한다.
+    @Query("select count(t) > 0 from TaskEntity t " +
+            "where t.projectId = :projectId " +
+            "and (t.dueDate < :startDate or t.dueDate > :endDate)")
+    boolean existsOutsidePeriod(@Param("projectId") Long projectId,
+                                @Param("startDate") LocalDate startDate,
+                                @Param("endDate") LocalDate endDate);
 }
