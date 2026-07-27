@@ -1,6 +1,5 @@
 package HK.PrettyWorks_BE.calendar.schedule.service;
 
-import HK.PrettyWorks_BE.calendar.leave.constant.LeaveType;
 import HK.PrettyWorks_BE.calendar.leave.domain.ScheduleLeaveEntity;
 import HK.PrettyWorks_BE.calendar.leave.repository.ScheduleLeaveRepository;
 import HK.PrettyWorks_BE.calendar.schedule.constant.ParticipantRole;
@@ -276,9 +275,10 @@ public class ScheduleService {
         List<Long> scheduleIds = schedules.stream().map(ScheduleEntity::getId).toList();
         List<ScheduleParticipantEntity> participants = scheduleParticipantRepository.findByScheduleIdInAndLeftAtIsNull(scheduleIds);
 
-        // 5-1) [쿼리2-1] 결과 일정 중 '휴가'인 것 조회 → scheduleId→leaveType 맵. 존재하면 그 일정은 휴가다.
-        Map<Long, LeaveType> leaveTypeByScheduleId = scheduleLeaveRepository.findByScheduleIdIn(scheduleIds).stream()
-                .collect(Collectors.toMap(ScheduleLeaveEntity::getScheduleId, ScheduleLeaveEntity::getLeaveType));
+        // 5-1) [쿼리2-1] 결과 일정 중 '휴가'인 것 조회 → scheduleId→휴가 엔티티 맵. 존재하면 그 일정은 휴가다.
+        //      leaveId/leaveType/reason/days를 항목에 실어 편집 모달 연동(수정·취소 키 + 사유 프리필)에 쓴다.
+        Map<Long, ScheduleLeaveEntity> leaveByScheduleId = scheduleLeaveRepository.findByScheduleIdIn(scheduleIds).stream()
+                .collect(Collectors.toMap(ScheduleLeaveEntity::getScheduleId, leave -> leave));
 
         // 6) [쿼리3] 참가자들의 이름 (userId → name 맵)
         Set<Long> participantUserIds = participants.stream()
@@ -311,8 +311,9 @@ public class ScheduleService {
                 }
             }
 
-            // 휴가 표시: schedule_leaves에 있으면 휴가. 완전공개 결정에 따라 leaveType도 그대로 노출(마스킹 없음).
-            LeaveType leaveType = leaveTypeByScheduleId.get(schedule.getId());
+            // 휴가면 schedule_leaves 행이 존재. 완전공개 정책이라 leaveId/유형/사유/일수를 그대로 노출(마스킹 없음).
+            ScheduleLeaveEntity leave = leaveByScheduleId.get(schedule.getId());
+            boolean isLeave = leave != null;
 
             items.add(ScheduleItem.builder()
                     .id(schedule.getId())
@@ -321,8 +322,11 @@ public class ScheduleService {
                     .endAt(schedule.getEndAt())
                     .allDay(schedule.isAllDay())
                     .type(schedule.getType().name())
-                    .isLeave(leaveType != null)
-                    .leaveType(leaveType != null ? leaveType.name() : null)
+                    .isLeave(isLeave)
+                    .leaveId(isLeave ? leave.getId() : null)
+                    .leaveType(isLeave ? leave.getLeaveType().name() : null)
+                    .reason(isLeave ? leave.getReason() : null)
+                    .days(isLeave ? leave.getDays() : null)
                     .owner(owner)
                     .participants(participantDtos)
                     .build());

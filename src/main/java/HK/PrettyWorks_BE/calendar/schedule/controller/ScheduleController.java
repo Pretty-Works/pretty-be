@@ -113,7 +113,7 @@ public class ScheduleController {
                     - userIds(선택): 함께 볼 사람들. 미전달 시 본인 일정만. 본인은 항상 포함, 존재하지 않는 userId는 무시
                     [응답] result.schedules[]
                     - 각 항목에 owner(작성자)와 participants(참가자, 이름 포함)
-                    - isLeave=true면 휴가 일정이며 leaveType(ANNUAL/SICK) 동봉(일반 일정은 leaveType 필드 없음) → 휴가/일반 구분 표시에 사용
+                    - isLeave=true면 휴가 일정이며 leaveId·leaveType·reason·days 동봉(일반 일정은 생략). leaveId는 휴가 수정/취소 API 호출 키, reason은 편집 모달 프리필용
                     - 이벤트 색은 유형(type)이 아니라 사람(owner)별로 칠하는 설계
                     - 접근 제한 없음: 누구나 임의 userId 조회 가능(팀 투명성)
                     """
@@ -135,7 +135,10 @@ public class ScheduleController {
                                             "allDay": true,
                                             "type": "PERSONAL",
                                             "isLeave": true,
+                                            "leaveId": 39,
                                             "leaveType": "ANNUAL",
+                                            "reason": "개인 사정",
+                                            "days": 3,
                                             "owner": { "userId": 3, "name": "김피엠" },
                                             "participants": [
                                               { "userId": 3, "name": "김피엠", "role": "WRITER" }
