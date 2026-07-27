@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RestController;
 
 @RestController
@@ -28,9 +29,10 @@ public class ExpenseController {
     public ResponseEntity<ExpenseResponse> create(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long projectId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody ExpenseRequest request
     ) {
-        ExpenseResponse response = expenseService.create(projectId, userId, request);
+        ExpenseResponse response = expenseService.create(projectId, userId, idempotencyKey, request);
 
         return ResponseEntity.ok(response);
     }

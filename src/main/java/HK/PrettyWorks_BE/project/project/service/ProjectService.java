@@ -17,10 +17,11 @@ import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.MilestoneRepository;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
-import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.exception.UserErrorCode;
+import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -42,6 +43,7 @@ import java.util.Set;
 public class ProjectService {
 
     private final UserRepository userRepository;
+    private final CurrentUserService currentUserService;
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final MilestoneRepository milestoneRepository;
@@ -49,9 +51,8 @@ public class ProjectService {
     @Transactional
     public ProjectResponse create(Long ownerId, ProjectRequest request) {
         // 1) 오너 조회 + 생성 권한 (PROJECT_001)
-        //    토큰의 userId로 조회한다. 토큰은 유효한데 유저가 없으면 인증 자체를 신뢰할 수 없으므로 UNAUTHORIZED.
-        UserEntity owner = userRepository.findById(ownerId)
-                .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED));
+        //    토큰의 userId로 조회한다. 유저가 없으면 인증 자체를 신뢰할 수 없으므로 UNAUTHORIZED(CurrentUserService).
+        UserEntity owner = currentUserService.getCurrentUser(ownerId);
         if (!ProjectPolicy.canCreate(owner)) {
             throw BaseException.type(ProjectErrorCode.NO_CREATE_PERMISSION);
         }
@@ -258,7 +259,7 @@ public class ProjectService {
             throw BaseException.type(ProjectErrorCode.MEMBER_NOT_FOUND);
         }
         for (UserEntity u : foundUsers) {
-            if (u.getStatus() != StatusType.ACTIVE) {
+            if (!UserPolicy.isActive(u)) {
                 throw BaseException.type(UserErrorCode.INACTIVE_USER);
             }
         }
