@@ -35,20 +35,36 @@ CREATE TABLE IF NOT EXISTS users (
 
 
 -- =============================================================================
--- refresh_tokens : 사용자별 refresh 토큰 1:1 테이블 (RTR 정책)
---   - user_id가 PK 겸 FK
---   - 로그아웃 / 회원탈퇴 시 ON DELETE CASCADE로 자동 정리
+-- refresh_tokens : 로그인 세션별 refresh 토큰 (RTR + family 방식)
+--   - 유저당 여러 행 = 기기별 동시 로그인. user_id는 PK가 아니라 인덱스만 갖는다.
+--   - session_id(family): 한 번의 로그인을 식별한다. 토큰이 회전해도 유지되며 access token의 sid claim과 같다.
+--   - 회전 시 이전 행을 지우지 않고 revoked_at만 남긴다. 그래야 "폐기된 토큰의 재사용 = 도난"을 탐지할 수 있다.
+--       · 재사용이 감지되면 그 session_id의 행 전체를 무효화한다.
+--   - token_hash: 원문을 저장하지 않는다. DB가 유출돼도 그대로 쓸 수 없어야 한다.
+--   - 만료·폐기된 행은 정리 배치가 삭제한다(expires_at 인덱스 사용).
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS refresh_tokens (
-    user_id     BIGINT       NOT NULL,
-    token       VARCHAR(512) NOT NULL,
-    expires_at  DATETIME(6)  NOT NULL,
-    created_at  DATETIME(6)  NULL,
-    modified_at DATETIME(6)  NULL,
-    PRIMARY KEY (user_id),
+    id           BIGINT       NOT NULL AUTO_INCREMENT,
+    session_id   CHAR(36)     NOT NULL           COMMENT '세션(family) 식별자 — access token의 sid claim',
+    user_id      BIGINT       NOT NULL           COMMENT '사용자 FK',
+    token_hash   CHAR(64)     NOT NULL           COMMENT 'refresh token의 SHA-256 (원문 저장 금지)',
+    expires_at   DATETIME(6)  NOT NULL           COMMENT '만료 시각 (정리 배치 기준)',
+    revoked_at   DATETIME(6)  NULL               COMMENT '폐기 시각 (회전/로그아웃/도난 무효화). NULL이면 유효',
+    revoke_reason VARCHAR(20) NULL               COMMENT '폐기 사유 (ROTATED/LOGOUT/THEFT/SESSION_LIMIT/NOT_EMPLOYED) — 재사용 시 도난 판정 기준',
+    user_agent   VARCHAR(255) NULL               COMMENT '로그인 기기 정보 (로그인 기기 목록 표시용)',
+    last_used_at DATETIME(6)  NULL               COMMENT '마지막 재발급 시각',
+    created_at   DATETIME(6)  NULL               COMMENT '생성(로그인) 시각',
+    modified_at  DATETIME(6)  NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_refresh_tokens_hash (token_hash),
+    KEY idx_refresh_tokens_session (session_id),
+    -- 로그인마다 "이 사용자의 살아 있는 세션"을 찾습니다. 회전 때문에 폐기된 행이 계속 쌓이므로
+    -- user_id만으로는 스캔량이 커집니다. revoked_at을 붙여 활성 행만 바로 걸러냅니다.
+    KEY idx_refresh_tokens_user_active (user_id, revoked_at),
+    KEY idx_refresh_tokens_expires (expires_at),
     CONSTRAINT fk_refresh_tokens_user
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '로그인 세션(refresh token)';
 
 
 -- =============================================================================
@@ -332,5 +348,7 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     modified_at     DATETIME(6)  NULL               COMMENT '수정 시각 (불변이라 미사용, 컨벤션 일관)',
     PRIMARY KEY (id),
     UNIQUE KEY uk_idempotency_key (idempotency_key),
+    -- 정리 배치가 created_at 기준으로 지웁니다. 없으면 매번 풀스캔합니다.
+    KEY idx_idempotency_created (created_at),
     CONSTRAINT fk_idempotency_user FOREIGN KEY (user_id) REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '멱등 키';

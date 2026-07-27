@@ -5,6 +5,7 @@ import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.security.info.UserAuthentication;
 import HK.PrettyWorks_BE.auth.jwt.JwtUtil;
+import HK.PrettyWorks_BE.auth.service.TokenBlacklistService;
 import io.jsonwebtoken.Claims;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
@@ -15,17 +16,33 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.security.core.context.SecurityContextHolder;
 import org.springframework.security.web.authentication.WebAuthenticationDetailsSource;
 import org.springframework.stereotype.Component;
+import org.springframework.util.AntPathMatcher;
 import org.springframework.util.StringUtils;
 import org.springframework.web.filter.OncePerRequestFilter;
 
 import java.io.IOException;
+import java.util.Arrays;
 
 @Component
 @RequiredArgsConstructor
 public class JwtAuthenticationFilter extends OncePerRequestFilter {
 
-    // 토큰 생성/검증 로직은 JwtUtil에 위임하고, 이 필터는 SecurityContext 설정만 담당합니다.
+    private static final AntPathMatcher PATH_MATCHER = new AntPathMatcher();
+
+    // 토큰 생성/검증 로직은 JwtUtil에 위임하고, 이 필터는 세션 유효성 확인과 SecurityContext 설정을 담당합니다.
     private final JwtUtil jwtUtil;
+    private final TokenBlacklistService tokenBlacklistService;
+
+    // 인증이 필요 없는 경로에서는 토큰을 아예 보지 않습니다.
+    // 특히 재발급(/auth/reissue)은 access token이 만료됐을 때 호출되는데, 클라이언트가 습관적으로
+    // Authorization 헤더를 함께 보내면 여기서 만료 예외가 나 401이 되고 재발급 자체가 막힙니다.
+    @Override
+    protected boolean shouldNotFilter(@NonNull HttpServletRequest request) {
+        String uri = request.getRequestURI();
+
+        return Arrays.stream(AuthConstant.AUTH_WHITELIST)
+                .anyMatch(pattern -> PATH_MATCHER.match(pattern, uri));
+    }
 
     @Override
     protected void doFilterInternal(
@@ -48,11 +65,18 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 throw new BaseException(GlobalErrorCode.INVALID_TOKEN_TYPE);
             }
 
-            // 인증 주체로 사용할 userId를 토큰에서 꺼냅니다. (누락 검증 포함)
+            // 인증 주체로 사용할 userId와 세션 식별자를 토큰에서 꺼냅니다. (누락 검증 포함)
             Long userId = JwtUtil.getUserId(claims);
+            String sessionId = JwtUtil.getSessionId(claims);
+
+            // 로그아웃되었거나 도난으로 무효화된 세션이면, access token이 아직 만료 전이라도 차단합니다.
+            // access token은 stateless라 이 확인 없이는 만료까지 계속 유효합니다.
+            if (tokenBlacklistService.isRevoked(sessionId)) {
+                throw new BaseException(GlobalErrorCode.UNAUTHORIZED);
+            }
 
             // Spring Security가 이해하는 인증 객체를 만들어 현재 요청의 인증 상태로 등록합니다.
-            UserAuthentication authentication = UserAuthentication.createUserAuthentication(userId);
+            UserAuthentication authentication = UserAuthentication.createUserAuthentication(userId, sessionId);
             authentication.setDetails(new WebAuthenticationDetailsSource().buildDetails(request));
             SecurityContextHolder.getContext().setAuthentication(authentication);
         }

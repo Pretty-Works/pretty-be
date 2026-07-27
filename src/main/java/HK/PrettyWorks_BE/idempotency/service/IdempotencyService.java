@@ -2,6 +2,7 @@ package HK.PrettyWorks_BE.idempotency.service;
 
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
+import HK.PrettyWorks_BE.global.util.Sha256;
 import HK.PrettyWorks_BE.idempotency.domain.IdempotencyKeyEntity;
 import HK.PrettyWorks_BE.idempotency.repository.IdempotencyKeyRepository;
 import org.springframework.dao.DataIntegrityViolationException;
@@ -10,10 +11,6 @@ import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
 import tools.jackson.databind.ObjectMapper;
 
-import java.nio.charset.StandardCharsets;
-import java.security.MessageDigest;
-import java.security.NoSuchAlgorithmException;
-import java.util.HexFormat;
 import java.util.function.Supplier;
 
 // 멱등 키 공통 처리기. DB 유니크 인덱스로 중복 요청을 막고, 본 리소스 INSERT와 같은 트랜잭션에서 키를 기록한다.
@@ -52,7 +49,7 @@ public class IdempotencyService {
             return txTemplate.execute(status -> creator.get());
         }
 
-        String requestHash = sha256(fingerprint);
+        String requestHash = Sha256.hash(fingerprint);
         try {
             return txTemplate.execute(status -> {
                 Long resourceId = creator.get();
@@ -77,14 +74,4 @@ public class IdempotencyService {
         }
     }
 
-    // 요청 지문 SHA-256(hex, 64자). "메서드|실제경로|본문" 정규화 문자열을 해시한다.
-    private static String sha256(String fingerprint) {
-        try {
-            MessageDigest md = MessageDigest.getInstance("SHA-256");
-            byte[] digest = md.digest(fingerprint.getBytes(StandardCharsets.UTF_8));
-            return HexFormat.of().formatHex(digest);
-        } catch (NoSuchAlgorithmException e) {
-            throw new IllegalStateException("SHA-256 unavailable", e);
-        }
-    }
 }
