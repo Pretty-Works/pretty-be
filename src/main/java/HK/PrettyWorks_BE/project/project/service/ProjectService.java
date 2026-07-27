@@ -185,7 +185,9 @@ public class ProjectService {
         ProjectStatus target = parseStatus(statusStr);
 
         // 4) 전이 규칙 검증 (PROJECT_019): 종료 상태(COMPLETED/ARCHIVED)의 되돌림 차단
-        validateTransition(project.getStatus(), target);
+        if (!ProjectPolicy.isAllowedTransition(project.getStatus(), target)) {
+            throw BaseException.type(ProjectErrorCode.STATUS_NOT_REVERTIBLE);
+        }
 
         // 5) 상태 변경 (영속 엔티티 → dirty checking으로 UPDATE)
         project.changeStatus(target);
@@ -246,7 +248,7 @@ public class ProjectService {
             if (m.targetDate() == null || !StringUtils.hasText(m.goal())) {
                 throw BaseException.type(ProjectErrorCode.MILESTONE_INCOMPLETE);
             }
-            if (m.targetDate().isBefore(startDate) || m.targetDate().isAfter(endDate)) {
+            if (!ProjectPolicy.isWithinPeriod(startDate, endDate, m.targetDate())) {
                 throw BaseException.type(ProjectErrorCode.MILESTONE_OUT_OF_RANGE);
             }
         }
@@ -360,13 +362,4 @@ public class ProjectService {
         }
     }
 
-    // 종료 상태 전이 규칙: ARCHIVED는 완전 종료, COMPLETED는 ARCHIVED로만 전이 가능(PROJECT_019).
-    private void validateTransition(ProjectStatus current, ProjectStatus target) {
-        if (current == ProjectStatus.ARCHIVED) {
-            throw BaseException.type(ProjectErrorCode.STATUS_NOT_REVERTIBLE);
-        }
-        if (current == ProjectStatus.COMPLETED && target != ProjectStatus.ARCHIVED) {
-            throw BaseException.type(ProjectErrorCode.STATUS_NOT_REVERTIBLE);
-        }
-    }
 }

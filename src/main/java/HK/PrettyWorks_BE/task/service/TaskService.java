@@ -5,6 +5,7 @@ import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
+import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
 import HK.PrettyWorks_BE.task.domain.TaskEntity;
 import HK.PrettyWorks_BE.task.dto.req.TaskRequest;
@@ -15,6 +16,7 @@ import HK.PrettyWorks_BE.task.dto.res.TaskHomeResponse.TaskItem;
 import HK.PrettyWorks_BE.task.dto.res.TaskProjectResponse;
 import HK.PrettyWorks_BE.task.dto.res.TaskResponse;
 import HK.PrettyWorks_BE.task.exception.TaskErrorCode;
+import HK.PrettyWorks_BE.task.policy.TaskPolicy;
 import HK.PrettyWorks_BE.task.repository.TaskHomeRow;
 import HK.PrettyWorks_BE.task.repository.TaskProjectRow;
 import HK.PrettyWorks_BE.task.repository.TaskRepository;
@@ -71,8 +73,8 @@ public class TaskService {
         TaskEntity task = taskRepository.findById(taskId)
                 .orElseThrow(() -> BaseException.type(TaskErrorCode.TASK_NOT_FOUND));
 
-        // 2) 작성자 본인만 수정 (TASK_004) — self-only라 assigneeId가 곧 작성자
-        if (!task.getAssigneeId().equals(userId)) {
+        // 2) 작성자 본인만 수정 (TASK_004)
+        if (!TaskPolicy.canModify(task, userId)) {
             throw BaseException.type(TaskErrorCode.NO_EDIT_PERMISSION);
         }
 
@@ -94,8 +96,8 @@ public class TaskService {
         TaskEntity task = taskRepository.findById(taskId)
                 .orElseThrow(() -> BaseException.type(TaskErrorCode.TASK_NOT_FOUND));
 
-        // 2) 작성자 본인만 삭제 (TASK_005) — self-only라 assigneeId가 곧 작성자
-        if (!task.getAssigneeId().equals(userId)) {
+        // 2) 작성자 본인만 삭제 (TASK_005)
+        if (!TaskPolicy.canModify(task, userId)) {
             throw BaseException.type(TaskErrorCode.NO_DELETE_PERMISSION);
         }
 
@@ -114,7 +116,7 @@ public class TaskService {
                 .orElseThrow(() -> BaseException.type(TaskErrorCode.TASK_NOT_FOUND));
 
         // 2) 작성자 본인만 (TASK_004) — 완료 토글도 수정과 동일 권한
-        if (!task.getAssigneeId().equals(userId)) {
+        if (!TaskPolicy.canModify(task, userId)) {
             throw BaseException.type(TaskErrorCode.NO_EDIT_PERMISSION);
         }
 
@@ -253,11 +255,10 @@ public class TaskService {
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(TaskErrorCode.PROJECT_NOT_FOUND));
         projectMemberService.validateActiveMember(projectId, userId);
-        ProjectStatus status = project.getStatus();
-        if (status == ProjectStatus.COMPLETED || status == ProjectStatus.ARCHIVED) {
+        if (!ProjectPolicy.isOpenForContent(project)) {
             throw BaseException.type(TaskErrorCode.PROJECT_CLOSED);
         }
-        if (dueDate.isBefore(project.getStartDate()) || dueDate.isAfter(project.getTargetDate())) {
+        if (!ProjectPolicy.isWithinPeriod(project, dueDate)) {
             throw BaseException.type(TaskErrorCode.DUE_DATE_OUT_OF_RANGE);
         }
     }

@@ -41,8 +41,12 @@ public final class ProjectPolicy {
     // 날짜가 프로젝트 기간(startDate ~ targetDate) 안인지 판정합니다. 양끝(시작일·목표일 당일) 포함.
     // 할 일 마감일·회의 일자·지출 사용일 등 "프로젝트 소속 날짜"의 공통 검증 규칙입니다.
     public static boolean isWithinPeriod(ProjectEntity project, LocalDate date) {
-        return !date.isBefore(project.getStartDate())
-                && !date.isAfter(project.getTargetDate());
+        return isWithinPeriod(project.getStartDate(), project.getTargetDate(), date);
+    }
+
+    // 기간을 값으로 받는 형태. 아직 저장되지 않은 요청값(생성·수정 중인 프로젝트 기간)으로 검증할 때 사용합니다.
+    public static boolean isWithinPeriod(LocalDate startDate, LocalDate targetDate, LocalDate date) {
+        return !date.isBefore(startDate) && !date.isAfter(targetDate);
     }
 
     // 프로젝트가 콘텐츠(회의록·게시글 등) 추가/수정을 받을 수 있는 상태인지 확인합니다.
@@ -50,6 +54,18 @@ public final class ProjectPolicy {
     public static boolean isOpenForContent(ProjectEntity project) {
         ProjectStatus status = project.getStatus();
         return status != ProjectStatus.COMPLETED && status != ProjectStatus.ARCHIVED;
+    }
+
+    // 상태 전이 규칙: 보관(ARCHIVED)은 완전 종료라 어디로도 못 가고, 완료(COMPLETED)는 보관으로만 갈 수 있습니다.
+    // 그 외 진행 상태끼리는 자유롭게 전이됩니다. (되돌림 차단 = PROJECT_019)
+    public static boolean isAllowedTransition(ProjectStatus current, ProjectStatus target) {
+        if (current == ProjectStatus.ARCHIVED) {
+            return false;
+        }
+        if (current == ProjectStatus.COMPLETED) {
+            return target == ProjectStatus.ARCHIVED;
+        }
+        return true;
     }
 
 }
