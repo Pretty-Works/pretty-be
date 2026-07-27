@@ -2,6 +2,8 @@ package HK.PrettyWorks_BE.project.project.policy;
 
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
+import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
+import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.user.constant.DepartmentType;
 import HK.PrettyWorks_BE.user.constant.PositionType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
@@ -42,6 +44,13 @@ public final class ProjectPolicy {
     public static boolean isWithinPeriod(ProjectEntity project, LocalDate date) {
         return !date.isBefore(project.getStartDate())
                 && !date.isAfter(project.getTargetDate());
+    }
+
+    // 프로젝트가 콘텐츠(회의록·게시글 등) 추가/수정을 받을 수 있는 상태인지 확인합니다.
+    // 완료·보관이면 닫힌 것으로 봅니다.
+    public static boolean isOpenForContent(ProjectEntity project) {
+        ProjectStatus status = project.getStatus();
+        return status != ProjectStatus.COMPLETED && status != ProjectStatus.ARCHIVED;
     }
 
 }

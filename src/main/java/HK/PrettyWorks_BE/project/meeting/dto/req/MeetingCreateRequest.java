@@ -19,6 +19,7 @@ public record MeetingCreateRequest(
 
         @Schema(example = "2026-07-20", description = "회의 일자")
         @NotNull(message = "회의 일자는 필수입니다.")
+        @PastOrPresent(message = "회의 일자는 오늘이거나 과거여야 합니다.")
         LocalDate meetingDate,
 
         @Schema(example = "회의실 A", description = "장소")

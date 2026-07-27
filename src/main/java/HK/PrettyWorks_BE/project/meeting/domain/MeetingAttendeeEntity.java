@@ -1,6 +1,7 @@
 package HK.PrettyWorks_BE.project.meeting.domain;
 
 import HK.PrettyWorks_BE.global.domain.BaseTimeEntity;
+import HK.PrettyWorks_BE.project.meeting.constant.MeetingRole;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -33,13 +34,14 @@ public class MeetingAttendeeEntity extends BaseTimeEntity {
     @Column(name = "attendee_department", nullable = false, length = 30)
     private String attendeeDepartment;
 
-    // 역할
+    // 역할 (DB에는 "WRITER"/"ATTENDEE" 문자열로 저장)
+    @Enumerated(EnumType.STRING)
     @Column(name = "role", nullable = false, length = 20)
-    private String role;
+    private MeetingRole role;
 
     @Builder
     public MeetingAttendeeEntity(Long meetingId, Long userId, String attendeeName,
-                                 String attendeeDepartment, String role) {
+                                 String attendeeDepartment, MeetingRole role) {
         this.meetingId = meetingId;
         this.userId = userId;
         this.attendeeName = attendeeName;
