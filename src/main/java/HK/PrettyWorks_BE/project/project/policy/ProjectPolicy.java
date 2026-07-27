@@ -1,9 +1,12 @@
 package HK.PrettyWorks_BE.project.project.policy;
 
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
+import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.user.constant.DepartmentType;
 import HK.PrettyWorks_BE.user.constant.PositionType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
+
+import java.time.LocalDate;
 
 // 프로젝트 관련 권한 규칙을 한 곳에 모은 정책 클래스.
 // 규칙이 바뀌면 이 클래스만 수정하면 되고, 서비스는 흐름(오케스트레이션)에만 집중합니다.
@@ -32,6 +35,13 @@ public final class ProjectPolicy {
     // 상태 변경 권한: 오너(생성자)만 프로젝트 상태를 변경할 수 있습니다. (수정 권한과 달리 PM은 불가)
     public static boolean canChangeStatus(ProjectMemberEntity callerMembership) {
         return callerMembership.isOwner();
+    }
+
+    // 날짜가 프로젝트 기간(startDate ~ targetDate) 안인지 판정합니다. 양끝(시작일·목표일 당일) 포함.
+    // 할 일 마감일·회의 일자·지출 사용일 등 "프로젝트 소속 날짜"의 공통 검증 규칙입니다.
+    public static boolean isWithinPeriod(ProjectEntity project, LocalDate date) {
+        return !date.isBefore(project.getStartDate())
+                && !date.isAfter(project.getTargetDate());
     }
 
 }
