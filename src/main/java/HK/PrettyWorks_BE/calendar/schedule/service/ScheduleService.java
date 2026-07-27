@@ -1,5 +1,7 @@
 package HK.PrettyWorks_BE.calendar.schedule.service;
 
+import HK.PrettyWorks_BE.calendar.leave.domain.ScheduleLeaveEntity;
+import HK.PrettyWorks_BE.calendar.leave.repository.ScheduleLeaveRepository;
 import HK.PrettyWorks_BE.calendar.schedule.constant.ParticipantRole;
 import HK.PrettyWorks_BE.calendar.schedule.constant.ScheduleType;
 import HK.PrettyWorks_BE.calendar.schedule.domain.ScheduleEntity;
@@ -17,6 +19,7 @@ import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleParticipantReposit
 import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleRepository;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
+import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
 import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.exception.UserErrorCode;
@@ -32,6 +35,7 @@ import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @Service
@@ -41,9 +45,24 @@ public class ScheduleService {
     private final UserRepository userRepository;
     private final ScheduleRepository scheduleRepository;
     private final ScheduleParticipantRepository scheduleParticipantRepository;
+    private final ScheduleLeaveRepository scheduleLeaveRepository;
+    private final IdempotencyService idempotencyService;
 
-    @Transactional
-    public ScheduleCreateResponse create(Long writerId, ScheduleCreateRequest request) {
+    // 일정 생성. 멱등 키가 있으면 중복 요청을 방어한다(같은 키·같은 요청은 첫 응답 재생, 다른 내용은 409).
+    // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않는다.
+    public ScheduleCreateResponse create(Long writerId, String idempotencyKey, ScheduleCreateRequest request) {
+        Supplier<Long> creator = () -> doCreate(writerId, request);
+
+        String endpoint = "POST /api/v1/calendar/schedules";
+        String fingerprint = "POST|/api/v1/calendar/schedules|" + canonical(request);
+
+        return new ScheduleCreateResponse(
+                idempotencyService.run(idempotencyKey, endpoint, writerId, fingerprint, creator));
+    }
+
+    // 검증(작성자·기간·참가자) + 저장(schedule → participants) 후 생성된 scheduleId 반환.
+    // 트랜잭션은 IdempotencyService의 TransactionTemplate이 제공(자체 @Transactional 미부착 — self-invocation 회피).
+    private Long doCreate(Long writerId, ScheduleCreateRequest request) {
         // 1) 작성자 조회 — 토큰의 userId로 조회한다. 토큰은 유효한데 유저가 없으면 인증 자체를 신뢰할 수 없으므로 UNAUTHORIZED.
         userRepository.findById(writerId)
                 .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED));
@@ -115,9 +134,13 @@ public class ScheduleService {
         scheduleParticipantRepository.saveAll(participants);
 
         // 6) 생성된 일정 id 반환
-        return ScheduleCreateResponse.builder()
-                .scheduleId(schedule.getId())
-                .build();
+        return schedule.getId();
+    }
+
+    // 본문 지문(정규화) — 클라이언트가 보낸 본문 필드를 고정 순서로 이어붙인다. 경로는 상위 fingerprint에서 포함.
+    private String canonical(ScheduleCreateRequest r) {
+        return r.title() + "|" + r.startAt() + "|" + r.endAt() + "|" + r.allDay()
+                + "|" + r.type() + "|" + r.participantUserIds();
     }
 
     @Transactional
@@ -146,7 +169,11 @@ public class ScheduleService {
             throw BaseException.type(ScheduleErrorCode.NO_SCHEDULE_PERMISSION);
         }
 
-        // 3) TODO(휴가): schedule_leaves가 있는 '휴가 일정'은 수정 대상 아님(취소 후 재신청) — 휴가 도메인 구현 시 체크 추가.
+        // 3) 휴가 차단(SCHEDULE_007): schedule_leaves 행이 있는 '휴가 일정'은 범용 일정 API로 수정 불가.
+        //    휴가는 전용 API(PATCH /calendar/leaves/{leaveId})로만 수정해 schedules+schedule_leaves 정합성을 유지한다.
+        if (scheduleLeaveRepository.existsByScheduleId(scheduleId)) {
+            throw BaseException.type(ScheduleErrorCode.LEAVE_NOT_EDITABLE_HERE);
+        }
 
         // 4) 최종값 병합 — 전달된(non-null) 필드만 반영하고 나머지는 기존값을 유지한다.
         String title = request.title() != null ? request.title() : schedule.getTitle();
@@ -248,6 +275,11 @@ public class ScheduleService {
         List<Long> scheduleIds = schedules.stream().map(ScheduleEntity::getId).toList();
         List<ScheduleParticipantEntity> participants = scheduleParticipantRepository.findByScheduleIdInAndLeftAtIsNull(scheduleIds);
 
+        // 5-1) [쿼리2-1] 결과 일정 중 '휴가'인 것 조회 → scheduleId→휴가 엔티티 맵. 존재하면 그 일정은 휴가다.
+        //      leaveId/leaveType/reason/days를 항목에 실어 편집 모달 연동(수정·취소 키 + 사유 프리필)에 쓴다.
+        Map<Long, ScheduleLeaveEntity> leaveByScheduleId = scheduleLeaveRepository.findByScheduleIdIn(scheduleIds).stream()
+                .collect(Collectors.toMap(ScheduleLeaveEntity::getScheduleId, leave -> leave));
+
         // 6) [쿼리3] 참가자들의 이름 (userId → name 맵)
         Set<Long> participantUserIds = participants.stream()
                 .map(ScheduleParticipantEntity::getUserId)
@@ -279,6 +311,10 @@ public class ScheduleService {
                 }
             }
 
+            // 휴가면 schedule_leaves 행이 존재. 완전공개 정책이라 leaveId/유형/사유/일수를 그대로 노출(마스킹 없음).
+            ScheduleLeaveEntity leave = leaveByScheduleId.get(schedule.getId());
+            boolean isLeave = leave != null;
+
             items.add(ScheduleItem.builder()
                     .id(schedule.getId())
                     .title(schedule.getTitle())
@@ -286,8 +322,11 @@ public class ScheduleService {
                     .endAt(schedule.getEndAt())
                     .allDay(schedule.isAllDay())
                     .type(schedule.getType().name())
-                    // A안: 휴가 도메인 전까지 항상 false. TODO(휴가): schedule_leaves 조인으로 isLeave·leaveType 계산.
-                    .isLeave(false)
+                    .isLeave(isLeave)
+                    .leaveId(isLeave ? leave.getId() : null)
+                    .leaveType(isLeave ? leave.getLeaveType().name() : null)
+                    .reason(isLeave ? leave.getReason() : null)
+                    .days(isLeave ? leave.getDays() : null)
                     .owner(owner)
                     .participants(participantDtos)
                     .build());
