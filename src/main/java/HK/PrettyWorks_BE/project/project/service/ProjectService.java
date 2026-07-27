@@ -68,7 +68,7 @@ public class ProjectService {
         List<MilestoneRequest> milestones = cleanMilestones(request.milestones());
         validateMilestones(milestones, startDate, endDate);
 
-        // 4) 참여자 정리(오너 제외 + userId 중복 제거) 후 존재·재직 검증 (PROJECT_002 / USER_001)
+        // 4) 참여자 정리(오너 제외 + userId 중복 제거) 후 존재·퇴사 여부 검증 (PROJECT_002 / USER_003)
         Map<Long, MemberRequest> participants = collectParticipants(request.members(), ownerId);
         validateParticipants(participants.keySet());
 
@@ -147,7 +147,7 @@ public class ProjectService {
         ProjectMemberEntity owner = projectMemberRepository.findOwner(projectId)
                 .orElseThrow(() -> BaseException.type(GlobalErrorCode.INTERNAL_SERVER_ERROR));
 
-        // 6) 요청 참여자 정리(오너 제외 + 중복 제거) 후 존재·재직 검증 (PROJECT_002 / USER_001)
+        // 6) 요청 참여자 정리(오너 제외 + 중복 제거) 후 존재·퇴사 여부 검증 (PROJECT_002 / USER_003)
         Map<Long, MemberRequest> requested = collectParticipants(request.members(), owner.getUserId());
         validateParticipants(requested.keySet());
 
@@ -254,15 +254,16 @@ public class ProjectService {
         }
     }
 
-    // 참여자 userId가 모두 실제로 존재하는지(PROJECT_002)·재직중(ACTIVE)인지(USER_001) 검증한다.
+    // 참여자 userId가 모두 실제로 존재하는지(PROJECT_002)·퇴사자가 아닌지(USER_003) 검증한다.
+    // 휴직(ON_LEAVE)은 참여를 허용한다 — 복귀 예정자를 미리 배정하거나 기존 참여를 유지할 수 있어야 하므로.
     private void validateParticipants(Set<Long> userIds) {
         List<UserEntity> foundUsers = userRepository.findAllById(userIds);
         if (foundUsers.size() != userIds.size()) {
             throw BaseException.type(ProjectErrorCode.MEMBER_NOT_FOUND);
         }
         for (UserEntity u : foundUsers) {
-            if (!UserPolicy.isActive(u)) {
-                throw BaseException.type(UserErrorCode.INACTIVE_USER);
+            if (!UserPolicy.isEmployed(u)) {
+                throw BaseException.type(UserErrorCode.RESIGNED_USER);
             }
         }
     }
