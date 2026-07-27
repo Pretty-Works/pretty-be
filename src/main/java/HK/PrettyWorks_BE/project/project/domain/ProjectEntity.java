@@ -42,6 +42,12 @@ public class ProjectEntity extends BaseTimeEntity {
     @Column(name = "description", length = 500)
     private String description;
 
+    // 낙관적 락 버전. Hibernate가 UPDATE에 "AND version = ?" 조건을 붙이고 값을 1 올립니다.
+    // 오너와 PM이 동시에 수정할 때 나중 트랜잭션이 앞선 변경을 덮어쓰는 것을 막습니다. (수정은 애플리케이션이 건드리지 않음)
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
+
     @Builder
     public ProjectEntity(String name, ProjectStatus status, LocalDate startDate,
                          LocalDate targetDate, BigDecimal targetBudget, String description) {

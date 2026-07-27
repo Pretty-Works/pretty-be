@@ -46,6 +46,7 @@ public enum GlobalErrorCode implements ErrorCode{
     MISSING_REQUEST_PART(HttpStatus.BAD_REQUEST, "REQUEST_026", "필수 multipart 파트가 누락되었습니다."),
     PAYLOAD_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "REQUEST_027", "업로드 파일 크기가 허용된 한도를 초과했습니다."),
     IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "REQUEST_028", "동일한 요청 키로 다른 내용의 요청이 접수되었습니다."),
+    CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "REQUEST_029", "다른 사용자가 먼저 수정했습니다. 최신 내용을 다시 불러온 뒤 시도해 주세요."),
 
 
     /**

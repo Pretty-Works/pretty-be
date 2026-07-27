@@ -139,7 +139,9 @@ public class ProjectService {
     @Transactional
     public ProjectResponse update(Long userId, Long projectId, ProjectRequest request) {
         // 1) 대상 프로젝트 조회 (PROJECT_004)
-        ProjectEntity project = projectRepository.findById(projectId)
+        //    오너·PM이 동시에 수정할 수 있으므로 낙관적 락으로 조회한다. 커밋 시 version이 강제로 올라가며,
+        //    그 사이 다른 트랜잭션이 먼저 커밋했다면 충돌로 실패한다(PROJECT_020, 전역 핸들러가 변환).
+        ProjectEntity project = projectRepository.findByIdWithOptimisticLock(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
 
         // 2) 수정 권한 (PROJECT_005): 호출자의 참여중(ACTIVE) 멤버십이 오너이거나 role="PM"
