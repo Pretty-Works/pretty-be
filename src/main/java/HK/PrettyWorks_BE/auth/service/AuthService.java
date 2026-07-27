@@ -1,14 +1,13 @@
 package HK.PrettyWorks_BE.auth.service;
 
 import HK.PrettyWorks_BE.auth.constant.AuthConstant;
-import HK.PrettyWorks_BE.auth.domain.RefreshTokenEntity;
+import HK.PrettyWorks_BE.auth.constant.RevokeReason;
 import HK.PrettyWorks_BE.auth.dto.req.LoginRequest;
 import HK.PrettyWorks_BE.auth.dto.req.ReissueRequest;
 import HK.PrettyWorks_BE.auth.dto.req.SignupRequest;
 import HK.PrettyWorks_BE.auth.dto.res.JwtTokenResponse;
 import HK.PrettyWorks_BE.auth.dto.res.SignupResponse;
 import HK.PrettyWorks_BE.auth.jwt.JwtUtil;
-import HK.PrettyWorks_BE.auth.repository.RefreshTokenRepository;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.constant.StatusType;
@@ -22,20 +21,17 @@ import HK.PrettyWorks_BE.auth.exception.AuthErrorCode;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
-
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
     private final UserRepository userRepository;
-    private final RefreshTokenRepository refreshTokenRepository;
+    private final RefreshTokenService refreshTokenService;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
 
     @Transactional
-    public JwtTokenResponse login(LoginRequest request) {
+    public JwtTokenResponse login(LoginRequest request, String userAgent) {
         // 사번 미존재와 비밀번호 불일치 모두 동일한 에러로 응답하여 계정 존재 여부 노출을 막습니다.
         UserEntity user = userRepository.findByEmployeeNo(request.employeeNo())
                 .orElseThrow(() -> BaseException.type(AuthErrorCode.INVALID_CREDENTIALS));
@@ -50,36 +46,18 @@ public class AuthService {
             throw BaseException.type(AuthErrorCode.INVALID_CREDENTIALS);
         }
 
-        return issueTokensAndPersist(user.getId());
-
-    }
-
-    // 로그인/재발급 양쪽에서 동일한 방식으로 토큰을 발급하고 RTR 정책에 따라 DB를 upsert합니다.
-    private JwtTokenResponse issueTokensAndPersist(Long userId) {
-        JwtTokenResponse tokens = jwtUtil.generateTokens(userId);
-
-        LocalDateTime expiresAt = LocalDateTime.now()
-                .plus(jwtUtil.getRefreshTokenExpirePeriod(), ChronoUnit.MILLIS);
-
-        RefreshTokenEntity refreshToken = refreshTokenRepository.findById(userId)
-                .map(existing -> {
-                    existing.update(tokens.refreshToken(), expiresAt);
-                    return existing;
-                })
-                .orElseGet(() -> RefreshTokenEntity.builder()
-                        .userId(userId)
-                        .token(tokens.refreshToken())
-                        .expiresAt(expiresAt)
-                        .build());
-        refreshTokenRepository.save(refreshToken);
+        // 기기별 세션을 새로 만들고, 그 세션 식별자(sid)를 토큰에 심습니다.
+        String sessionId = refreshTokenService.createSession(user.getId());
+        JwtTokenResponse tokens = jwtUtil.generateTokens(user.getId(), sessionId);
+        refreshTokenService.save(sessionId, user.getId(), tokens.refreshToken(), userAgent);
 
         return tokens;
     }
 
-    // 도난 의심 분기에서 deleteById를 커밋해야 하므로 BaseException은 롤백 대상에서 제외합니다.
+    // 도난 탐지·퇴사 차단 분기에서 세션 폐기를 커밋해야 하므로 BaseException은 롤백 대상에서 제외합니다.
     @Transactional(noRollbackFor = BaseException.class)
-    public JwtTokenResponse reissue(ReissueRequest request) {
-        // 서명/만료/타입 검증을 먼저 통과한 토큰만 DB와 비교합니다.
+    public JwtTokenResponse reissue(ReissueRequest request, String userAgent) {
+        // 서명/만료/타입 검증을 먼저 통과한 토큰만 DB와 대조합니다.
         Claims claims = jwtUtil.getTokenBody(request.refreshToken());
 
         String tokenType = claims.get(AuthConstant.TOKEN_TYPE_CLAIM_NAME, String.class);
@@ -89,26 +67,32 @@ public class AuthService {
 
         Long userId = JwtUtil.getUserId(claims);
 
-        RefreshTokenEntity stored = refreshTokenRepository.findById(userId)
-                .orElseThrow(() -> BaseException.type(GlobalErrorCode.REFRESH_TOKEN_NOT_FOUND));
-
-        // DB의 토큰과 다르다면 누군가 이미 재발급을 받은 상황이라 도난 의심으로 보고 강제 로그아웃 처리합니다.
-        if (!stored.getToken().equals(request.refreshToken())) {
-            refreshTokenRepository.deleteById(userId);
-            throw BaseException.type(GlobalErrorCode.REFRESH_TOKEN_MISMATCH);
-        }
-
         // 재발급 시점의 재직 상태를 다시 확인합니다. 로그인만 막으면 이미 발급된 refresh token으로
         // 계속 갱신할 수 있어 퇴사자 차단이 우회됩니다. 규칙은 로그인과 동일(휴직 허용, 퇴사 차단).
+        // 회전보다 먼저 확인해, 어차피 끊을 요청에 새 토큰을 만들지 않습니다.
         UserEntity user = userRepository.findById(userId)
                 .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED));
         if (!UserPolicy.isEmployed(user)) {
-            // 저장된 refresh token까지 폐기해 이후 재시도를 확실히 끊습니다. (도난 분기와 동일하게 커밋됨)
-            refreshTokenRepository.deleteById(userId);
+            refreshTokenService.revokeSession(JwtUtil.getSessionId(claims), RevokeReason.NOT_EMPLOYED);
             throw BaseException.type(GlobalErrorCode.UNAUTHORIZED);
         }
 
-        return issueTokensAndPersist(userId);
+        // 제시된 토큰을 폐기하고 이어서 쓸 세션을 받습니다.
+        // 이미 폐기된 토큰이면(=누군가 옛 토큰을 들고 있음) 여기서 세션 전체가 무효화되고 예외가 납니다.
+        String sessionId = refreshTokenService.rotate(request.refreshToken());
+
+        // 같은 세션으로 새 토큰 쌍을 발급합니다. sid가 유지돼야 세션 추적·무효화가 이어집니다.
+        JwtTokenResponse tokens = jwtUtil.generateTokens(userId, sessionId);
+        refreshTokenService.save(sessionId, userId, tokens.refreshToken(), userAgent);
+
+        return tokens;
+    }
+
+    // 로그아웃: 요청한 기기의 세션만 무효화합니다. 이미 끊긴 세션이어도 결과가 같아 멱등합니다.
+    // 사유를 LOGOUT으로 남겨, 이후 옛 토큰이 다시 오더라도 도난 경보를 울리지 않고 거부만 합니다.
+    @Transactional
+    public void logout(String sessionId) {
+        refreshTokenService.revokeSession(sessionId, RevokeReason.LOGOUT);
     }
 
     @Transactional

@@ -3,12 +3,16 @@
 -- id 는 AUTO_INCREMENT 라 "빈 테이블에 아래 순서대로" 넣으면 users 1~10, projects 1~5 … 로 부여됩니다.
 -- 전 사용자 비밀번호: Test1234!  (BCrypt 해시)
 --
+-- 날짜는 전부 CURDATE()/NOW() 기준 상대값입니다. 절대 날짜로 두면 시간이 지날수록 데이터가 과거로 밀려
+-- "이번 주 할 일", "사용 예정 지출" 같은 파생값이 의미를 잃기 때문입니다. 언제 로드해도 동일한 상황이 만들어집니다.
+--
 -- 로드 (한글 안전, 자세한 절차는 같은 폴더 README.md):
 --   docker cp src\main\resources\db\seed.sql <컨테이너>:/tmp/seed.sql
 --   docker exec -i <컨테이너> sh -c "mysql -uroot -p1234 --default-character-set=utf8mb4 prettyworks_test < /tmp/seed.sql"
 -- ※ Get-Content ... | docker ... (PowerShell 파이프)와 docker compose cp 는 한글 깨짐/파일 누락으로 금지.
 --
--- ※ init.sql(스키마)만 먼저 로드된 상태에서 실행하세요. FK 순서대로 삽입하므로 외래키 비활성화가 필요 없습니다.
+-- ※ refresh_tokens 는 시드하지 않습니다. 로그인할 때 실제 토큰의 해시로 만들어지는 런타임 데이터라,
+--   미리 넣어봐야 어떤 토큰과도 대응되지 않아 쓸모가 없습니다.
 
 SET NAMES utf8mb4;
 
@@ -21,8 +25,8 @@ SET @pw = '$2y$10$LbJt3UI.WeepFTIO.RGxgOF3ztmuVcEOQuxfp4Ft.Ezv8MwvOElqC';
 --   1 김피엠   PM        TEAM_LEADER  ACTIVE    | 6 강지우   DATA      STAFF        ACTIVE
 --   2 이하늘   BACKEND   SENIOR       ACTIVE    | 7 윤하은   FRONTEND  STAFF        ACTIVE
 --   3 박도윤   BACKEND   STAFF        ACTIVE    | 8 임도현   DEVOPS    SENIOR       ACTIVE
---   4 최서아   FRONTEND  SENIOR       ACTIVE    | 9 한퇴사   QA        STAFF        RESIGNED (비활성)
---   5 정민준   PLANNING  PART_LEADER  ACTIVE    |10 오휴직   SALES     STAFF        ON_LEAVE (비활성)
+--   4 최서아   FRONTEND  SENIOR       ACTIVE    | 9 한퇴사   QA        STAFF        RESIGNED (로그인 차단 테스트)
+--   5 정민준   PLANNING  PART_LEADER  ACTIVE    |10 오휴직   SALES     STAFF        ON_LEAVE (로그인 허용, 지출 차단)
 -- =============================================================================
 INSERT INTO users
     (employee_no, password_hash, name, email, phone_number, birth_date, gender, department, position, status, hire_date, created_at, modified_at)
@@ -40,129 +44,142 @@ VALUES
 
 
 -- =============================================================================
--- 2) projects  (id 1~5)
+-- 2) projects  (id 1~5)  — version 은 DEFAULT 0 으로 들어갑니다(낙관적 락 초기값).
+--   기간은 오늘 기준 상대값이라, 아래 하위 데이터(할 일·지출·회의록)도 항상 기간 안에 들어옵니다.
 -- =============================================================================
 INSERT INTO projects
     (name, status, start_date, target_date, target_budget, description, created_at, modified_at)
 VALUES
-    ('AI 검색 고도화',       'ONGOING',   '2026-06-01', '2026-09-30', 50000000.00, '사내 검색 품질 개선 및 임베딩 기반 랭킹 도입', NOW(6), NOW(6)),
-    ('사내 그룹웨어 리뉴얼', 'ONGOING',   '2026-07-01', '2026-12-31', 80000000.00, '레거시 그룹웨어 UI/UX 전면 개편',            NOW(6), NOW(6)),
-    ('데이터 파이프라인 구축','HOLDING',   '2026-05-01', '2026-08-31', 30000000.00, '수집~적재 자동화 파이프라인 (일시 보류)',     NOW(6), NOW(6)),
-    ('레거시 마이그레이션',  'COMPLETED', '2026-01-01', '2026-06-30', 20000000.00, '온프레미스 → 클라우드 이관 (완료)',           NOW(6), NOW(6)),
-    ('구 사내포털',          'ARCHIVED',  '2025-03-01', '2025-12-31', 10000000.00, '구버전 사내포털 (보관 처리)',                 NOW(6), NOW(6));
+    -- 진행 중(중반) — 기간 -60 ~ +60
+    ('AI 검색 고도화',        'ONGOING',   DATE_SUB(CURDATE(), INTERVAL 60 DAY),  DATE_ADD(CURDATE(), INTERVAL 60 DAY),  50000000.00, '사내 검색 품질 개선 및 임베딩 기반 랭킹 도입', NOW(6), NOW(6)),
+    -- 진행 중(초반) — 기간 -30 ~ +150
+    ('사내 그룹웨어 리뉴얼',  'ONGOING',   DATE_SUB(CURDATE(), INTERVAL 30 DAY),  DATE_ADD(CURDATE(), INTERVAL 150 DAY), 80000000.00, '레거시 그룹웨어 UI/UX 전면 개편',            NOW(6), NOW(6)),
+    -- 보류 — 기간 -90 ~ +30
+    ('데이터 파이프라인 구축','HOLDING',   DATE_SUB(CURDATE(), INTERVAL 90 DAY),  DATE_ADD(CURDATE(), INTERVAL 30 DAY),  30000000.00, '수집~적재 자동화 파이프라인 (일시 보류)',     NOW(6), NOW(6)),
+    -- 완료 — 기간 -210 ~ -30 (수정 차단 PROJECT_020 테스트용)
+    ('레거시 마이그레이션',   'COMPLETED', DATE_SUB(CURDATE(), INTERVAL 210 DAY), DATE_SUB(CURDATE(), INTERVAL 30 DAY),  20000000.00, '온프레미스 → 클라우드 이관 (완료)',           NOW(6), NOW(6)),
+    -- 보관(소프트 삭제) — 기간 -520 ~ -210
+    ('구 사내포털',           'ARCHIVED',  DATE_SUB(CURDATE(), INTERVAL 520 DAY), DATE_SUB(CURDATE(), INTERVAL 210 DAY), 10000000.00, '구버전 사내포털 (보관 처리)',                 NOW(6), NOW(6));
 
 
 -- =============================================================================
--- 3) project_members  (owner=is_owner TRUE, 나머지 참여자 / user3 은 P2 에서 LEFT)
+-- 3) project_members
+--   오너(is_owner=TRUE)는 수정 API에서 제외 대상이라 members 요청에 넣어도 무시됩니다.
+--   P2 의 user3 은 LEFT 상태 — 탈퇴 멤버가 조회·권한에서 빠지는지 확인용.
+--   role='PM' 인 참여자는 오너가 아니어도 프로젝트 수정·상태변경이 가능합니다.
 -- =============================================================================
 INSERT INTO project_members
     (project_id, user_id, is_owner, role, status, left_at, created_at, modified_at)
 VALUES
-    -- P1 (owner 김피엠)
-    (1, 1, TRUE,  'PM', 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (1, 2, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (1, 3, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (1, 4, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (1, 6, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
+    -- P1 (owner 김피엠) — 이하늘이 PM 역할이라 오너 부재 시 대체 가능
+    (1, 1, TRUE,  'PM',      'ACTIVE', NULL, NOW(6), NOW(6)),
+    (1, 2, FALSE, 'PM',      'ACTIVE', NULL, NOW(6), NOW(6)),
+    (1, 3, FALSE, 'BE',      'ACTIVE', NULL, NOW(6), NOW(6)),
+    (1, 4, FALSE, 'FE',      'ACTIVE', NULL, NOW(6), NOW(6)),
+    (1, 6, FALSE, NULL,      'ACTIVE', NULL, NOW(6), NOW(6)),
     -- P2 (owner 김피엠), user3 은 탈퇴(LEFT)
-    (2, 1, TRUE,  'PM', 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (2, 4, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (2, 7, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (2, 8, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (2, 5, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (2, 3, FALSE, NULL, 'LEFT',   '2026-07-10 09:00:00', NOW(6), NOW(6)),
+    (2, 1, TRUE,  'PM',      'ACTIVE', NULL, NOW(6), NOW(6)),
+    (2, 4, FALSE, 'FE',      'ACTIVE', NULL, NOW(6), NOW(6)),
+    (2, 5, FALSE, 'PLANNER', 'ACTIVE', NULL, NOW(6), NOW(6)),
+    (2, 7, FALSE, 'FE',      'ACTIVE', NULL, NOW(6), NOW(6)),
+    (2, 8, FALSE, 'DEVOPS',  'ACTIVE', NULL, NOW(6), NOW(6)),
+    (2, 3, FALSE, 'BE',      'LEFT',   DATE_SUB(NOW(6), INTERVAL 18 DAY), NOW(6), NOW(6)),
     -- P3 (owner 정민준)
-    (3, 5, TRUE,  'PM', 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (3, 2, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (3, 6, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
+    (3, 5, TRUE,  'PM',      'ACTIVE', NULL, NOW(6), NOW(6)),
+    (3, 2, FALSE, 'BE',      'ACTIVE', NULL, NOW(6), NOW(6)),
+    (3, 6, FALSE, 'DATA',    'ACTIVE', NULL, NOW(6), NOW(6)),
     -- P4 (owner 김피엠, 완료 프로젝트)
-    (4, 1, TRUE,  'PM', 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (4, 2, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
-    (4, 4, FALSE, NULL, 'ACTIVE', NULL, NOW(6), NOW(6)),
+    (4, 1, TRUE,  'PM',      'ACTIVE', NULL, NOW(6), NOW(6)),
+    (4, 2, FALSE, 'BE',      'ACTIVE', NULL, NOW(6), NOW(6)),
+    (4, 4, FALSE, 'FE',      'ACTIVE', NULL, NOW(6), NOW(6)),
     -- P5 (owner 김피엠, 보관 프로젝트)
-    (5, 1, TRUE,  'PM', 'ACTIVE', NULL, NOW(6), NOW(6));
+    (5, 1, TRUE,  'PM',      'ACTIVE', NULL, NOW(6), NOW(6));
 
 
 -- =============================================================================
--- 4) milestones  (프로젝트 기간 내 target_date)
+-- 4) milestones  (목표일은 각 프로젝트 기간 안)
 -- =============================================================================
 INSERT INTO milestones
     (project_id, target_date, goal, created_at, modified_at)
 VALUES
-    (1, '2026-07-15', '1차 검색 품질 벤치마크', NOW(6), NOW(6)),
-    (1, '2026-08-20', '임베딩 파이프라인 완료', NOW(6), NOW(6)),
-    (1, '2026-09-25', '정식 배포',              NOW(6), NOW(6)),
-    (2, '2026-08-31', '디자인 시스템 확정',     NOW(6), NOW(6)),
-    (2, '2026-11-30', '전 기능 QA 완료',        NOW(6), NOW(6)),
-    (3, '2026-06-30', '수집 스키마 설계',       NOW(6), NOW(6)),
-    (3, '2026-08-15', '적재 자동화',            NOW(6), NOW(6)),
-    (4, '2026-03-31', '스키마 이관',            NOW(6), NOW(6)),
-    (4, '2026-06-15', '컷오버',                 NOW(6), NOW(6));
+    (1, DATE_SUB(CURDATE(), INTERVAL 20 DAY), '1차 검색 품질 벤치마크', NOW(6), NOW(6)),
+    (1, DATE_ADD(CURDATE(), INTERVAL 15 DAY), '임베딩 파이프라인 완료', NOW(6), NOW(6)),
+    (1, DATE_ADD(CURDATE(), INTERVAL 55 DAY), '정식 배포',              NOW(6), NOW(6)),
+    (2, DATE_ADD(CURDATE(), INTERVAL 30 DAY), '디자인 시스템 확정',     NOW(6), NOW(6)),
+    (2, DATE_ADD(CURDATE(), INTERVAL 120 DAY),'전 기능 QA 완료',        NOW(6), NOW(6)),
+    (3, DATE_SUB(CURDATE(), INTERVAL 40 DAY), '수집 스키마 설계',       NOW(6), NOW(6)),
+    (3, DATE_ADD(CURDATE(), INTERVAL 20 DAY), '적재 자동화',            NOW(6), NOW(6)),
+    (4, DATE_SUB(CURDATE(), INTERVAL 120 DAY),'스키마 이관',            NOW(6), NOW(6)),
+    (4, DATE_SUB(CURDATE(), INTERVAL 45 DAY), '컷오버',                 NOW(6), NOW(6));
 
 
 -- =============================================================================
--- 5) tasks  (50건) — 담당자는 해당 프로젝트 ACTIVE 멤버.
---   completed_at NULL = 미완료 / 값 있으면 완료. 오늘 ~ 2026-07-23 기준(이번 주 07-20~07-26).
---   과거 마감 + 미완료 = carry-over(지난 주 이월), 이번 주/미래 마감 혼합.
+-- 5) tasks  (49건) — 담당자는 해당 프로젝트의 ACTIVE 멤버.
+--   completed_at NULL = 미완료 / 값 있으면 완료.
+--   마감일을 오늘 기준으로 흩어 놓아, 어느 날 실행해도 아래가 모두 나옵니다.
+--     · 과거 + 미완료  → 지연(overdue) · 프로젝트 보드의 carry-over
+--     · 최근 완료       → 홈 조회의 "완료 3일 이내"
+--     · 오늘/근미래     → 이번 주 보드
 -- =============================================================================
 INSERT INTO tasks
     (project_id, assignee_id, content, completed_at, due_date, created_at, modified_at)
 VALUES
     -- P1 (AI 검색 고도화)
-    (1, 1, '스프린트 리뷰 안건 취합',  NULL,                  '2026-07-22', NOW(6), NOW(6)),
-    (1, 1, '검색 로드맵 문서화',       NULL,                  '2026-07-25', NOW(6), NOW(6)),
-    (1, 2, '검색 API 인덱싱 개선',     '2026-07-21 15:30:00', '2026-07-21', NOW(6), NOW(6)),
-    (1, 2, '랭킹 알고리즘 튜닝',       NULL,                  '2026-07-24', NOW(6), NOW(6)),
-    (1, 2, '캐시 레이어 도입',         NULL,                  '2026-07-16', NOW(6), NOW(6)),  -- 이월
-    (1, 3, '쿼리 파서 리팩터링',       NULL,                  '2026-07-23', NOW(6), NOW(6)),
-    (1, 3, '로그 수집 배치',           '2026-07-20 11:00:00', '2026-07-20', NOW(6), NOW(6)),
-    (1, 4, '검색 결과 UI 개선',        NULL,                  '2026-07-22', NOW(6), NOW(6)),
-    (1, 4, '자동완성 컴포넌트',        NULL,                  '2026-07-26', NOW(6), NOW(6)),
-    (1, 4, '접근성 점검',              NULL,                  '2026-07-15', NOW(6), NOW(6)),  -- 이월
-    (1, 6, '임베딩 파이프라인 구축',   NULL,                  '2026-07-24', NOW(6), NOW(6)),
-    (1, 6, '데이터 라벨링 QA',         '2026-07-19 18:00:00', '2026-07-19', NOW(6), NOW(6)),
-    (1, 6, '피처 스토어 스키마',       NULL,                  '2026-07-29', NOW(6), NOW(6)),  -- 미래
-    (1, 2, '벤치마크 리포트 작성',     '2026-07-18 17:00:00', '2026-07-18', NOW(6), NOW(6)),
+    (1, 1, '스프린트 리뷰 안건 취합',  NULL,                                  DATE_ADD(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
+    (1, 1, '검색 로드맵 문서화',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
+    (1, 1, '분기 예산 재조정',         DATE_SUB(NOW(6), INTERVAL 1 DAY),      DATE_SUB(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
+    (1, 2, '검색 API 인덱싱 개선',     DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (1, 2, '랭킹 알고리즘 튜닝',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (1, 2, '캐시 레이어 도입',         NULL,                                  DATE_SUB(CURDATE(), INTERVAL 9 DAY),  NOW(6), NOW(6)),  -- 지연
+    (1, 2, '벤치마크 리포트 작성',     DATE_SUB(NOW(6), INTERVAL 8 DAY),      DATE_SUB(CURDATE(), INTERVAL 8 DAY),  NOW(6), NOW(6)),
+    (1, 3, '쿼리 파서 리팩터링',       NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
+    (1, 3, '로그 수집 배치',           DATE_SUB(NOW(6), INTERVAL 3 DAY),      DATE_SUB(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
+    (1, 3, '색인 재구축 스크립트',     NULL,                                  DATE_ADD(CURDATE(), INTERVAL 6 DAY),  NOW(6), NOW(6)),
+    (1, 4, '검색 결과 UI 개선',        NULL,                                  DATE_ADD(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
+    (1, 4, '자동완성 컴포넌트',        NULL,                                  DATE_ADD(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),
+    (1, 4, '접근성 점검',              NULL,                                  DATE_SUB(CURDATE(), INTERVAL 12 DAY), NOW(6), NOW(6)),  -- 지연
+    (1, 6, '임베딩 파이프라인 구축',   NULL,                                  DATE_ADD(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
+    (1, 6, '데이터 라벨링 QA',         DATE_SUB(NOW(6), INTERVAL 4 DAY),      DATE_SUB(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
+    (1, 6, '피처 스토어 스키마',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 10 DAY), NOW(6), NOW(6)),
     -- P2 (사내 그룹웨어 리뉴얼)
-    (2, 1, '그룹웨어 요구사항 정리',   '2026-07-21 09:30:00', '2026-07-21', NOW(6), NOW(6)),
-    (2, 1, '마일스톤 재조정',          NULL,                  '2026-07-25', NOW(6), NOW(6)),
-    (2, 5, '정보구조(IA) 설계',        NULL,                  '2026-07-23', NOW(6), NOW(6)),
-    (2, 5, '사용자 시나리오 작성',     NULL,                  '2026-07-17', NOW(6), NOW(6)),  -- 이월
-    (2, 4, '디자인 시스템 토큰화',     NULL,                  '2026-07-22', NOW(6), NOW(6)),
-    (2, 4, '공통 레이아웃 마크업',     '2026-07-22 16:00:00', '2026-07-20', NOW(6), NOW(6)),
-    (2, 7, '알림 센터 UI',             NULL,                  '2026-07-26', NOW(6), NOW(6)),
-    (2, 7, '다크모드 대응',            NULL,                  '2026-07-14', NOW(6), NOW(6)),  -- 이월
-    (2, 8, 'CI 파이프라인 구성',       '2026-07-21 20:00:00', '2026-07-21', NOW(6), NOW(6)),
-    (2, 8, '스테이징 인프라 세팅',     NULL,                  '2026-07-23', NOW(6), NOW(6)),
-    (2, 8, '모니터링 대시보드',        NULL,                  '2026-07-28', NOW(6), NOW(6)),  -- 미래
-    (2, 5, '릴리즈 노트 템플릿',       NULL,                  '2026-07-25', NOW(6), NOW(6)),
-    (2, 4, '반응형 QA',                NULL,                  '2026-07-16', NOW(6), NOW(6)),  -- 이월
-    (2, 7, '접근성 개선',              NULL,                  '2026-07-26', NOW(6), NOW(6)),
-    -- P3 (데이터 파이프라인 구축)
-    (3, 5, '수집 요건 정의',           '2026-07-20 10:00:00', '2026-07-20', NOW(6), NOW(6)),
-    (3, 2, '커넥터 개발',              NULL,                  '2026-07-24', NOW(6), NOW(6)),
-    (3, 2, '스키마 마이그레이션',      NULL,                  '2026-07-18', NOW(6), NOW(6)),  -- 이월
-    (3, 6, '적재 배치 설계',           NULL,                  '2026-07-23', NOW(6), NOW(6)),
-    (3, 6, '데이터 품질 룰',           NULL,                  '2026-07-27', NOW(6), NOW(6)),  -- 미래
-    (3, 6, '파티셔닝 전략',            '2026-07-15 13:00:00', '2026-07-15', NOW(6), NOW(6)),
-    (3, 2, '증분 적재 PoC',            NULL,                  '2026-07-26', NOW(6), NOW(6)),
-    -- P4 (레거시 마이그레이션, 완료 프로젝트 — 대부분 완료·과거 마감)
-    (4, 1, '이관 계획 수립',           '2026-05-20 10:00:00', '2026-05-20', NOW(6), NOW(6)),
-    (4, 2, '스키마 이관 스크립트',     '2026-06-10 15:00:00', '2026-06-10', NOW(6), NOW(6)),
-    (4, 2, '데이터 검증',              '2026-06-20 16:00:00', '2026-06-20', NOW(6), NOW(6)),
-    (4, 4, '레거시 화면 대체',         '2026-06-25 11:00:00', '2026-06-25', NOW(6), NOW(6)),
-    (4, 1, '컷오버 리허설',            '2026-06-28 09:00:00', '2026-06-28', NOW(6), NOW(6)),
-    -- 개인 할 일 (project_id NULL)
-    (NULL, 1, '주간 업무 보고 작성',   NULL,                  '2026-07-24', NOW(6), NOW(6)),
-    (NULL, 2, '기술 블로그 초안',      NULL,                  '2026-07-26', NOW(6), NOW(6)),
-    (NULL, 2, '도서 DDIA 5장 정리',    NULL,                  '2026-07-19', NOW(6), NOW(6)),  -- 이월(개인)
-    (NULL, 3, '사내 교육 수강',        '2026-07-22 19:00:00', '2026-07-25', NOW(6), NOW(6)),
-    (NULL, 4, '포트폴리오 정리',       NULL,                  '2026-07-27', NOW(6), NOW(6)),  -- 미래
-    (NULL, 5, '경비 정산',             '2026-07-21 13:00:00', '2026-07-21', NOW(6), NOW(6)),
-    (NULL, 6, '자격증 신청',           NULL,                  '2026-07-23', NOW(6), NOW(6)),
-    (NULL, 7, '건강검진 예약',         NULL,                  '2026-07-30', NOW(6), NOW(6)),  -- 미래
-    (NULL, 8, '온콜 인수인계 문서',    NULL,                  '2026-07-18', NOW(6), NOW(6)),  -- 이월(개인)
-    (NULL, 1, '팀 회식 장소 예약',     NULL,                  '2026-07-25', NOW(6), NOW(6));
+    (2, 1, '그룹웨어 요구사항 정리',   DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (2, 1, '마일스톤 재조정',          NULL,                                  DATE_ADD(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
+    (2, 4, '디자인 시스템 토큰화',     NULL,                                  DATE_ADD(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
+    (2, 4, '공통 레이아웃 마크업',     DATE_SUB(NOW(6), INTERVAL 1 DAY),      DATE_SUB(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
+    (2, 4, '반응형 QA',                NULL,                                  DATE_SUB(CURDATE(), INTERVAL 7 DAY),  NOW(6), NOW(6)),  -- 지연
+    (2, 5, '정보구조(IA) 설계',        NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
+    (2, 5, '사용자 시나리오 작성',     NULL,                                  DATE_SUB(CURDATE(), INTERVAL 6 DAY),  NOW(6), NOW(6)),  -- 지연
+    (2, 5, '릴리즈 노트 템플릿',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
+    (2, 7, '알림 센터 UI',             NULL,                                  DATE_ADD(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),
+    (2, 7, '다크모드 대응',            NULL,                                  DATE_SUB(CURDATE(), INTERVAL 13 DAY), NOW(6), NOW(6)),  -- 지연
+    (2, 7, '접근성 개선',              NULL,                                  DATE_ADD(CURDATE(), INTERVAL 8 DAY),  NOW(6), NOW(6)),
+    (2, 8, 'CI 파이프라인 구성',       DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (2, 8, '스테이징 인프라 세팅',     NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
+    (2, 8, '모니터링 대시보드',        NULL,                                  DATE_ADD(CURDATE(), INTERVAL 9 DAY),  NOW(6), NOW(6)),
+    -- P3 (데이터 파이프라인 구축 — 보류 상태)
+    (3, 5, '수집 요건 정의',           DATE_SUB(NOW(6), INTERVAL 30 DAY),     DATE_SUB(CURDATE(), INTERVAL 30 DAY), NOW(6), NOW(6)),
+    (3, 2, '커넥터 개발',              NULL,                                  DATE_ADD(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
+    (3, 2, '스키마 마이그레이션',      NULL,                                  DATE_SUB(CURDATE(), INTERVAL 10 DAY), NOW(6), NOW(6)),  -- 지연
+    (3, 2, '증분 적재 PoC',            NULL,                                  DATE_ADD(CURDATE(), INTERVAL 7 DAY),  NOW(6), NOW(6)),
+    (3, 6, '적재 배치 설계',           NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
+    (3, 6, '데이터 품질 룰',           NULL,                                  DATE_ADD(CURDATE(), INTERVAL 12 DAY), NOW(6), NOW(6)),
+    (3, 6, '파티셔닝 전략',            DATE_SUB(NOW(6), INTERVAL 15 DAY),     DATE_SUB(CURDATE(), INTERVAL 15 DAY), NOW(6), NOW(6)),
+    -- P4 (레거시 마이그레이션 — 완료 프로젝트, 전부 과거)
+    (4, 1, '이관 계획 수립',           DATE_SUB(NOW(6), INTERVAL 170 DAY),    DATE_SUB(CURDATE(), INTERVAL 170 DAY), NOW(6), NOW(6)),
+    (4, 2, '스키마 이관 스크립트',     DATE_SUB(NOW(6), INTERVAL 120 DAY),    DATE_SUB(CURDATE(), INTERVAL 120 DAY), NOW(6), NOW(6)),
+    (4, 2, '데이터 검증',              DATE_SUB(NOW(6), INTERVAL 90 DAY),     DATE_SUB(CURDATE(), INTERVAL 90 DAY),  NOW(6), NOW(6)),
+    (4, 4, '레거시 화면 대체',         DATE_SUB(NOW(6), INTERVAL 60 DAY),     DATE_SUB(CURDATE(), INTERVAL 60 DAY),  NOW(6), NOW(6)),
+    (4, 1, '컷오버 리허설',            DATE_SUB(NOW(6), INTERVAL 40 DAY),     DATE_SUB(CURDATE(), INTERVAL 40 DAY),  NOW(6), NOW(6)),
+    -- 개인 할 일 (project_id NULL — 프로젝트 검증을 건너뜁니다)
+    (NULL, 1, '주간 업무 보고 작성',   NULL,                                  DATE_ADD(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
+    (NULL, 2, '기술 블로그 초안',      NULL,                                  DATE_ADD(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),
+    (NULL, 2, '도서 DDIA 5장 정리',    NULL,                                  DATE_SUB(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),  -- 지연(개인)
+    (NULL, 3, '사내 교육 수강',        DATE_SUB(NOW(6), INTERVAL 1 DAY),      DATE_ADD(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (NULL, 4, '포트폴리오 정리',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 11 DAY), NOW(6), NOW(6)),
+    (NULL, 5, '경비 정산',             DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (NULL, 6, '자격증 신청',           NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
+    (NULL, 7, '건강검진 예약',         NULL,                                  DATE_ADD(CURDATE(), INTERVAL 14 DAY), NOW(6), NOW(6)),
+    (NULL, 8, '온콜 인수인계 문서',    NULL,                                  DATE_SUB(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6));  -- 지연(개인)
 
 
 -- =============================================================================
@@ -171,30 +188,31 @@ VALUES
 INSERT INTO project_posts
     (project_id, author_id, title, content, created_at, modified_at)
 VALUES
-    (1, 1, '킥오프 회의록 공유',        '검색 고도화 프로젝트 킥오프 내용 정리했습니다. 확인 부탁드려요.', '2026-07-16 09:00:00', '2026-07-16 09:00:00'),
-    (1, 2, '인덱싱 개선 논의',          '역색인 구조를 이렇게 바꾸면 어떨지 의견 주세요.',                '2026-07-18 14:20:00', '2026-07-18 14:20:00'),
-    (2, 1, '리뉴얼 범위 공지',          '이번 스프린트 리뉴얼 범위와 우선순위 공유합니다.',              '2026-07-19 10:00:00', '2026-07-19 10:00:00'),
-    (2, 8, '배포 파이프라인 안내',      'CI/CD 파이프라인 사용법 문서 링크 첨부합니다.',                 '2026-07-21 11:30:00', '2026-07-21 11:30:00'),
-    (2, 4, '디자인 시스템 리뷰 요청',   '토큰화한 디자인 시스템 리뷰 부탁드립니다.',                     '2026-07-22 16:40:00', '2026-07-22 16:40:00'),
-    (3, 5, '수집 대상 확정',            '1차 수집 대상 소스 목록 확정했습니다.',                         '2026-07-14 13:00:00', '2026-07-14 13:00:00');
+    (1, 1, '킥오프 회의록 공유',      '검색 고도화 프로젝트 킥오프 내용 정리했습니다. 확인 부탁드려요.', DATE_SUB(NOW(6), INTERVAL 55 DAY), DATE_SUB(NOW(6), INTERVAL 55 DAY)),
+    (1, 2, '인덱싱 개선 논의',        '역색인 구조를 이렇게 바꾸면 어떨지 의견 주세요.',                DATE_SUB(NOW(6), INTERVAL 20 DAY), DATE_SUB(NOW(6), INTERVAL 20 DAY)),
+    (1, 6, '임베딩 모델 비교표',      '후보 모델 3종의 성능·비용 비교표입니다.',                        DATE_SUB(NOW(6), INTERVAL 6 DAY),  DATE_SUB(NOW(6), INTERVAL 6 DAY)),
+    (2, 1, '리뉴얼 범위 공지',        '이번 스프린트 리뉴얼 범위와 우선순위 공유합니다.',              DATE_SUB(NOW(6), INTERVAL 25 DAY), DATE_SUB(NOW(6), INTERVAL 25 DAY)),
+    (2, 8, '배포 파이프라인 안내',    'CI/CD 파이프라인 사용법 문서 링크 첨부합니다.',                 DATE_SUB(NOW(6), INTERVAL 10 DAY), DATE_SUB(NOW(6), INTERVAL 10 DAY)),
+    (2, 4, '디자인 시스템 리뷰 요청', '토큰화한 디자인 시스템 리뷰 부탁드립니다.',                     DATE_SUB(NOW(6), INTERVAL 2 DAY),  DATE_SUB(NOW(6), INTERVAL 2 DAY)),
+    (3, 5, '수집 대상 확정',          '1차 수집 대상 소스 목록 확정했습니다.',                         DATE_SUB(NOW(6), INTERVAL 70 DAY), DATE_SUB(NOW(6), INTERVAL 70 DAY));
 
 
 -- =============================================================================
 -- 7) meetings  (회의록, document_no UNIQUE)
+--   MTG-2026-005 는 소프트 삭제 상태 — @SQLRestriction("deleted_at IS NULL") 로 목록·상세에서 빠져야 합니다.
 -- =============================================================================
 INSERT INTO meetings
     (project_id, document_no, title, author_id, meeting_date, location, purpose, content, follow_up, recording, deleted_at, created_at, modified_at)
 VALUES
-    (1,    'MTG-2026-001', '검색 고도화 킥오프',   1, '2026-06-05', '본사 3층 회의실 A', '프로젝트 범위·일정 합의', '범위, 역할, 마일스톤 확정',       '주간 스프린트 리뷰 운영', 'recordings/mtg-2026-001.mp4', NULL,                  NOW(6), NOW(6)),
-    (2,    'MTG-2026-002', '그룹웨어 리뉴얼 착수', 1, '2026-07-03', '본사 5층 회의실 B', '리뉴얼 착수 및 요구사항', '요구사항 우선순위 정리',         '디자인 시스템 선행',       NULL,                          NULL,                  NOW(6), NOW(6)),
-    (NULL, 'MTG-2026-003', '전사 기획 정기회의',   5, '2026-07-10', '온라인(Zoom)',      '월간 기획 공유',           '부서별 진행상황 공유',           '차월 목표 수립',           'recordings/mtg-2026-003.mp4', NULL,                  NOW(6), NOW(6)),
-    (1,    'MTG-2026-004', '검색 스프린트 리뷰',   2, '2026-07-22', '본사 3층 회의실 A', '스프린트 결과 리뷰',       '인덱싱/랭킹 개선 데모',         '벤치마크 리포트 공유',     NULL,                          NULL,                  NOW(6), NOW(6)),
-    -- 소프트 삭제된 회의: MeetingEntity @SQLRestriction("deleted_at IS NULL") 로 목록/상세에서 자동 제외됨 (필터 테스트용)
-    (2,    'MTG-2026-005', '취소된 중간 점검',     1, '2026-07-08', '본사 5층 회의실 B', '중간 점검(취소)',         '일정 사유로 취소됨',             '재소집 예정',             NULL,                          '2026-07-12 09:00:00', NOW(6), NOW(6));
+    (1,    'MTG-2026-001', '검색 고도화 킥오프',   1, DATE_SUB(CURDATE(), INTERVAL 55 DAY), '본사 3층 회의실 A', '프로젝트 범위·일정 합의', '범위, 역할, 마일스톤 확정',   '주간 스프린트 리뷰 운영', 'recordings/mtg-2026-001.mp4', NULL, NOW(6), NOW(6)),
+    (2,    'MTG-2026-002', '그룹웨어 리뉴얼 착수', 1, DATE_SUB(CURDATE(), INTERVAL 25 DAY), '본사 5층 회의실 B', '리뉴얼 착수 및 요구사항', '요구사항 우선순위 정리',     '디자인 시스템 선행',      NULL,                          NULL, NOW(6), NOW(6)),
+    (NULL, 'MTG-2026-003', '전사 기획 정기회의',   5, DATE_SUB(CURDATE(), INTERVAL 14 DAY), '온라인(Zoom)',      '월간 기획 공유',           '부서별 진행상황 공유',       '차월 목표 수립',          'recordings/mtg-2026-003.mp4', NULL, NOW(6), NOW(6)),
+    (1,    'MTG-2026-004', '검색 스프린트 리뷰',   2, DATE_SUB(CURDATE(), INTERVAL 5 DAY),  '본사 3층 회의실 A', '스프린트 결과 리뷰',       '인덱싱/랭킹 개선 데모',      '벤치마크 리포트 공유',    NULL,                          NULL, NOW(6), NOW(6)),
+    (2,    'MTG-2026-005', '취소된 중간 점검',     1, DATE_SUB(CURDATE(), INTERVAL 20 DAY), '본사 5층 회의실 B', '중간 점검(취소)',         '일정 사유로 취소됨',         '재소집 예정',             NULL,   DATE_SUB(NOW(6), INTERVAL 18 DAY), NOW(6), NOW(6));
 
 
 -- =============================================================================
--- 8) meeting_attendees  (회의별 WRITER 1명 + ATTENDEE, 이름·부서 스냅샷)
+-- 8) meeting_attendees  (회의별 WRITER 1명 + ATTENDEE, 이름·부서는 작성 시점 스냅샷)
 -- =============================================================================
 INSERT INTO meeting_attendees
     (meeting_id, user_id, attendee_name, attendee_department, role, created_at, modified_at)
@@ -205,29 +223,31 @@ VALUES
     (1, 6, '강지우', 'DATA',     'ATTENDEE', NOW(6), NOW(6)),
     (2, 1, '김피엠', 'PM',       'WRITER',   NOW(6), NOW(6)),
     (2, 4, '최서아', 'FRONTEND', 'ATTENDEE', NOW(6), NOW(6)),
-    (2, 8, '임도현', 'DEVOPS',   'ATTENDEE', NOW(6), NOW(6)),
     (2, 5, '정민준', 'PLANNING', 'ATTENDEE', NOW(6), NOW(6)),
+    (2, 8, '임도현', 'DEVOPS',   'ATTENDEE', NOW(6), NOW(6)),
     (3, 5, '정민준', 'PLANNING', 'WRITER',   NOW(6), NOW(6)),
     (3, 1, '김피엠', 'PM',       'ATTENDEE', NOW(6), NOW(6)),
     (4, 2, '이하늘', 'BACKEND',  'WRITER',   NOW(6), NOW(6)),
     (4, 3, '박도윤', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
-    (4, 1, '김피엠', 'PM',       'ATTENDEE', NOW(6), NOW(6));
+    (4, 1, '김피엠', 'PM',       'ATTENDEE', NOW(6), NOW(6)),
+    (5, 1, '김피엠', 'PM',       'WRITER',   NOW(6), NOW(6));
 
 
 -- =============================================================================
--- 9) schedules  (일정, id 1~8) — 7·8 은 휴가로 leaves 확장
+-- 9) schedules  (일정, id 1~8) — 7·8 은 휴가로 schedule_leaves 확장
+--   type: MEETING 회의 / FIELDWORK 외근 / PERSONAL 개인 (휴가는 type이 아니라 leaves 존재로 구분)
 -- =============================================================================
 INSERT INTO schedules
     (user_id, title, start_at, end_at, all_day, type, created_at, modified_at)
 VALUES
-    (1, '주간 팀 미팅',        '2026-07-20 10:00:00', '2026-07-20 11:00:00', FALSE, 'MEETING',   NOW(6), NOW(6)),  -- 1
-    (1, '검색팀 스프린트 리뷰', '2026-07-22 14:00:00', '2026-07-22 15:30:00', FALSE, 'MEETING',   NOW(6), NOW(6)),  -- 2
-    (2, '기술 세미나',          '2026-07-24 16:00:00', '2026-07-24 17:00:00', FALSE, 'MEETING',   NOW(6), NOW(6)),  -- 3
-    (4, '디자인 리뷰',          '2026-07-23 11:00:00', '2026-07-23 12:00:00', FALSE, 'MEETING',   NOW(6), NOW(6)),  -- 4
-    (5, '전사 워크숍',          '2026-07-27 00:00:00', '2026-07-27 23:59:59', TRUE,  'MEETING',   NOW(6), NOW(6)),  -- 5
-    (8, '배포 점검',            '2026-07-25 20:00:00', '2026-07-25 22:00:00', FALSE, 'FIELDWORK', NOW(6), NOW(6)),  -- 6
-    (3, '연차 휴가',            '2026-07-28 00:00:00', '2026-07-28 23:59:59', TRUE,  'PERSONAL',  NOW(6), NOW(6)),  -- 7 (leave, 휴가는 schedule_leaves로 구분)
-    (6, '병가',                 '2026-07-21 00:00:00', '2026-07-21 23:59:59', TRUE,  'PERSONAL',  NOW(6), NOW(6));  -- 8 (leave)
+    (1, '주간 팀 미팅',         TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 1 DAY), '10:00:00'), TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 1 DAY), '11:00:00'), FALSE, 'MEETING',   NOW(6), NOW(6)),
+    (1, '검색팀 스프린트 리뷰', TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 1 DAY), '14:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 1 DAY), '15:30:00'), FALSE, 'MEETING',   NOW(6), NOW(6)),
+    (2, '기술 세미나',          TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 3 DAY), '16:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 3 DAY), '17:00:00'), FALSE, 'MEETING',   NOW(6), NOW(6)),
+    (4, '디자인 리뷰',          TIMESTAMP(CURDATE(), '11:00:00'),                           TIMESTAMP(CURDATE(), '12:00:00'),                           FALSE, 'MEETING',   NOW(6), NOW(6)),
+    (5, '전사 워크숍',          TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 6 DAY), '00:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 6 DAY), '23:59:59'), TRUE,  'MEETING',   NOW(6), NOW(6)),
+    (8, '배포 점검',            TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '20:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '22:00:00'), FALSE, 'FIELDWORK', NOW(6), NOW(6)),
+    (3, '연차 휴가',            TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 7 DAY), '00:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 7 DAY), '23:59:59'), TRUE,  'PERSONAL',  NOW(6), NOW(6)),
+    (6, '병가',                 TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '00:00:00'), TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '23:59:59'), TRUE,  'PERSONAL',  NOW(6), NOW(6));
 
 
 -- =============================================================================
@@ -266,72 +286,72 @@ VALUES
 
 
 -- =============================================================================
--- 12) leave_balances  (연차 현황, 사용자별 2026년 부여일수)
+-- 12) leave_balances  (연차 현황 — 올해 기준으로 부여)
 -- =============================================================================
 INSERT INTO leave_balances
     (user_id, year, granted_days, created_at, modified_at)
 VALUES
-    (1, 2026, 15, NOW(6), NOW(6)),
-    (2, 2026, 15, NOW(6), NOW(6)),
-    (3, 2026, 15, NOW(6), NOW(6)),
-    (4, 2026, 15, NOW(6), NOW(6)),
-    (5, 2026, 15, NOW(6), NOW(6)),
-    (6, 2026, 15, NOW(6), NOW(6)),
-    (7, 2026, 15, NOW(6), NOW(6)),
-    (8, 2026, 15, NOW(6), NOW(6)),
-    (9, 2026, 15, NOW(6), NOW(6)),
-    (10, 2026, 15, NOW(6), NOW(6));
+    (1,  YEAR(CURDATE()), 15, NOW(6), NOW(6)),
+    (2,  YEAR(CURDATE()), 15, NOW(6), NOW(6)),
+    (3,  YEAR(CURDATE()), 15, NOW(6), NOW(6)),
+    (4,  YEAR(CURDATE()), 15, NOW(6), NOW(6)),
+    (5,  YEAR(CURDATE()), 15, NOW(6), NOW(6)),
+    (6,  YEAR(CURDATE()), 15, NOW(6), NOW(6)),
+    (7,  YEAR(CURDATE()), 15, NOW(6), NOW(6)),
+    (8,  YEAR(CURDATE()), 15, NOW(6), NOW(6)),
+    (9,  YEAR(CURDATE()), 15, NOW(6), NOW(6)),
+    (10, YEAR(CURDATE()), 15, NOW(6), NOW(6));
 
 
 -- =============================================================================
--- 13) expenses  (프로젝트 지출)
---   - spender_id 는 해당 프로젝트의 ACTIVE 멤버, expense_date 는 프로젝트 기간 내(등록 API 검증과 동일)
---   - status(사용/사용예정)는 저장하지 않고 조회 시 파생: expense_date <= 오늘(2026-07-23) → EXECUTED, 이후 → PLANNED
---   - deleted_at 이 채워진 2건은 소프트 삭제 확인용 (모든 집계에서 제외되어야 함)
---   - 카테고리·부서를 섞어 예산 현황의 '항목별 / 부서별' 집계를 확인할 수 있게 구성
+-- 13) expenses  (26건)
+--   spender 는 해당 프로젝트의 ACTIVE 멤버, expense_date 는 프로젝트 기간 안(등록 API 검증과 동일).
+--   지출 구분은 저장하지 않고 조회 시 파생: expense_date <= 오늘 → EXECUTED(사용), 이후 → PLANNED(사용 예정).
+--   deleted_at 이 채워진 2건은 소프트 삭제 확인용 — 모든 집계에서 빠져야 합니다.
+--   카테고리·부서를 섞어 예산 현황의 '항목별 / 부서별' 집계를 확인할 수 있게 구성했습니다.
 -- =============================================================================
 INSERT INTO expenses
     (project_id, spender_id, expense_date, category, merchant, purpose, amount, deleted_at, deleted_by, created_at, modified_at)
 VALUES
-    -- P1 AI 검색 고도화 (2026-06-01~09-30, 예산 50,000,000)
-    (1, 1, '2026-06-05', 'TRANSPORT',     '코레일',        '킥오프 출장',            48000,   NULL, NULL, NOW(6), NOW(6)),
-    (1, 2, '2026-06-12', 'SOFTWARE',      'JetBrains',     '개발 IDE 라이선스',      720000,  NULL, NULL, NOW(6), NOW(6)),
-    (1, 6, '2026-06-20', 'INFRA',         'AWS',           'GPU 인스턴스 비용',      1850000, NULL, NULL, NOW(6), NOW(6)),
-    (1, 4, '2026-07-02', 'SOFTWARE',      'Figma',         '디자인 협업 툴',         180000,  NULL, NULL, NOW(6), NOW(6)),
-    (1, 3, '2026-07-10', 'MEAL',          '본죽',          '야근 식대',              32000,   NULL, NULL, NOW(6), NOW(6)),
-    (1, 2, '2026-07-15', 'EDUCATION',     '패스트캠퍼스',  '검색엔진 세미나',        350000,  NULL, NULL, NOW(6), NOW(6)),
-    (1, 1, '2026-07-22', 'MEAL',          '스타벅스',      '스프린트 리뷰 다과',     46000,   NULL, NULL, NOW(6), NOW(6)),
-    (1, 6, '2026-08-05', 'INFRA',         'AWS',           '임베딩 서버 증설',       2400000, NULL, NULL, NOW(6), NOW(6)),  -- 사용 예정
-    (1, 4, '2026-08-20', 'OFFICE_SUPPLY', '오피스디포',    '모니터 암',              220000,  NULL, NULL, NOW(6), NOW(6)),  -- 사용 예정
-    (1, 3, '2026-07-08', 'MEAL',          '김밥천국',      '오기입 - 개인 식사',     9000,    '2026-07-09 10:00:00', 3, NOW(6), NOW(6)),  -- 소프트 삭제
-    -- P2 사내 그룹웨어 리뉴얼 (2026-07-01~12-31, 예산 80,000,000)
-    (2, 1, '2026-07-03', 'MEAL',          '한식당 명가',   '착수 회의 식대',         96000,   NULL, NULL, NOW(6), NOW(6)),
-    (2, 8, '2026-07-08', 'INFRA',         'GitHub',        'Actions 추가 러너',      480000,  NULL, NULL, NOW(6), NOW(6)),
-    (2, 4, '2026-07-14', 'SOFTWARE',      'Figma',         '디자인 시스템 플랜',     360000,  NULL, NULL, NOW(6), NOW(6)),
-    (2, 5, '2026-07-18', 'OFFICE_SUPPLY', '오피스디포',    '워크숍 문구류',          85000,   NULL, NULL, NOW(6), NOW(6)),
-    -- 같은 날 같은 사용처의 정상 지출 2건 (내용 기준 중복 차단을 하면 안 되는 사례)
-    (2, 7, '2026-07-21', 'TRANSPORT',     '카카오T',       '고객사 미팅 이동',       18500,   NULL, NULL, NOW(6), NOW(6)),
-    (2, 8, '2026-07-21', 'TRANSPORT',     '카카오T',       '심야 귀가',              23000,   NULL, NULL, NOW(6), NOW(6)),
-    (2, 1, '2026-08-10', 'OUTSOURCING',   '디자인스튜디오','일러스트 외주',          3200000, NULL, NULL, NOW(6), NOW(6)),  -- 사용 예정
-    (2, 5, '2026-09-01', 'EDUCATION',     '인프런',        'UX 교육',                240000,  NULL, NULL, NOW(6), NOW(6)),  -- 사용 예정
-    (2, 4, '2026-07-16', 'SOFTWARE',      'Adobe',         '중복 결제 오기입',       290000,  '2026-07-17 09:30:00', 4, NOW(6), NOW(6)),  -- 소프트 삭제
-    -- P3 데이터 파이프라인 구축 (보류, 2026-05-01~08-31, 예산 30,000,000)
-    (3, 5, '2026-05-20', 'TRANSPORT',     '코레일',        '수집 요건 협의 출장',    56000,   NULL, NULL, NOW(6), NOW(6)),
-    (3, 6, '2026-06-15', 'INFRA',         'GCP',           'BigQuery 쿼리 비용',     940000,  NULL, NULL, NOW(6), NOW(6)),
-    (3, 2, '2026-07-05', 'SOFTWARE',      'Airbyte',       '커넥터 라이선스',        550000,  NULL, NULL, NOW(6), NOW(6)),
-    (3, 6, '2026-08-15', 'LABOR',         '외부 컨설턴트', '데이터 품질 자문',       1500000, NULL, NULL, NOW(6), NOW(6)),  -- 사용 예정
-    -- P4 레거시 마이그레이션 (완료 프로젝트 — 지출은 상태와 무관하게 기록 가능, 2026-01-01~06-30)
-    (4, 1, '2026-02-10', 'OUTSOURCING',   '클라우드파트너스', '이관 컨설팅',         5000000, NULL, NULL, NOW(6), NOW(6)),
-    (4, 2, '2026-04-15', 'INFRA',         'AWS',           '이관 기간 이중 운영',    3200000, NULL, NULL, NOW(6), NOW(6)),
-    (4, 4, '2026-06-20', 'MEAL',          '고깃집 대성',   '컷오버 회식',            340000,  NULL, NULL, NOW(6), NOW(6));
+    -- P1 AI 검색 고도화
+    (1, 1, DATE_SUB(CURDATE(), INTERVAL 55 DAY), 'TRANSPORT',     '코레일',        '킥오프 출장',            48000,   NULL, NULL, NOW(6), NOW(6)),
+    (1, 2, DATE_SUB(CURDATE(), INTERVAL 46 DAY), 'SOFTWARE',      'JetBrains',     '개발 IDE 라이선스',      720000,  NULL, NULL, NOW(6), NOW(6)),
+    (1, 6, DATE_SUB(CURDATE(), INTERVAL 38 DAY), 'INFRA',         'AWS',           'GPU 인스턴스 비용',      1850000, NULL, NULL, NOW(6), NOW(6)),
+    (1, 4, DATE_SUB(CURDATE(), INTERVAL 26 DAY), 'SOFTWARE',      'Figma',         '디자인 협업 툴',         180000,  NULL, NULL, NOW(6), NOW(6)),
+    (1, 3, DATE_SUB(CURDATE(), INTERVAL 18 DAY), 'MEAL',          '본죽',          '야근 식대',              32000,   NULL, NULL, NOW(6), NOW(6)),
+    (1, 2, DATE_SUB(CURDATE(), INTERVAL 13 DAY), 'EDUCATION',     '패스트캠퍼스',  '검색엔진 세미나',        350000,  NULL, NULL, NOW(6), NOW(6)),
+    (1, 1, DATE_SUB(CURDATE(), INTERVAL 6 DAY),  'MEAL',          '스타벅스',      '스프린트 리뷰 다과',     46000,   NULL, NULL, NOW(6), NOW(6)),
+    (1, 6, DATE_ADD(CURDATE(), INTERVAL 8 DAY),  'INFRA',         'AWS',           '임베딩 서버 증설',       2400000, NULL, NULL, NOW(6), NOW(6)),  -- 사용 예정
+    (1, 4, DATE_ADD(CURDATE(), INTERVAL 23 DAY), 'OFFICE_SUPPLY', '오피스디포',    '모니터 암',              220000,  NULL, NULL, NOW(6), NOW(6)),  -- 사용 예정
+    (1, 3, DATE_SUB(CURDATE(), INTERVAL 20 DAY), 'MEAL',          '김밥천국',      '오기입 - 개인 식사',     9000,    DATE_SUB(NOW(6), INTERVAL 19 DAY), 3, NOW(6), NOW(6)),  -- 소프트 삭제
+    -- P2 사내 그룹웨어 리뉴얼
+    (2, 1, DATE_SUB(CURDATE(), INTERVAL 25 DAY), 'MEAL',          '한식당 명가',   '착수 회의 식대',         96000,   NULL, NULL, NOW(6), NOW(6)),
+    (2, 8, DATE_SUB(CURDATE(), INTERVAL 20 DAY), 'INFRA',         'GitHub',        'Actions 추가 러너',      480000,  NULL, NULL, NOW(6), NOW(6)),
+    (2, 4, DATE_SUB(CURDATE(), INTERVAL 14 DAY), 'SOFTWARE',      'Figma',         '디자인 시스템 플랜',     360000,  NULL, NULL, NOW(6), NOW(6)),
+    (2, 5, DATE_SUB(CURDATE(), INTERVAL 10 DAY), 'OFFICE_SUPPLY', '오피스디포',    '워크숍 문구류',          85000,   NULL, NULL, NOW(6), NOW(6)),
+    -- 같은 날 같은 사용처의 정상 지출 2건 (내용 기준으로 중복을 막으면 안 되는 사례)
+    (2, 7, DATE_SUB(CURDATE(), INTERVAL 7 DAY),  'TRANSPORT',     '카카오T',       '고객사 미팅 이동',       18500,   NULL, NULL, NOW(6), NOW(6)),
+    (2, 8, DATE_SUB(CURDATE(), INTERVAL 7 DAY),  'TRANSPORT',     '카카오T',       '심야 귀가',              23000,   NULL, NULL, NOW(6), NOW(6)),
+    (2, 1, DATE_ADD(CURDATE(), INTERVAL 13 DAY), 'OUTSOURCING',   '디자인스튜디오','일러스트 외주',          3200000, NULL, NULL, NOW(6), NOW(6)),  -- 사용 예정
+    (2, 5, DATE_ADD(CURDATE(), INTERVAL 35 DAY), 'EDUCATION',     '인프런',        'UX 교육',                240000,  NULL, NULL, NOW(6), NOW(6)),  -- 사용 예정
+    (2, 4, DATE_SUB(CURDATE(), INTERVAL 12 DAY), 'SOFTWARE',      'Adobe',         '중복 결제 오기입',       290000,  DATE_SUB(NOW(6), INTERVAL 11 DAY), 4, NOW(6), NOW(6)),  -- 소프트 삭제
+    -- P3 데이터 파이프라인 구축 (보류)
+    (3, 5, DATE_SUB(CURDATE(), INTERVAL 70 DAY), 'TRANSPORT',     '코레일',        '수집 요건 협의 출장',    56000,   NULL, NULL, NOW(6), NOW(6)),
+    (3, 6, DATE_SUB(CURDATE(), INTERVAL 45 DAY), 'INFRA',         'GCP',           'BigQuery 쿼리 비용',     940000,  NULL, NULL, NOW(6), NOW(6)),
+    (3, 2, DATE_SUB(CURDATE(), INTERVAL 22 DAY), 'SOFTWARE',      'Airbyte',       '커넥터 라이선스',        550000,  NULL, NULL, NOW(6), NOW(6)),
+    (3, 6, DATE_ADD(CURDATE(), INTERVAL 18 DAY), 'LABOR',         '외부 컨설턴트', '데이터 품질 자문',       1500000, NULL, NULL, NOW(6), NOW(6)),  -- 사용 예정
+    -- P4 레거시 마이그레이션 (완료 프로젝트 — 지출은 프로젝트 상태와 무관하게 기록 가능)
+    (4, 1, DATE_SUB(CURDATE(), INTERVAL 180 DAY),'OUTSOURCING',   '클라우드파트너스', '이관 컨설팅',         5000000, NULL, NULL, NOW(6), NOW(6)),
+    (4, 2, DATE_SUB(CURDATE(), INTERVAL 110 DAY),'INFRA',         'AWS',           '이관 기간 이중 운영',    3200000, NULL, NULL, NOW(6), NOW(6)),
+    (4, 4, DATE_SUB(CURDATE(), INTERVAL 45 DAY), 'MEAL',          '고깃집 대성',   '컷오버 회식',            340000,  NULL, NULL, NOW(6), NOW(6));
 
 
 -- =============================================================================
 -- 14) idempotency_keys  (멱등 키 — 생성 API 중복 요청 방어 기록)
---   - 실제 요청으로 쌓이는 운영 데이터라 시드는 형태 확인용 소량만 넣는다.
---   - request_hash 는 실제 SHA-256 값이 아닌 더미(64자 hex)다. 같은 키로 재요청하면 해시 불일치로 409가 나므로
---     테스트 시에는 여기 없는 새 UUID를 사용할 것.
---   - created_at 이 24시간 이전인 행은 정리 배치의 삭제 대상이다.
+--   실제 요청으로 쌓이는 운영 데이터라 형태 확인용 소량만 넣습니다.
+--   request_hash 는 실제 SHA-256 값이 아닌 더미(64자 hex)입니다. 같은 키로 재요청하면 해시 불일치로 409가 나므로
+--   테스트할 때는 여기 없는 새 UUID를 사용하세요.
+--   3번째 행은 보관 기간(24시간)이 지나 정리 배치의 삭제 대상입니다.
 -- =============================================================================
 INSERT INTO idempotency_keys
     (idempotency_key, endpoint, user_id, request_hash, resource_id, created_at, modified_at)
@@ -340,39 +360,6 @@ VALUES
      '0000000000000000000000000000000000000000000000000000000000000001', 1, NOW(6), NOW(6)),
     ('22222222-2222-4222-8222-222222222222', 'POST /api/v1/projects/{projectId}/expenses', 2,
      '0000000000000000000000000000000000000000000000000000000000000002', 2, NOW(6), NOW(6)),
-    -- 보관 기간(24시간)이 지나 정리 대상이 되는 행
     ('33333333-3333-4333-8333-333333333333', 'POST /api/v1/projects/{projectId}/expenses', 8,
      '0000000000000000000000000000000000000000000000000000000000000003', 12,
      DATE_SUB(NOW(6), INTERVAL 3 DAY), DATE_SUB(NOW(6), INTERVAL 3 DAY));
-
-
--- =============================================================================
--- 13) expenses  (프로젝트 지출) — spender는 해당 프로젝트 ACTIVE 멤버, 사용일은 프로젝트 기간 내.
---   status(EXECUTED/PLANNED)는 저장 안 함 → 조회 시 today(≈2026-07-23) 기준 파생.
---   과거·오늘 이하 = EXECUTED(사용), 미래 = PLANNED(사용 예정). 부서별 집계용으로 spender 부서 다양.
---   마지막 1건은 소프트 삭제(집계에서 deleted_at IS NULL로 제외되는지 테스트).
--- =============================================================================
-INSERT INTO expenses
-    (project_id, spender_id, expense_date, category, merchant, purpose, amount, deleted_at, deleted_by, created_at, modified_at)
-VALUES
-    -- P1 (AI 검색 고도화, 2026-06-01~09-30)
-    (1, 1, '2026-07-10', 'TRANSPORT',     '코레일',              '부산 거래처 미팅 출장',      48000,   NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
-    (1, 2, '2026-07-15', 'SOFTWARE',      'JetBrains',           'IntelliJ 라이선스 갱신',     250000,  NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
-    (1, 4, '2026-07-20', 'MEAL',          '배달의민족',          '스프린트 회식',              92000,   NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
-    (1, 3, '2026-07-05', 'OFFICE_SUPPLY', '오피스디포',          '모니터 암 구매',             75000,   NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
-    (1, 6, '2026-07-28', 'EDUCATION',     '패스트캠퍼스',        'MLOps 세미나 등록',          180000,  NULL, NULL, NOW(6), NOW(6)),  -- PLANNED
-    (1, 2, '2026-08-05', 'INFRA',         'AWS',                 'GPU 인스턴스 비용',          620000,  NULL, NULL, NOW(6), NOW(6)),  -- PLANNED
-    -- P2 (사내 그룹웨어 리뉴얼, 2026-07-01~12-31)
-    (2, 1, '2026-07-08', 'SOFTWARE',      'Figma',               '디자인 협업 툴 팀 플랜',     144000,  NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
-    (2, 4, '2026-07-18', 'MEAL',          '스타벅스',            '디자인 리뷰 간식',           38000,   NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
-    (2, 5, '2026-07-22', 'TRANSPORT',     '카카오T',             '고객사 미팅 이동',           21000,   NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
-    (2, 8, '2026-08-01', 'INFRA',         'GitHub',              'Actions 추가 사용량',        96000,   NULL, NULL, NOW(6), NOW(6)),  -- PLANNED
-    (2, 7, '2026-07-30', 'EDUCATION',     '인프런',              '웹 접근성 강의 수강',        66000,   NULL, NULL, NOW(6), NOW(6)),  -- PLANNED
-    -- P3 (데이터 파이프라인, 2026-05-01~08-31)
-    (3, 5, '2026-06-20', 'OUTSOURCING',   '데이터라벨링코리아',  '라벨링 외주 1차',            3200000, NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
-    (3, 6, '2026-07-12', 'SOFTWARE',      'Snowflake',           '데이터 웨어하우스 크레딧',   480000,  NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
-    -- P4 (레거시 마이그레이션, 2026-01-01~06-30, 완료 프로젝트 — 전부 과거/EXECUTED)
-    (4, 2, '2026-05-15', 'LABOR',         '외부 계약직',         '마이그레이션 지원 인건비',   2800000, NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
-    (4, 1, '2026-06-10', 'ETC',           '기타',                '컷오버 비상 대기 식대',      120000,  NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
-    -- 소프트 삭제된 지출 (오기입 정정) — 집계에서 deleted_at IS NULL로 제외되어야 함
-    (1, 2, '2026-07-16', 'TRANSPORT',     '택시',                '오기입(중복 등록) 정정',     30000,   '2026-07-17 10:00:00', 2, NOW(6), NOW(6));
