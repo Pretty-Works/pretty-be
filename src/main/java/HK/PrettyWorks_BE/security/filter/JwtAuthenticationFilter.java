@@ -48,11 +48,8 @@ public class JwtAuthenticationFilter extends OncePerRequestFilter {
                 throw new BaseException(GlobalErrorCode.INVALID_TOKEN_TYPE);
             }
 
-            // 인증 주체로 사용할 userId를 토큰에서 꺼냅니다.
-            Long userId = claims.get(AuthConstant.USER_ID_CLAIM_NAME, Long.class);
-            if (userId == null) {
-                throw new BaseException(GlobalErrorCode.INVALID_JWT);
-            }
+            // 인증 주체로 사용할 userId를 토큰에서 꺼냅니다. (누락 검증 포함)
+            Long userId = JwtUtil.getUserId(claims);
 
             // Spring Security가 이해하는 인증 객체를 만들어 현재 요청의 인증 상태로 등록합니다.
             UserAuthentication authentication = UserAuthentication.createUserAuthentication(userId);

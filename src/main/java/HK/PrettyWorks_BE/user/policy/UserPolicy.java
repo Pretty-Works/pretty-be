@@ -9,9 +9,16 @@ public final class UserPolicy {
     private UserPolicy() {
     }
 
-    // "이 사용자를 쓸 수 있나" = 재직중(ACTIVE). 휴직·퇴사는 모두 비활성으로 본다.
-    // (일정 도메인의 "휴직 허용, 퇴사만 거부"는 규칙이 달라 이 술어를 쓰지 않는다 — 필요 시 isEmployed() 별도 추가)
+    // "지금 업무에 참여할 수 있나" = 재직중(ACTIVE). 휴직·퇴사는 모두 거부.
+    // 프로젝트 참여자·지출 등록 등 업무 행위의 기준. isEmployed의 부분집합이다.
     public static boolean isActive(UserEntity user) {
         return user.getStatus() == StatusType.ACTIVE;
+    }
+
+    // "아직 회사 소속인가" = 퇴사(RESIGNED)만 거부. 휴직(ON_LEAVE)은 포함.
+    // 로그인 가능 여부와 일정 참가자 등록의 공통 기준.
+    // TODO: 일정 도메인(ScheduleService)의 RESIGNED 직접 비교도 이 술어로 통합 예정 (담당자 작업)
+    public static boolean isEmployed(UserEntity user) {
+        return user.getStatus() != StatusType.RESIGNED;
     }
 }

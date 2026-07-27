@@ -14,8 +14,6 @@ public class AuthConstant {
     public static final String ACCESS_TOKEN_TYPE = "access";
     // 토큰 재발급에만 사용할 토큰 타입입니다.
     public static final String REFRESH_TOKEN_TYPE = "refresh";
-    // Spring Security가 익명 사용자를 표현할 때 쓰는 기본 principal 값입니다.
-    public static final String ANONYMOUS_USER = "anonymousUser";
     // 인증 없이 접근 가능한 최소 공개 경로입니다.
     public static final String[] AUTH_WHITELIST = {
             "/**"

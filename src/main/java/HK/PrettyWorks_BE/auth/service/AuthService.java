@@ -12,6 +12,7 @@ import HK.PrettyWorks_BE.auth.repository.RefreshTokenRepository;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.constant.StatusType;
+import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
@@ -40,6 +41,12 @@ public class AuthService {
                 .orElseThrow(() -> BaseException.type(AuthErrorCode.INVALID_CREDENTIALS));
 
         if (!passwordEncoder.matches(request.password(), user.getPasswordHash())) {
+            throw BaseException.type(AuthErrorCode.INVALID_CREDENTIALS);
+        }
+
+        // 퇴사자는 로그인 자체를 막습니다(휴직자는 복귀 준비·조회를 위해 허용).
+        // 계정 상태가 노출되지 않도록 자격 증명 실패와 동일한 에러로 응답합니다.
+        if (!UserPolicy.isEmployed(user)) {
             throw BaseException.type(AuthErrorCode.INVALID_CREDENTIALS);
         }
 
@@ -80,10 +87,7 @@ public class AuthService {
             throw BaseException.type(GlobalErrorCode.INVALID_TOKEN_TYPE);
         }
 
-        Long userId = claims.get(AuthConstant.USER_ID_CLAIM_NAME, Long.class);
-        if (userId == null) {
-            throw BaseException.type(GlobalErrorCode.INVALID_JWT);
-        }
+        Long userId = JwtUtil.getUserId(claims);
 
         RefreshTokenEntity stored = refreshTokenRepository.findById(userId)
                 .orElseThrow(() -> BaseException.type(GlobalErrorCode.REFRESH_TOKEN_NOT_FOUND));
@@ -92,6 +96,16 @@ public class AuthService {
         if (!stored.getToken().equals(request.refreshToken())) {
             refreshTokenRepository.deleteById(userId);
             throw BaseException.type(GlobalErrorCode.REFRESH_TOKEN_MISMATCH);
+        }
+
+        // 재발급 시점의 재직 상태를 다시 확인합니다. 로그인만 막으면 이미 발급된 refresh token으로
+        // 계속 갱신할 수 있어 퇴사자 차단이 우회됩니다. 규칙은 로그인과 동일(휴직 허용, 퇴사 차단).
+        UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED));
+        if (!UserPolicy.isEmployed(user)) {
+            // 저장된 refresh token까지 폐기해 이후 재시도를 확실히 끊습니다. (도난 분기와 동일하게 커밋됨)
+            refreshTokenRepository.deleteById(userId);
+            throw BaseException.type(GlobalErrorCode.UNAUTHORIZED);
         }
 
         return issueTokensAndPersist(userId);
