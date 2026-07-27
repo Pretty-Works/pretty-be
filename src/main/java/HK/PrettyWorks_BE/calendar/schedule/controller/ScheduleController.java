@@ -70,6 +70,18 @@ public class ScheduleController {
         return null;
     }
 
+    // 참가자가 본인의 참여만 제거(나가기, soft delete). 작성자는 나가기 불가(전체삭제 이용, 혼자면 전체삭제로 흡수).
+    @Operation(summary = "일정 나가기", description = "본인 참여만 제거(soft delete). 작성자는 나가기 불가, 혼자면 전체삭제")
+    @DeleteMapping("/api/v1/calendar/schedules/{scheduleId}/me")
+    public Void leave(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long scheduleId
+    ) {
+        scheduleService.leave(userId, scheduleId);
+
+        return null;
+    }
+
     // 본인이 작성한 일정만 부분 수정합니다. 전달된 필드만 반영하고, participantUserIds 전달 시 참가자를 교체합니다.
     @Operation(summary = "일정 수정", description = "본인 작성 일정만 부분 수정. 전달된 필드만 반영, 참가자 교체 가능")
     @PatchMapping("/api/v1/calendar/schedules/{scheduleId}")

@@ -246,7 +246,7 @@ public class ScheduleService {
 
         // 5) [쿼리2] 결과 일정들의 참가자 전부 (IN 절 한 번)
         List<Long> scheduleIds = schedules.stream().map(ScheduleEntity::getId).toList();
-        List<ScheduleParticipantEntity> participants = scheduleParticipantRepository.findByScheduleIdIn(scheduleIds);
+        List<ScheduleParticipantEntity> participants = scheduleParticipantRepository.findByScheduleIdInAndLeftAtIsNull(scheduleIds);
 
         // 6) [쿼리3] 참가자들의 이름 (userId → name 맵)
         Set<Long> participantUserIds = participants.stream()
@@ -294,5 +294,33 @@ public class ScheduleService {
         }
 
         return ScheduleListResponse.builder().schedules(items).build();
+    }
+
+    @Transactional
+    public void leave(Long userId, Long scheduleId) {
+        // 1) 일정 조회 — 없으면 SCHEDULE_001(404)
+        ScheduleEntity schedule = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> BaseException.type(ScheduleErrorCode.SCHEDULE_NOT_FOUND));
+
+        // 2) 내 '활성' 참가 행 — 없으면 참가자 아님(SCHEDULE_006, 404). 이미 나갔거나 애초에 미참여.
+        ScheduleParticipantEntity myParticipation = scheduleParticipantRepository
+                .findByScheduleIdAndUserIdAndLeftAtIsNull(scheduleId, userId)
+                .orElseThrow(() -> BaseException.type(ScheduleErrorCode.NOT_A_PARTICIPANT));
+
+        // 3) 작성자(오너)인 경우 — 나가기 대신 전체삭제 규칙 적용
+        if (schedule.getUserId().equals(userId)) {
+            // 3-1) 다른 활성 참가자가 있으면 나갈 수 없음(SCHEDULE_005). 전체 삭제를 이용해야 한다.
+            boolean othersActive = scheduleParticipantRepository
+                    .existsByScheduleIdAndUserIdNotAndLeftAtIsNull(scheduleId, userId);
+            if (othersActive) {
+                throw BaseException.type(ScheduleErrorCode.OWNER_CANNOT_LEAVE);
+            }
+            // 3-2) 혼자면 나가기 = 전체삭제(hard). schedule_participants·schedule_leaves는 CASCADE 정리.
+            scheduleRepository.delete(schedule);
+            return;
+        }
+
+        // 4) 일반 참가자 — 본인 참여만 soft delete(left_at 세팅 → 더티 체킹으로 UPDATE)
+        myParticipation.leave();
     }
 }
