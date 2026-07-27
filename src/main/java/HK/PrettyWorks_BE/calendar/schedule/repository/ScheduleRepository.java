@@ -19,7 +19,7 @@ public interface ScheduleRepository extends JpaRepository<ScheduleEntity, Long> 
               AND s.endAt >= :fromStart
               AND s.id IN (
                   SELECT p.scheduleId FROM ScheduleParticipantEntity p
-                  WHERE p.userId IN :userIds
+                  WHERE p.userId IN :userIds AND p.leftAt IS NULL
               )
             ORDER BY s.startAt ASC
             """)
