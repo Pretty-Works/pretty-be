@@ -14,7 +14,8 @@ public enum ScheduleErrorCode implements ErrorCode {
     NO_SCHEDULE_PERMISSION(HttpStatus.FORBIDDEN, "SCHEDULE_003", "본인이 작성한 일정만 수정·삭제할 수 있습니다."),
     INVALID_SEARCH_PERIOD(HttpStatus.BAD_REQUEST, "SCHEDULE_004", "조회 종료일은 시작일 이후여야 합니다."),
     OWNER_CANNOT_LEAVE(HttpStatus.BAD_REQUEST, "SCHEDULE_005", "작성자는 나갈 수 없습니다. 전체 삭제를 이용해 주세요."),
-    NOT_A_PARTICIPANT(HttpStatus.NOT_FOUND, "SCHEDULE_006", "해당 일정의 참가자가 아닙니다.");
+    NOT_A_PARTICIPANT(HttpStatus.NOT_FOUND, "SCHEDULE_006", "해당 일정의 참가자가 아닙니다."),
+    LEAVE_NOT_EDITABLE_HERE(HttpStatus.BAD_REQUEST, "SCHEDULE_007", "휴가 일정은 휴가 수정 API로만 변경할 수 있습니다.");
 
     private final HttpStatus status;
     private final String errorCode;
