@@ -5,6 +5,7 @@ import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.project.member.constant.ProjectMemberStatus;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
 import HK.PrettyWorks_BE.project.member.repository.ProjectMemberRepository;
+import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
 import HK.PrettyWorks_BE.project.project.domain.MilestoneEntity;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
@@ -46,6 +47,7 @@ public class ProjectService {
     private final CurrentUserService currentUserService;
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
+    private final ProjectMemberService projectMemberService;
     private final MilestoneRepository milestoneRepository;
 
     @Transactional
@@ -126,8 +128,7 @@ public class ProjectService {
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
 
         // 2) 수정 권한 (PROJECT_005): 호출자의 참여중(ACTIVE) 멤버십이 오너이거나 role="PM"
-        ProjectMemberEntity caller = projectMemberRepository
-                .findByProjectIdAndUserIdAndStatus(projectId, userId, ProjectMemberStatus.ACTIVE)
+        ProjectMemberEntity caller = projectMemberService.getActiveMembership(projectId, userId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.NO_EDIT_PERMISSION));
         if (!ProjectPolicy.canUpdate(caller)) {
             throw BaseException.type(ProjectErrorCode.NO_EDIT_PERMISSION);
@@ -174,8 +175,7 @@ public class ProjectService {
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
 
         // 2) 상태 변경 권한 (PROJECT_017): 호출자의 참여중(ACTIVE) 멤버십이 오너여야 함
-        ProjectMemberEntity caller = projectMemberRepository
-                .findByProjectIdAndUserIdAndStatus(projectId, userId, ProjectMemberStatus.ACTIVE)
+        ProjectMemberEntity caller = projectMemberService.getActiveMembership(projectId, userId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.NO_STATUS_CHANGE_PERMISSION));
         if (!ProjectPolicy.canChangeStatus(caller)) {
             throw BaseException.type(ProjectErrorCode.NO_STATUS_CHANGE_PERMISSION);
