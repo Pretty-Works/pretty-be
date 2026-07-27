@@ -98,6 +98,16 @@ public class AuthService {
             throw BaseException.type(GlobalErrorCode.REFRESH_TOKEN_MISMATCH);
         }
 
+        // 재발급 시점의 재직 상태를 다시 확인합니다. 로그인만 막으면 이미 발급된 refresh token으로
+        // 계속 갱신할 수 있어 퇴사자 차단이 우회됩니다. 규칙은 로그인과 동일(휴직 허용, 퇴사 차단).
+        UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED));
+        if (!UserPolicy.isEmployed(user)) {
+            // 저장된 refresh token까지 폐기해 이후 재시도를 확실히 끊습니다. (도난 분기와 동일하게 커밋됨)
+            refreshTokenRepository.deleteById(userId);
+            throw BaseException.type(GlobalErrorCode.UNAUTHORIZED);
+        }
+
         return issueTokensAndPersist(userId);
     }
 

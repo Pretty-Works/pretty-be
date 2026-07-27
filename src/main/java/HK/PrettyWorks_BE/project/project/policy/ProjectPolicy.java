@@ -1,7 +1,6 @@
 package HK.PrettyWorks_BE.project.project.policy;
 
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
-import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.user.constant.DepartmentType;
