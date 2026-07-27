@@ -8,6 +8,7 @@ import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.support.TransactionTemplate;
+import tools.jackson.databind.ObjectMapper;
 
 import java.nio.charset.StandardCharsets;
 import java.security.MessageDigest;
@@ -21,11 +22,21 @@ import java.util.function.Supplier;
 public class IdempotencyService {
 
     private final IdempotencyKeyRepository repository;
+    private final ObjectMapper objectMapper;
     private final TransactionTemplate txTemplate;
 
-    public IdempotencyService(IdempotencyKeyRepository repository, PlatformTransactionManager txManager) {
+    public IdempotencyService(IdempotencyKeyRepository repository, ObjectMapper objectMapper,
+                              PlatformTransactionManager txManager) {
         this.repository = repository;
+        this.objectMapper = objectMapper;
         this.txTemplate = new TransactionTemplate(txManager);
+    }
+
+    // 요청 지문을 만듭니다. "메서드 | 실제 경로(path variable 포함) | 요청 본문(JSON)".
+    // 본문은 직렬화로 만들기 때문에 DTO에 필드가 늘어도 자동 반영됩니다.
+    // (필드를 손으로 이어붙이면 갱신을 빠뜨렸을 때 서로 다른 요청이 같은 지문이 되어 잘못된 응답이 재생됩니다)
+    public String fingerprint(String method, String path, Object requestBody) {
+        return method + "|" + path + "|" + objectMapper.writeValueAsString(requestBody);
     }
 
     // 생성 로직을 트랜잭션으로 실행한다. 키 유무 분기·트랜잭션·해싱·409를 모두 여기서 담당하므로,
