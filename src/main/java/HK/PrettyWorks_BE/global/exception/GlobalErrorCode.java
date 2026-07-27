@@ -45,6 +45,7 @@ public enum GlobalErrorCode implements ErrorCode{
     REFRESH_TOKEN_MISMATCH(HttpStatus.UNAUTHORIZED, "REQUEST_025", "리프레시 토큰이 일치하지 않습니다."),
     MISSING_REQUEST_PART(HttpStatus.BAD_REQUEST, "REQUEST_026", "필수 multipart 파트가 누락되었습니다."),
     PAYLOAD_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "REQUEST_027", "업로드 파일 크기가 허용된 한도를 초과했습니다."),
+    IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "REQUEST_028", "동일한 요청 키로 다른 내용의 요청이 접수되었습니다."),
 
 
     /**
