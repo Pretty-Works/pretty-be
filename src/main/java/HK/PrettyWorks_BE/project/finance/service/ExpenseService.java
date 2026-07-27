@@ -50,10 +50,8 @@ public class ExpenseService {
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(ExpenseErrorCode.PROJECT_NOT_FOUND));
 
-        // 2) 작성 권한 — 참여중(ACTIVE) 멤버만 (EXPENSE_002). 오너 특권 없음, 직급·부서 무관.
-        if (!projectMemberService.isActiveMember(projectId, spenderId)) {
-            throw BaseException.type(ExpenseErrorCode.NO_EXPENSE_PERMISSION);
-        }
+        // 2) 작성 권한 — 참여중(ACTIVE) 멤버만 (MEMBER_001). 오너 특권 없음, 직급·부서 무관.
+        projectMemberService.validateActiveMember(projectId, spenderId);
 
         // 3) 지출자(=호출자) 활성 검증 (USER_001)
         currentUserService.getActiveUser(spenderId);

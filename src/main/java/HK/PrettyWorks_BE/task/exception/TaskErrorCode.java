@@ -10,7 +10,7 @@ import org.springframework.http.HttpStatus;
 @AllArgsConstructor(access = AccessLevel.PRIVATE)
 public enum TaskErrorCode implements ErrorCode {
     PROJECT_NOT_FOUND(HttpStatus.NOT_FOUND, "TASK_001", "프로젝트를 찾을 수 없습니다."),
-    PROJECT_ACCESS_DENIED(HttpStatus.FORBIDDEN, "TASK_002", "해당 프로젝트에 접근할 권한이 없습니다."),
+    // TASK_002(프로젝트 접근 권한 없음)는 공용 MEMBER_001로 통합되어 제거됨. 나머지 코드의 의미가 바뀌지 않도록 번호는 재사용하지 않는다.
     TASK_NOT_FOUND(HttpStatus.NOT_FOUND, "TASK_003", "할 일을 찾을 수 없습니다."),
     NO_EDIT_PERMISSION(HttpStatus.FORBIDDEN, "TASK_004", "할 일을 수정할 권한이 없습니다."),
     NO_DELETE_PERMISSION(HttpStatus.FORBIDDEN, "TASK_005", "할 일을 삭제할 권한이 없습니다."),

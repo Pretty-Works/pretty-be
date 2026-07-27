@@ -171,7 +171,7 @@ public class TaskService {
 
     @Transactional(readOnly = true)
     public TaskProjectResponse getTaskProject(Long userId, Long projectId, int weekOffset) {
-        // 1) 프로젝트 존재·멤버십 검증 (TASK_001 / TASK_002) — 조회는 상태·마감일 검증 없이 멤버십만
+        // 1) 프로젝트 존재·멤버십 검증 (TASK_001 / MEMBER_001) — 조회는 상태·마감일 검증 없이 멤버십만
         validateProjectAccess(projectId, userId);
 
         // 2) 조회자 부서 (isMine 판정용). 토큰은 유효한데 유저가 없으면 인증을 신뢰할 수 없어 UNAUTHORIZED.
@@ -244,7 +244,7 @@ public class TaskService {
         return total == 0 ? 0 : done * 100 / total;
     }
 
-    // 쓰기(생성/수정)용: 프로젝트 존재(TASK_001)·멤버(TASK_002)·상태(완료/보관 불가, TASK_006)·마감일 기간(TASK_007) 검증.
+    // 쓰기(생성/수정)용: 프로젝트 존재(TASK_001)·멤버(MEMBER_001)·상태(완료/보관 불가, TASK_006)·마감일 기간(TASK_007) 검증.
     // null이면 개인 할 일이라 통과. 마감일은 프로젝트 기간 양끝(start·target 당일) 포함.
     private void validateProjectForWrite(Long projectId, Long userId, LocalDate dueDate) {
         if (projectId == null) {
@@ -252,9 +252,7 @@ public class TaskService {
         }
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(TaskErrorCode.PROJECT_NOT_FOUND));
-        if (!projectMemberService.isActiveMember(projectId, userId)) {
-            throw BaseException.type(TaskErrorCode.PROJECT_ACCESS_DENIED);
-        }
+        projectMemberService.validateActiveMember(projectId, userId);
         ProjectStatus status = project.getStatus();
         if (status == ProjectStatus.COMPLETED || status == ProjectStatus.ARCHIVED) {
             throw BaseException.type(TaskErrorCode.PROJECT_CLOSED);
@@ -264,7 +262,7 @@ public class TaskService {
         }
     }
 
-    // 읽기(조회)용: projectId가 있으면 프로젝트 존재(TASK_001)·작성자 멤버(TASK_002)만 검증. null이면 개인 할 일이라 통과.
+    // 읽기(조회)용: projectId가 있으면 프로젝트 존재(TASK_001)·작성자 멤버(MEMBER_001)만 검증. null이면 개인 할 일이라 통과.
     private void validateProjectAccess(Long projectId, Long userId) {
         if (projectId == null) {
             return;
@@ -272,8 +270,6 @@ public class TaskService {
         if (!projectRepository.existsById(projectId)) {
             throw BaseException.type(TaskErrorCode.PROJECT_NOT_FOUND);
         }
-        if (!projectMemberService.isActiveMember(projectId, userId)) {
-            throw BaseException.type(TaskErrorCode.PROJECT_ACCESS_DENIED);
-        }
+        projectMemberService.validateActiveMember(projectId, userId);
     }
 }
