@@ -10,6 +10,7 @@ import lombok.NoArgsConstructor;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 
 @Entity
 @Table(name = "projects")
@@ -72,6 +73,25 @@ public class ProjectEntity extends BaseTimeEntity {
     // 상태 변경 API: 프로젝트 진행 상태만 변경합니다.
     public void changeStatus(ProjectStatus status) {
         this.status = status;
+    }
+
+    // 진행률(%)을 조회 시점의 날짜로 계산합니다. 저장하지 않는 파생값입니다.
+    // 시작 전 0, 종료일 이후 100, 그 사이는 경과 비율(내림). 하루짜리 프로젝트(시작일=목표일)는 0으로 나누지 않도록 분기합니다.
+    public int calculateProgress(LocalDate today) {
+        long totalDays = ChronoUnit.DAYS.between(startDate, targetDate);
+        if (totalDays <= 0) {
+            return today.isBefore(startDate) ? 0 : 100;
+        }
+
+        long elapsedDays = ChronoUnit.DAYS.between(startDate, today);
+        if (elapsedDays <= 0) {
+            return 0;
+        }
+        if (elapsedDays >= totalDays) {
+            return 100;
+        }
+
+        return (int) (elapsedDays * 100 / totalDays);
     }
 
 }

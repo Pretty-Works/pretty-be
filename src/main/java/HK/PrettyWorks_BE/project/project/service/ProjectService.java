@@ -2,6 +2,7 @@ package HK.PrettyWorks_BE.project.project.service;
 
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
+import HK.PrettyWorks_BE.global.lock.VersionGuard;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
 import HK.PrettyWorks_BE.project.member.constant.ProjectMemberStatus;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
@@ -13,6 +14,7 @@ import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest.MemberRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest.MilestoneRequest;
+import HK.PrettyWorks_BE.project.project.dto.res.ProjectDetailResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectStatusResponse;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
@@ -23,6 +25,7 @@ import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.exception.UserErrorCode;
 import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
+import HK.PrettyWorks_BE.user.service.UserService;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -40,6 +43,7 @@ import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
 import java.util.function.Supplier;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -47,11 +51,14 @@ public class ProjectService {
 
     private final UserRepository userRepository;
     private final CurrentUserService currentUserService;
+    private final UserService userService;
     private final ProjectRepository projectRepository;
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectMemberService projectMemberService;
     private final MilestoneRepository milestoneRepository;
     private final IdempotencyService idempotencyService;
+    // 기간 축소 시 하위 데이터를 검사할 도메인들. 각 도메인이 구현체를 등록하고 Spring이 모아서 주입한다.
+    private final List<ProjectPeriodConstraint> periodConstraints;
 
     // 프로젝트 생성. 멱등 키가 있으면 중복 생성을 방어한다(같은 키·같은 요청은 첫 응답 재생, 다른 내용은 409).
     // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않는다.
@@ -137,10 +144,10 @@ public class ProjectService {
     }
 
     @Transactional
-    public ProjectResponse update(Long userId, Long projectId, ProjectRequest request) {
+    public ProjectResponse update(Long userId, Long projectId, Long version, ProjectRequest request) {
         // 1) 대상 프로젝트 조회 (PROJECT_004)
         //    오너·PM이 동시에 수정할 수 있으므로 낙관적 락으로 조회한다. 커밋 시 version이 강제로 올라가며,
-        //    그 사이 다른 트랜잭션이 먼저 커밋했다면 충돌로 실패한다(PROJECT_020, 전역 핸들러가 변환).
+        //    그 사이 다른 트랜잭션이 먼저 커밋했다면 충돌로 실패한다(REQUEST_029, 전역 핸들러가 변환).
         ProjectEntity project = projectRepository.findByIdWithOptimisticLock(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
 
@@ -151,37 +158,126 @@ public class ProjectService {
             throw BaseException.type(ProjectErrorCode.NO_EDIT_PERMISSION);
         }
 
-        // 3) 기간 검증 (PROJECT_003)
+        // 3) 종료된 프로젝트는 수정 불가 (PROJECT_020). 보관(ARCHIVED)은 소프트 삭제라 내용이 바뀌면 안 되고,
+        //    완료(COMPLETED)도 확정된 기록으로 본다. 버전 검사보다 먼저 해야 원인이 명확한 에러가 나간다.
+        if (!ProjectPolicy.isOpenForContent(project)) {
+            throw BaseException.type(ProjectErrorCode.PROJECT_CLOSED);
+        }
+
+        // 4) 선행 조건 검증 (REQUEST_029): 클라이언트가 상세 조회에서 받은 version과 현재 version이 같아야 한다.
+        //    수정 폼을 열어둔 사이 다른 사용자가 먼저 저장했다면 여기서 걸린다.
+        //    (거의 같은 순간 도착한 요청은 이 검사를 둘 다 통과하므로, 커밋 시점의 낙관적 락이 뒤늦은 쪽을 막는다)
+        VersionGuard.validate(project.getVersion(), version);
+
+        // 5) 기간 검증 (PROJECT_003)
         LocalDate startDate = request.startDate();
         LocalDate endDate = request.endDate();
         validatePeriod(startDate, endDate);
 
-        // 4) 마일스톤 검증 (PROJECT_016 → PROJECT_015)
+        // 6) 기간을 줄이는 경우, 새 기간을 벗어나 남게 되는 하위 데이터가 있으면 차단 (PROJECT_021)
+        validatePeriodShrink(project, startDate, endDate);
+
+        // 7) 마일스톤 검증 (PROJECT_016 → PROJECT_015)
         List<MilestoneRequest> milestones = cleanMilestones(request.milestones());
         validateMilestones(milestones, startDate, endDate);
 
-        // 5) 오너 행 조회 — 참여자 제외 기준이자 오너 역할 갱신 대상 (오너는 항상 존재)
+        // 8) 오너 행 조회 — 참여자 제외 기준이자 오너 역할 갱신 대상 (오너는 항상 존재)
         ProjectMemberEntity owner = projectMemberRepository.findOwner(projectId)
                 .orElseThrow(() -> BaseException.type(GlobalErrorCode.INTERNAL_SERVER_ERROR));
 
-        // 6) 요청 참여자 정리(오너 제외 + 중복 제거) 후 존재·퇴사 여부 검증 (PROJECT_002 / USER_003)
+        // 9) 요청 참여자 정리(오너 제외 + 중복 제거) 후 존재·퇴사 여부 검증 (PROJECT_002 / USER_003)
         Map<Long, MemberRequest> requested = collectParticipants(request.members(), owner.getUserId());
         validateParticipants(requested.keySet());
 
-        // 7) 프로젝트 기본정보 수정 (status는 이 API로 바꾸지 않음, 예산 null→0)
+        // 10) 프로젝트 기본정보 수정 (status는 이 API로 바꾸지 않음, 예산 null→0)
         project.update(request.name(), startDate, endDate, budgetOrZero(request.budget()), request.description());
 
-        // 8) 오너 직무 역할 갱신
+        // 11) 오너 직무 역할 갱신
         owner.updateRole(request.ownerRole());
 
-        // 9) 참여자 diff (추가 insert / 재활성화 / 역할 변경 / 빠짐 soft-delete)
+        // 12) 참여자 diff (추가 insert / 재활성화 / 역할 변경 / 빠짐 soft-delete)
         updateParticipants(projectId, requested);
 
-        // 10) 마일스톤: 현재와 비교해 다르면 전체 교체
+        // 13) 마일스톤: 현재와 비교해 다르면 전체 교체
         replaceMilestonesIfChanged(projectId, milestones);
 
         return ProjectResponse.builder()
                 .projectId(project.getId())
+                .build();
+    }
+
+    // 수정 화면 진입용 상세 조회. 참여중(ACTIVE) 멤버면 누구나 조회할 수 있다(수정 권한과 달리 역할을 보지 않음).
+    @Transactional(readOnly = true)
+    public ProjectDetailResponse getDetail(Long userId, Long projectId) {
+        // 1) 대상 프로젝트 조회 (PROJECT_004)
+        ProjectEntity project = projectRepository.findById(projectId)
+                .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
+
+        // 2) 조회 권한 — 참여중 멤버만 (MEMBER_001)
+        projectMemberService.validateActiveMember(projectId, userId);
+
+        // 3) 참여중 멤버 전체를 한 번에 조회해 오너/참여자로 나눈다. (참여 순 고정)
+        List<ProjectMemberEntity> activeMembers =
+                projectMemberRepository.findByProjectIdAndStatusOrderByIdAsc(projectId, ProjectMemberStatus.ACTIVE);
+
+        ProjectMemberEntity ownerMember = null;
+        List<ProjectMemberEntity> participants = new ArrayList<>();
+        for (ProjectMemberEntity m : activeMembers) {
+            if (m.isOwner()) {
+                ownerMember = m;
+            } else {
+                participants.add(m);
+            }
+        }
+        if (ownerMember == null) {
+            throw BaseException.type(GlobalErrorCode.INTERNAL_SERVER_ERROR);   // 오너는 항상 존재해야 한다
+        }
+
+        // 4) 멤버 이름을 한 번에 조회 (userId → name). 루프 안에서 개별 조회하지 않는다.
+        Set<Long> memberUserIds = activeMembers.stream()
+                .map(ProjectMemberEntity::getUserId)
+                .collect(Collectors.toSet());
+        Map<Long, String> nameById = userService.getNameMap(memberUserIds);
+
+        // 5) 마일스톤 (목표일 오름차순)
+        List<MilestoneEntity> milestones = milestoneRepository.findByProjectIdOrderByTargetDateAsc(projectId);
+
+        // 6) 조립 — progress는 오늘 날짜로 계산한 파생값
+        ProjectDetailResponse.Owner owner = ProjectDetailResponse.Owner.builder()
+                .userId(ownerMember.getUserId())
+                .name(nameById.get(ownerMember.getUserId()))
+                .ownerRole(ownerMember.getRole())
+                .build();
+
+        List<ProjectDetailResponse.Member> memberDtos = participants.stream()
+                .map(m -> ProjectDetailResponse.Member.builder()
+                        .userId(m.getUserId())
+                        .name(nameById.get(m.getUserId()))
+                        .role(m.getRole())
+                        .build())
+                .toList();
+
+        List<ProjectDetailResponse.Milestone> milestoneDtos = milestones.stream()
+                .map(m -> ProjectDetailResponse.Milestone.builder()
+                        .milestoneId(m.getId())
+                        .targetDate(m.getTargetDate())
+                        .goal(m.getGoal())
+                        .build())
+                .toList();
+
+        return ProjectDetailResponse.builder()
+                .projectId(project.getId())
+                .version(project.getVersion())
+                .name(project.getName())
+                .startDate(project.getStartDate())
+                .endDate(project.getTargetDate())
+                .budget(project.getTargetBudget())
+                .description(project.getDescription())
+                .status(project.getStatus())
+                .progress(project.calculateProgress(LocalDate.now()))
+                .owner(owner)
+                .members(memberDtos)
+                .milestones(milestoneDtos)
                 .build();
     }
 
@@ -213,6 +309,22 @@ public class ProjectService {
                 .projectId(project.getId())
                 .status(target)
                 .build();
+    }
+
+    // 기간을 "줄일 때만" 하위 데이터를 확인한다(PROJECT_021). 기간이 그대로거나 넓어지면
+    // 기존 데이터는 새 기간에 그대로 포함되므로 조회 자체를 생략한다.
+    // 검사 대상(할 일·지출·회의록)은 각 도메인이 ProjectPeriodConstraint로 등록하며, 여기선 구현체를 모른다.
+    private void validatePeriodShrink(ProjectEntity project, LocalDate startDate, LocalDate endDate) {
+        boolean shrinks = startDate.isAfter(project.getStartDate()) || endDate.isBefore(project.getTargetDate());
+        if (!shrinks) {
+            return;
+        }
+
+        for (ProjectPeriodConstraint constraint : periodConstraints) {
+            if (constraint.hasDataOutsidePeriod(project.getId(), startDate, endDate)) {
+                throw BaseException.type(ProjectErrorCode.PERIOD_SHRINK_BLOCKED);
+            }
+        }
     }
 
     // 종료일이 시작일보다 빠르면 차단 (같은 날은 허용) — PROJECT_003

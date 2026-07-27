@@ -2,6 +2,7 @@ package HK.PrettyWorks_BE.project.project.controller;
 
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectStatusRequest;
+import HK.PrettyWorks_BE.project.project.dto.res.ProjectDetailResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectStatusResponse;
 import HK.PrettyWorks_BE.project.project.service.ProjectService;
@@ -13,6 +14,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
@@ -48,15 +50,33 @@ public class ProjectController {
         return ResponseEntity.ok(response);
     }
 
-    // 대상 프로젝트의 기본 정보·참여자·마일스톤을 수정합니다.
-    @Operation(summary = "프로젝트 수정", description = "대상 프로젝트의 오너 또는 프로젝트 내 역할이 PM인 사용자만 수정 가능")
+    // 수정 화면 진입용 상세 조회. 낙관적 락에 필요한 version을 함께 내려줍니다.
+    @Operation(summary = "프로젝트 상세 조회",
+            description = "참여중인 멤버면 누구나 조회 가능. 수정 폼용 현재 값 + 낙관적 락 version + 진행률(파생) 반환")
+    @GetMapping("/api/v1/projects/{projectId}")
+    public ResponseEntity<ProjectDetailResponse> getDetail(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long projectId
+    ) {
+        ProjectDetailResponse response = projectService.getDetail(userId, projectId);
+
+        return ResponseEntity.ok(response);
+    }
+
+    // 대상 프로젝트의 기본 정보·참여자·마일스톤을 수정합니다. 상세 조회에서 받은 version을 헤더로 되돌려받아 동시 수정을 막습니다.
+    @Operation(summary = "프로젝트 수정",
+            description = "대상 프로젝트의 오너 또는 프로젝트 내 역할이 PM인 사용자만 수정 가능. "
+                    + "X-Resource-Version 헤더로 동시 수정(덮어쓰기)을 차단")
     @PutMapping("/api/v1/projects/{projectId}")
     public ResponseEntity<ProjectResponse> update(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long projectId,
+            @Parameter(description = "상세 조회(GET)에서 받은 version. 그 사이 다른 사용자가 먼저 수정했다면 409로 차단됩니다.",
+                    example = "7", required = true)
+            @RequestHeader("X-Resource-Version") Long version,
             @Valid @RequestBody ProjectRequest request
     ) {
-        ProjectResponse response = projectService.update(userId, projectId, request);
+        ProjectResponse response = projectService.update(userId, projectId, version, request);
 
         return ResponseEntity.ok(response);
     }

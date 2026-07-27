@@ -35,10 +35,13 @@ public record ProjectRequest(
         @Size(max = 20, message = "역할은 최대 20자까지 입력 가능합니다.")
         String ownerRole,
 
+        // 크기 상한은 대량 요청으로 조회·저장이 폭주하는 것을 막기 위한 방어값입니다.
         @Valid
+        @Size(max = 100, message = "참여자는 최대 100명까지 등록할 수 있습니다.")
         List<MemberRequest> members,
 
         @Valid
+        @Size(max = 50, message = "마일스톤은 최대 50개까지 등록할 수 있습니다.")
         List<MilestoneRequest> milestones
 ) {
 

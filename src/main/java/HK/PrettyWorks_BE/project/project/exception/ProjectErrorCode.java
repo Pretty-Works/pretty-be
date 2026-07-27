@@ -18,7 +18,9 @@ public enum ProjectErrorCode implements ErrorCode {
     MILESTONE_INCOMPLETE(HttpStatus.BAD_REQUEST, "PROJECT_016", "마일스톤은 목표일과 목표 내용을 모두 입력해 주세요."),
     NO_STATUS_CHANGE_PERMISSION(HttpStatus.FORBIDDEN, "PROJECT_017", "프로젝트 상태를 변경할 권한이 없습니다."),
     INVALID_STATUS(HttpStatus.BAD_REQUEST, "PROJECT_018", "유효하지 않은 프로젝트 상태 값입니다."),
-    STATUS_NOT_REVERTIBLE(HttpStatus.CONFLICT, "PROJECT_019", "완료·삭제된 프로젝트는 되돌릴 수 없습니다.");
+    STATUS_NOT_REVERTIBLE(HttpStatus.CONFLICT, "PROJECT_019", "완료·삭제된 프로젝트는 되돌릴 수 없습니다."),
+    PROJECT_CLOSED(HttpStatus.CONFLICT, "PROJECT_020", "완료·보관된 프로젝트는 수정할 수 없습니다."),
+    PERIOD_SHRINK_BLOCKED(HttpStatus.CONFLICT, "PROJECT_021", "새 기간을 벗어나는 할 일·지출·회의록이 있어 기간을 줄일 수 없습니다.");
 
     private final HttpStatus status;
     private final String errorCode;
