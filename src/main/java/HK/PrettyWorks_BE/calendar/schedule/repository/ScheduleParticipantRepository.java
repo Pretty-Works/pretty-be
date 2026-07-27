@@ -5,12 +5,19 @@ import HK.PrettyWorks_BE.calendar.schedule.domain.ScheduleParticipantEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
 import java.util.List;
+import java.util.Optional;
 
 public interface ScheduleParticipantRepository extends JpaRepository<ScheduleParticipantEntity, Long> {
 
-    // 일정의 특정 역할 참가자들을 삭제한다. 참가자 교체 시 기존 PARTICIPANT 행만 정리(WRITER는 건드리지 않음)하는 용도.
+    // 참가자 교체 시 기존 PARTICIPANT 행만 정리(WRITER는 건드리지 않음)하는 용도.
     void deleteByScheduleIdAndRole(Long scheduleId, ParticipantRole role);
 
-    // 목록 조회: 여러 일정의 참가자를 IN 절로 한 번에 가져온다(이후 이름을 붙여 owner·participants로 조립).
-    List<ScheduleParticipantEntity> findByScheduleIdIn(List<Long> scheduleIds);
+    // 목록 조회: 여러 일정의 '활성' 참가자를 IN 절로 한 번에 가져온다(나간 사람 left_at IS NOT NULL은 제외).
+    List<ScheduleParticipantEntity> findByScheduleIdInAndLeftAtIsNull(List<Long> scheduleIds);
+
+    // 나가기: 내 활성 참가 행 조회. 없으면 참가자 아님(SCHEDULE_006).
+    Optional<ScheduleParticipantEntity> findByScheduleIdAndUserIdAndLeftAtIsNull(Long scheduleId, Long userId);
+
+    // 나가기: 나 말고 다른 활성 참가자가 있는지. 작성자 나가기 Block / '혼자' 판정에 사용.
+    boolean existsByScheduleIdAndUserIdNotAndLeftAtIsNull(Long scheduleId, Long userId);
 }

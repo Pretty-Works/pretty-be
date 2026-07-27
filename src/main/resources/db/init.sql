@@ -253,6 +253,7 @@ CREATE TABLE IF NOT EXISTS schedule_participants (
     schedule_id BIGINT      NOT NULL           COMMENT '일정 FK',
     user_id     BIGINT      NOT NULL           COMMENT '참가자 (users FK)',
     is_writer   BOOLEAN     NOT NULL           COMMENT '작성자 여부 (1: WRITER 작성자 / 0: PARTICIPANT 참가자)',
+    left_at     DATETIME(6) NULL               COMMENT '나간 시각 (참여중이면 NULL = 활성). 나가기 = soft delete',
     created_at  DATETIME(6) NULL               COMMENT '생성 시각',
     modified_at DATETIME(6) NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
