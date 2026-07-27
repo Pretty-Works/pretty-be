@@ -2,6 +2,7 @@ package HK.PrettyWorks_BE.project.meeting.service;
 
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
+import HK.PrettyWorks_BE.project.meeting.constant.MeetingRole;
 import HK.PrettyWorks_BE.project.meeting.domain.MeetingAttendeeEntity;
 import HK.PrettyWorks_BE.project.meeting.domain.MeetingEntity;
 import HK.PrettyWorks_BE.project.meeting.dto.req.MeetingCreateRequest;
@@ -11,10 +12,13 @@ import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingDeleteResponse;
 import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingDetailResponse;
 import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingListResponse;
 import HK.PrettyWorks_BE.project.meeting.exception.MeetingErrorCode;
+import HK.PrettyWorks_BE.project.meeting.policy.MeetingPolicy;
 import HK.PrettyWorks_BE.project.meeting.repository.MeetingAttendeeRepository;
 import HK.PrettyWorks_BE.project.meeting.repository.MeetingRepository;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
+import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
+import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
 import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
@@ -26,9 +30,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.data.domain.Pageable;
 
-import java.util.ArrayList;
-import java.util.HashSet;
-import java.util.List;
+import java.time.LocalDate;
+import java.util.*;
+import java.util.stream.Collectors;
 
 @Service
 @RequiredArgsConstructor
@@ -44,37 +48,32 @@ public class MeetingService {
     public MeetingCreateResponse createMeeting
     (Long projectId, Long authorId, MeetingCreateRequest request) {
 
-        // 존재하는 프로젝트인지 확인
-        ProjectEntity project = projectRepository.findById(projectId)
-                .orElseThrow(() -> BaseException.type(MeetingErrorCode.PROJECT_NOT_FOUND));
-
-        // 회의 일자가 프로젝트 기간(startDate ~ targetDate) 안인지
-        if (request.meetingDate().isBefore(project.getStartDate())
-                || request.meetingDate().isAfter(project.getTargetDate())) {
-            throw BaseException.type(MeetingErrorCode.MEETING_DATE_OUT_OF_RANGE);
-        }
-
         // 작성자가 이 프로젝트의 참여중 멤버인지 확인
         projectMemberService.validateActiveMember(projectId, authorId);
 
-        // 참석자 중복 검사
-        if (request.attendeeIds().size() != new HashSet<>(request.attendeeIds()).size()) {
-            throw BaseException.type(MeetingErrorCode.DUPLICATE_ATTENDEE);
+        // 존재하는 프로젝트인지 확인
+        ProjectEntity project = projectRepository.findById(projectId)
+                .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
+
+        // 완료/보관된 프로젝트가 아닌지 확인
+        if (!ProjectPolicy.isOpenForContent(project)) {
+            throw BaseException.type(MeetingErrorCode.PROJECT_CLOSED);
         }
 
-        // 작성자가 참석자 목록에 포함되면 잘못된 요청
-        if (request.attendeeIds().contains(authorId)) {
-            throw BaseException.type(MeetingErrorCode.AUTHOR_IN_ATTENDEES);
-        }
+        // 회의 일자가 프로젝트 기간(startDate ~ targetDate) 안인지
+        validateMeetingDate(project, request.meetingDate());
 
-        // 문서 번호 자동 생성
-        String documentNo = "MTG-" + request.meetingDate() + "-" + System.currentTimeMillis();
+        // 참석자 공통 검증
+        validateAttendees(projectId, authorId, request.attendeeIds());
+
+        // 회의록을 먼저 저장해서 임시 id를 발급
+        String tempDocumentNo = "TMP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 26);
 
         // 회의록 만들어서 저장
         MeetingEntity meeting = MeetingEntity.builder()
                 .projectId(projectId)
                 .authorId(authorId)
-                .documentNo(documentNo)
+                .documentNo(tempDocumentNo)
                 .title(request.title())
                 .meetingDate(request.meetingDate())
                 .location(request.location())
@@ -86,43 +85,11 @@ public class MeetingService {
 
         MeetingEntity savedMeeting = meetingRepository.save(meeting);
 
-        // 작성자를 users에서 찾아서 WRITER로 저장
-        UserEntity author = userRepository.findById(authorId)
-                .orElseThrow(() -> BaseException.type(MeetingErrorCode.AUTHOR_NOT_FOUND));
+        // 발급받은 id로 최종 문서번호 확정
+        savedMeeting.assignDocumentNo("MTG-" + request.meetingDate() + "-" + savedMeeting.getId());
 
-        MeetingAttendeeEntity writer = MeetingAttendeeEntity.builder()
-                .meetingId(savedMeeting.getId())
-                .userId(author.getId())
-                .attendeeName(author.getName())
-                .attendeeDepartment(author.getDepartment().name())
-                .role("WRITER")
-                .build();
-
-        meetingAttendeeRepository.save(writer);
-
-        // 참석자들 저장
-        for (Long attendeeId : request.attendeeIds()) {
-            UserEntity attendee = userRepository.findById(attendeeId)
-                    .orElseThrow(() -> BaseException.type(MeetingErrorCode.ATTENDEE_NOT_FOUND));
-
-            // 재직 중인 참석자인지 확인
-            if (attendee.getStatus() != StatusType.ACTIVE) {
-                throw BaseException.type(UserErrorCode.INACTIVE_USER);
-            }
-
-            projectMemberService.validateActiveMember(projectId, attendeeId);
-
-            MeetingAttendeeEntity meetingAttendee = MeetingAttendeeEntity.builder()
-                    .meetingId(savedMeeting.getId())
-                    .userId(attendee.getId())
-                    .attendeeName(attendee.getName())
-                    .attendeeDepartment(attendee.getDepartment().name())
-                    .role("ATTENDEE")
-                    .build();
-
-            meetingAttendeeRepository.save(meetingAttendee);
-
-        }
+        // 작성자 + 참석자 저장
+        saveAttendees(savedMeeting.getId(), authorId, request.attendeeIds());
 
         // 저장된 회의록 id를 응답으로 반환
         return MeetingCreateResponse.builder()
@@ -132,20 +99,30 @@ public class MeetingService {
 
     // 회의록 목록 조회
     @Transactional(readOnly = true)
-    public PageResponse<MeetingListResponse> getMeetingList(Long projectId, Long userId, String title, String attendeeName, Pageable pageable) {
+    public PageResponse<MeetingListResponse> getMeetingList
+    (Long projectId, Long userId, String title, String attendeeName, Pageable pageable) {
+
         projectMemberService.validateActiveMember(projectId, userId);
 
         Page<MeetingEntity> meetings = meetingRepository.findMeetingSummaries(projectId, title, attendeeName, pageable);
 
-        // 이 회의록의 참여자들을 불러와서
+        // 이 페이지의 회의 id들을 모아서 참석자를 한 번에 조회 후 meetingId로 그룹핑
+        List<Long> meetingIds = meetings.getContent().stream()
+                .map(MeetingEntity::getId)
+                .toList();
+
+        Map<Long, List<MeetingAttendeeEntity>> attendeesByMeeting =
+                meetingAttendeeRepository.findByMeetingIdIn(meetingIds).stream()
+                        .collect(Collectors.groupingBy(MeetingAttendeeEntity::getMeetingId));
+
         Page<MeetingListResponse> mapped = meetings.map(meeting -> {
-            // 작성자/참석자 나누기
-            List<MeetingAttendeeEntity> attendees = meetingAttendeeRepository.findByMeetingId(meeting.getId());
+            List<MeetingAttendeeEntity> attendees =
+                    attendeesByMeeting.getOrDefault(meeting.getId(), List.of());
 
             String authorName = null;
             List<String> attendeeNames = new ArrayList<>();
             for (MeetingAttendeeEntity a : attendees) {
-                if (a.getRole().equals("WRITER")) {
+                if (a.getRole() == MeetingRole.WRITER) {
                     authorName = a.getAttendeeName();
                 } else {
                     attendeeNames.add(a.getAttendeeName());
@@ -180,48 +157,16 @@ public class MeetingService {
             throw BaseException.type(MeetingErrorCode.MEETING_NOT_FOUND);
         }
 
-        // 이 회의록의 참석자들 전부 가져오기
-        List<MeetingAttendeeEntity> all = meetingAttendeeRepository.findByMeetingId(meetingId);
-
-        // 작성자(WRITER)와 참석자(ATTENDEE)로 나누기
-        MeetingDetailResponse.PersonInfo author = null;
-        List<MeetingDetailResponse.PersonInfo> attendees = new ArrayList<>();
-
-        for (MeetingAttendeeEntity a : all) {
-            MeetingDetailResponse.PersonInfo person = MeetingDetailResponse.PersonInfo.builder()
-                    .userId(a.getUserId())
-                    .name(a.getAttendeeName())
-                    .department(a.getAttendeeDepartment())
-                    .build();
-
-            if (a.getRole().equals("WRITER")) {
-                author = person;
-            } else {
-                attendees.add(person);
-            }
-        }
-
-        // DTO로 조립해서 반환
-        return MeetingDetailResponse.builder()
-                .meetingId(meeting.getId())
-                .documentNumber(meeting.getDocumentNo())
-                .title(meeting.getTitle())
-                .meetingDate(meeting.getMeetingDate())
-                .location(meeting.getLocation())
-                .author(author)
-                .attendees(attendees)
-                .recording(meeting.getRecording())
-                .purpose(meeting.getPurpose())
-                .content(meeting.getContent())
-                .followUp(meeting.getFollowUp())
-                .build();
-
+        return toDetailResponse(meeting);
     }
 
     // 회의록 수정
     @Transactional
     public MeetingDetailResponse updateMeeting
     (Long projectId, Long meetingId, Long userId, MeetingUpdateRequest request) {
+
+        // 현재 사용자가 이 프로젝트의 활성 멤버인지 검증
+        projectMemberService.validateActiveMember(projectId, userId);
 
         // 회의록 찾기
         MeetingEntity meeting = meetingRepository.findById(meetingId)
@@ -232,11 +177,31 @@ public class MeetingService {
             throw BaseException.type(MeetingErrorCode.MEETING_NOT_FOUND);
         }
 
+        // 프로젝트 조회 및 완료/보관된 프로젝트가 아닌지 확인
+        ProjectEntity project = projectRepository.findById(projectId)
+                .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
+        if (!ProjectPolicy.isOpenForContent(project)) {
+            throw BaseException.type(MeetingErrorCode.PROJECT_CLOSED);
+        }
+
+        // 회의 일자가 프로젝트 기간(startDate ~ targetDate) 안인지
+        validateMeetingDate(project, request.meetingDate());
+
         // 작성자 또는 참석자만 수정 가능
-        boolean canEdit = meetingAttendeeRepository.existsByMeetingIdAndUserId(meetingId, userId);
-        if (!canEdit) {
+        boolean isParticipant = meetingAttendeeRepository.existsByMeetingIdAndUserId(meetingId, userId);
+        if (!MeetingPolicy.canEdit(meeting, userId, isParticipant)) {
             throw BaseException.type(MeetingErrorCode.NO_PERMISSION);
         }
+
+        // 본인(참석자)이 수정 시 자기 자신을 명단에서 뺄 수 없음
+        // (작성자는 항상 WRITER로 유지되므로 예외)
+        if (!meeting.getAuthorId().equals(userId)
+                && !request.attendeeIds().contains(userId)) {
+            throw BaseException.type(MeetingErrorCode.CANNOT_REMOVE_SELF);
+        }
+
+        // 참석자 공통 검증
+        validateAttendees(projectId, meeting.getAuthorId(), request.attendeeIds());
 
         // 회의록 내용 수정
         meeting.update(
@@ -253,44 +218,20 @@ public class MeetingService {
         meetingAttendeeRepository.deleteByMeetingId(meetingId);
         meetingAttendeeRepository.flush(); // 삭제를 DB에 먼저 반영
 
-        // 작성자를 WRITER로 다시 저장
-        UserEntity author = userRepository.findById(meeting.getAuthorId())
-                .orElseThrow(() -> BaseException.type(MeetingErrorCode.ATTENDEE_NOT_FOUND));
-
-        meetingAttendeeRepository.save(
-                MeetingAttendeeEntity.builder()
-                        .meetingId(meeting.getId())
-                        .userId(author.getId())
-                        .attendeeName(author.getName())
-                        .attendeeDepartment(author.getDepartment().name())
-                        .role("WRITER")
-                        .build()
-        );
-
-        // 새 참석자들을 ATTENDEE로 저장
-        for (Long attendeeId : request.attendeeIds()) {
-            UserEntity attendee = userRepository.findById(attendeeId)
-                    .orElseThrow(() -> BaseException.type(MeetingErrorCode.ATTENDEE_NOT_FOUND));
-
-            meetingAttendeeRepository.save(
-                    MeetingAttendeeEntity.builder()
-                            .meetingId(meeting.getId())
-                            .userId(attendee.getId())
-                            .attendeeName(attendee.getName())
-                            .attendeeDepartment(attendee.getDepartment().name())
-                            .role("ATTENDEE")
-                            .build()
-            );
-        }
+        // 작성자/참석자 다시 저장
+        saveAttendees(meetingId, meeting.getAuthorId(), request.attendeeIds());
 
         // 수정된 최신 상세를 반환
-        return getMeetingDetail(projectId, meetingId, userId);
+        return toDetailResponse(meeting);
     }
 
     // 회의록 삭제
     @Transactional
     public MeetingDeleteResponse deleteMeeting
     (Long projectId, Long meetingId, Long userId) {
+
+        // 현재 사용자가 이 프로젝트의 활성 멤버인지
+        projectMemberService.validateActiveMember(projectId, userId);
 
         MeetingEntity meeting = meetingRepository.findById(meetingId)
                 .orElseThrow(() -> BaseException.type(MeetingErrorCode.MEETING_NOT_FOUND));
@@ -301,12 +242,11 @@ public class MeetingService {
         }
 
         // 작성자만 삭제 가능
-        if (!meeting.getAuthorId().equals(userId)) {
+        if (!MeetingPolicy.canDelete(meeting, userId)) {
             throw BaseException.type(MeetingErrorCode.NO_PERMISSION);
         }
 
         // soft delete
-        meetingAttendeeRepository.deleteByMeetingId(meetingId);
         meetingRepository.delete(meeting);
 
         return MeetingDeleteResponse.builder()
@@ -314,4 +254,118 @@ public class MeetingService {
                 .build();
     }
 
+    // 회의 일자가 프로젝트 기간(startDate ~ targetDate) 안인지 검증
+    private void validateMeetingDate(ProjectEntity project, LocalDate meetingDate) {
+        if (meetingDate.isBefore(project.getStartDate())
+                || meetingDate.isAfter(project.getTargetDate())) {
+            throw BaseException.type(MeetingErrorCode.MEETING_DATE_OUT_OF_RANGE);
+        }
+    }
+
+    // 참석자 공통 검증
+    private void validateAttendees(Long projectId, Long authorId, List<Long> attendeeIds) {
+        // 참석자 중복
+        if (attendeeIds.size() != new HashSet<>(attendeeIds).size()) {
+            throw BaseException.type(MeetingErrorCode.DUPLICATE_ATTENDEE);
+        }
+
+        // 작성자는 참석자에 포함 불가
+        if (attendeeIds.contains(authorId)) {
+            throw BaseException.type(MeetingErrorCode.AUTHOR_IN_ATTENDEES);
+        }
+
+        // 참석자 전원을 한 번에 조회
+        List<UserEntity> attendees = userRepository.findAllById(attendeeIds);
+
+        // 존재하는 ID인지 검증
+        if (attendees.size() != attendeeIds.size()) {
+            throw BaseException.type(MeetingErrorCode.ATTENDEE_NOT_FOUND);
+        }
+
+        // 재직중 확인
+        for (UserEntity attendee : attendees) {
+            if (attendee.getStatus() != StatusType.ACTIVE) {
+                throw BaseException.type(UserErrorCode.INACTIVE_USER);
+            }
+        }
+
+        // 멤버십 확인
+        for (Long attendeeId : attendeeIds) {
+            projectMemberService.validateActiveMember(projectId, attendeeId);
+        }
+    }
+
+    // 작성자 + 참석자 저장 공통 로직
+    private void saveAttendees(Long meetingId, Long authorId, List<Long> attendeeIds) {
+        // 작성자 + 참석자 id를 한 번에 조회
+        List<Long> allIds = new ArrayList<>();
+        allIds.add(authorId);
+        allIds.addAll(attendeeIds);
+
+        Map<Long, UserEntity> userMap = userRepository.findAllById(allIds).stream()
+                .collect(Collectors.toMap(UserEntity::getId, user -> user));
+
+        List<MeetingAttendeeEntity> toSave = new ArrayList<>();
+
+        // 작성자(WRITER)
+        UserEntity author = userMap.get(authorId);
+        if (author == null) throw BaseException.type(MeetingErrorCode.AUTHOR_NOT_FOUND);
+        toSave.add(toAttendee(meetingId, author, MeetingRole.WRITER));
+
+        // 참석자(ATTENDEE)
+        for (Long attendeeId : attendeeIds) {
+            UserEntity attendee = userMap.get(attendeeId);
+            if (attendee == null) throw BaseException.type(MeetingErrorCode.ATTENDEE_NOT_FOUND);
+            toSave.add(toAttendee(meetingId, attendee, MeetingRole.ATTENDEE));
+        }
+
+        meetingAttendeeRepository.saveAll(toSave);
+    }
+
+    // MeetingAttendeeEntity 조립 공통
+    private MeetingAttendeeEntity toAttendee(Long meetingId, UserEntity user, MeetingRole role) {
+        return MeetingAttendeeEntity.builder()
+                .meetingId(meetingId)
+                .userId(user.getId())
+                .attendeeName(user.getName())
+                .attendeeDepartment(user.getDepartment().name())
+                .role(role)
+                .build();
+    }
+
+    // 회의록 + 참석자를 상세 응답 DTO로 조립
+    private MeetingDetailResponse toDetailResponse(MeetingEntity meeting) {
+        List<MeetingAttendeeEntity> all = meetingAttendeeRepository.findByMeetingId(meeting.getId());
+
+        MeetingDetailResponse.PersonInfo author = null;
+        List<MeetingDetailResponse.PersonInfo> attendees = new ArrayList<>();
+
+        for (MeetingAttendeeEntity a : all) {
+            MeetingDetailResponse.PersonInfo person = MeetingDetailResponse.PersonInfo.builder()
+                    .userId(a.getUserId())
+                    .name(a.getAttendeeName())
+                    .department(a.getAttendeeDepartment())
+                    .build();
+
+            if (a.getRole() == MeetingRole.WRITER) {
+                author = person;
+            } else {
+                attendees.add(person);
+            }
+        }
+
+        return MeetingDetailResponse.builder()
+                .meetingId(meeting.getId())
+                .documentNumber(meeting.getDocumentNo())
+                .title(meeting.getTitle())
+                .meetingDate(meeting.getMeetingDate())
+                .location(meeting.getLocation())
+                .author(author)
+                .attendees(attendees)
+                .recording(meeting.getRecording())
+                .purpose(meeting.getPurpose())
+                .content(meeting.getContent())
+                .followUp(meeting.getFollowUp())
+                .build();
+    }
 }

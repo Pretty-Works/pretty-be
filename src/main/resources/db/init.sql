@@ -146,6 +146,7 @@ CREATE TABLE IF NOT EXISTS project_posts (
     content     TEXT         NOT NULL          COMMENT '내용',
     created_at  DATETIME(6)  NULL              COMMENT '작성 시각',
     modified_at DATETIME(6)  NULL              COMMENT '수정 시각',
+    deleted_at    DATETIME(6)  NULL            COMMENT '삭제 시각',
     PRIMARY KEY (id),
     KEY idx_project_posts_project_created (project_id, created_at),
     CONSTRAINT fk_project_posts_project FOREIGN KEY (project_id) REFERENCES projects (id),
@@ -169,7 +170,7 @@ CREATE TABLE IF NOT EXISTS meetings (
     purpose       VARCHAR(500) NULL              COMMENT '회의 목적',
     content       TEXT         NULL              COMMENT '주요 내용',
     follow_up     TEXT         NULL              COMMENT '후속 조치',
-    recording VARCHAR(500) NULL              COMMENT '녹취 파일 URL (GCS)',
+    recording     VARCHAR(500) NULL              COMMENT '녹취 파일 URL (GCS)',
     created_at    DATETIME(6)  NULL              COMMENT '생성 시각',
     modified_at   DATETIME(6)  NULL              COMMENT '수정 시각',
     deleted_at    DATETIME(6)  NULL              COMMENT '삭제 시각',
@@ -196,6 +197,7 @@ CREATE TABLE IF NOT EXISTS meeting_attendees (
     modified_at         DATETIME(6) NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
     UNIQUE KEY uk_meeting_attendees_user_meeting (user_id, meeting_id),
+    KEY idx_meeting_attendees_name (attendee_name, meeting_id),
     CONSTRAINT fk_meeting_attendees_meeting FOREIGN KEY (meeting_id) REFERENCES meetings (id),
     CONSTRAINT fk_meeting_attendees_user    FOREIGN KEY (user_id)    REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '회의록 참석자';
