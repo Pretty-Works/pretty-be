@@ -82,16 +82,14 @@ public class JwtUtil implements InitializingBean {
         }
     }
 
-    public Long getUserIdFromToken(final String token) {
-        Claims claims = getTokenBody(token);
-        return claims.get(AuthConstant.USER_ID_CLAIM_NAME, Long.class);
-    }
-
-    public static Object checkPrincipal(final Object principal) {
-        if (AuthConstant.ANONYMOUS_USER.equals(principal)) {
-            throw new BaseException(GlobalErrorCode.UNAUTHORIZED);
+    // 파싱된 토큰 본문에서 인증 주체(userId)를 꺼냅니다. 클레임이 비어 있으면 신뢰할 수 없는 토큰입니다.
+    // (토큰을 두 번 파싱하지 않도록, 이미 얻은 Claims를 받습니다)
+    public static Long getUserId(final Claims claims) {
+        Long userId = claims.get(AuthConstant.USER_ID_CLAIM_NAME, Long.class);
+        if (userId == null) {
+            throw new BaseException(GlobalErrorCode.INVALID_JWT);
         }
 
-        return principal;
+        return userId;
     }
 }
