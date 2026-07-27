@@ -8,6 +8,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
@@ -112,6 +113,18 @@ public class GlobalExceptionHandler {
     @ExceptionHandler(HttpMessageNotReadableException.class)
     public ResponseEntity<CustomErrorResponse> handleMessageNotReadable(HttpMessageNotReadableException e) {
         return convert(GlobalErrorCode.BAD_JSON);
+    }
+
+    /**
+     * 낙관적 락 충돌 전용 ExceptionHandler
+     * 동시 수정으로 version이 어긋났거나(OptimisticLockException),
+     * 이미 다른 트랜잭션이 지운 행을 갱신·삭제한 경우(StaleStateException) 모두 여기로 들어온다.
+     * 커밋 시점에 발생하므로 서비스에서는 잡을 수 없어 전역에서 처리한다. (도메인 무관 공통 응답)
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<CustomErrorResponse> handleOptimisticLockFailure(ObjectOptimisticLockingFailureException e) {
+        log.warn("[동시 수정 충돌] {}", e.getMessage());
+        return convert(GlobalErrorCode.CONCURRENT_MODIFICATION);
     }
 
     /**

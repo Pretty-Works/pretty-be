@@ -64,6 +64,7 @@ CREATE TABLE IF NOT EXISTS projects (
     target_date   DATE          NOT NULL          COMMENT '목표일',
     target_budget DECIMAL(15,2) NOT NULL          COMMENT '목표 예산 (0 = 제한 없음)',
     description   VARCHAR(500)  NULL              COMMENT '설명',
+    version       BIGINT        NOT NULL DEFAULT 0 COMMENT '낙관적 락 버전 (동시 수정 시 나중 요청 차단)',
     created_at    DATETIME(6)   NULL              COMMENT '생성 시각',
     modified_at   DATETIME(6)   NULL              COMMENT '수정 시각',
     PRIMARY KEY (id)
