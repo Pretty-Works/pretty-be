@@ -2,6 +2,7 @@ package HK.PrettyWorks_BE.project.project.service;
 
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
+import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
 import HK.PrettyWorks_BE.project.member.constant.ProjectMemberStatus;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
 import HK.PrettyWorks_BE.project.member.repository.ProjectMemberRepository;
@@ -38,6 +39,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 import java.util.Set;
+import java.util.function.Supplier;
 
 @Service
 @RequiredArgsConstructor
@@ -49,9 +51,24 @@ public class ProjectService {
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectMemberService projectMemberService;
     private final MilestoneRepository milestoneRepository;
+    private final IdempotencyService idempotencyService;
 
-    @Transactional
-    public ProjectResponse create(Long ownerId, ProjectRequest request) {
+    // 프로젝트 생성. 멱등 키가 있으면 중복 생성을 방어한다(같은 키·같은 요청은 첫 응답 재생, 다른 내용은 409).
+    // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않는다.
+    public ProjectResponse create(Long ownerId, String idempotencyKey, ProjectRequest request) {
+        // 도메인 조각만 준비: 무엇을 저장할지(creator) + 무엇으로 중복 판정할지(fingerprint).
+        Supplier<Long> creator = () -> doCreate(ownerId, request);
+        String endpoint = "POST /api/v1/projects";
+        String fingerprint = idempotencyService.fingerprint("POST", "/api/v1/projects", request);
+
+        return ProjectResponse.builder()
+                .projectId(idempotencyService.run(idempotencyKey, endpoint, ownerId, fingerprint, creator))
+                .build();
+    }
+
+    // 검증 + 저장(project → members → milestones) 후 생성된 프로젝트 id 반환.
+    // 트랜잭션은 IdempotencyService의 TransactionTemplate이 제공한다(self-invocation 프록시 함정 회피).
+    private Long doCreate(Long ownerId, ProjectRequest request) {
         // 1) 오너 조회 + 생성 권한 (PROJECT_001)
         //    토큰의 userId로 조회한다. 유저가 없으면 인증 자체를 신뢰할 수 없으므로 UNAUTHORIZED(CurrentUserService).
         UserEntity owner = currentUserService.getCurrentUser(ownerId);
@@ -116,9 +133,7 @@ public class ProjectService {
         milestoneRepository.saveAll(milestoneEntities);
 
         // 6) 생성된 프로젝트 id 반환
-        return ProjectResponse.builder()
-                .projectId(project.getId())
-                .build();
+        return project.getId();
     }
 
     @Transactional

@@ -37,7 +37,8 @@ public class ExpenseService {
         // 도메인 조각만 준비: 무엇을 저장할지(creator) + 무엇으로 중복 판정할지(fingerprint).
         // 키 유무 분기·트랜잭션·해싱·409는 IdempotencyService.run이 담당.
         String endpoint = "POST /api/v1/projects/{projectId}/expenses";
-        String fingerprint = "POST|/api/v1/projects/" + projectId + "/expenses|" + canonical(request);
+        String fingerprint = idempotencyService.fingerprint(
+                "POST", "/api/v1/projects/" + projectId + "/expenses", request);
 
         return new ExpenseResponse(
                 idempotencyService.run(idempotencyKey, endpoint, spenderId, fingerprint, creator));
@@ -74,11 +75,6 @@ public class ExpenseService {
         expenseRepository.save(expense);
 
         return expense.getId();
-    }
-
-    // 본문 지문(정규화) — 필드를 고정 순서로 이어붙인다. path variable은 상위 fingerprint에서 포함한다.
-    private String canonical(ExpenseRequest r) {
-        return r.expenseDate() + "|" + r.category() + "|" + r.merchant() + "|" + r.purpose() + "|" + r.amount();
     }
 
     @Transactional
