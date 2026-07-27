@@ -1,0 +1,79 @@
+package HK.PrettyWorks_BE.idempotency.service;
+
+import HK.PrettyWorks_BE.global.exception.BaseException;
+import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
+import HK.PrettyWorks_BE.idempotency.domain.IdempotencyKeyEntity;
+import HK.PrettyWorks_BE.idempotency.repository.IdempotencyKeyRepository;
+import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.stereotype.Service;
+import org.springframework.transaction.PlatformTransactionManager;
+import org.springframework.transaction.support.TransactionTemplate;
+
+import java.nio.charset.StandardCharsets;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
+import java.util.HexFormat;
+import java.util.function.Supplier;
+
+// 멱등 키 공통 처리기. DB 유니크 인덱스로 중복 요청을 막고, 본 리소스 INSERT와 같은 트랜잭션에서 키를 기록한다.
+// 트랜잭션 경계를 이 클래스가 소유하므로(TransactionTemplate), 호출 서비스는 @Transactional을 걸지 않는다.
+@Service
+public class IdempotencyService {
+
+    private final IdempotencyKeyRepository repository;
+    private final TransactionTemplate txTemplate;
+
+    public IdempotencyService(IdempotencyKeyRepository repository, PlatformTransactionManager txManager) {
+        this.repository = repository;
+        this.txTemplate = new TransactionTemplate(txManager);
+    }
+
+    // 생성 로직을 트랜잭션으로 실행한다. 키 유무 분기·트랜잭션·해싱·409를 모두 여기서 담당하므로,
+    // 각 도메인 서비스는 creator(무엇을 저장할지)와 fingerprint(무엇으로 중복 판정할지)만 넘기면 된다.
+    //  - 멱등 키 없음 → 멱등 처리 없이 트랜잭션 안에서 생성(하위 호환)
+    //  - 멱등 키 있음 → [한 트랜잭션] 본 리소스 insert + 멱등 키 saveAndFlush(중복 즉시 표면화)
+    //       · 중복 키 예외(다른 요청이 먼저 커밋) → 그 트랜잭션 롤백(오염) → 별도 트랜잭션으로 기존 기록 조회
+    //           - request_hash 일치 → 첫 응답 재생(멱등)
+    //           - 불일치        → 같은 키·다른 내용 → 409
+    public Long run(String key, String endpoint, Long userId, String fingerprint, Supplier<Long> creator) {
+        // 멱등 키 없으면 그냥 트랜잭션 실행
+        if (key == null || key.isBlank()) {
+            return txTemplate.execute(status -> creator.get());
+        }
+
+        String requestHash = sha256(fingerprint);
+        try {
+            return txTemplate.execute(status -> {
+                Long resourceId = creator.get();
+                repository.saveAndFlush(
+                        IdempotencyKeyEntity.of(key, endpoint, userId, requestHash, resourceId));
+                return resourceId;
+            });
+        } catch (DataIntegrityViolationException e) {
+            // 오염된 트랜잭션 밖에서, 새 트랜잭션으로 기존 키를 조회한다.
+            IdempotencyKeyEntity saved = txTemplate.execute(status ->
+                    repository.findByIdempotencyKey(key).orElse(null));
+
+            // 우리 키의 중복이 아니라 다른 무결성 오류였다면(FK 등) 원래 예외를 그대로 전파한다.
+            if (saved == null) {
+                throw e;
+            }
+            // 같은 키·같은 내용 → 첫 응답 재생 / 같은 키·다른 내용 → 409
+            if (saved.getRequestHash().equals(requestHash)) {
+                return saved.getResourceId();
+            }
+            throw BaseException.type(GlobalErrorCode.IDEMPOTENCY_KEY_CONFLICT);
+        }
+    }
+
+    // 요청 지문 SHA-256(hex, 64자). "메서드|실제경로|본문" 정규화 문자열을 해시한다.
+    private static String sha256(String fingerprint) {
+        try {
+            MessageDigest md = MessageDigest.getInstance("SHA-256");
+            byte[] digest = md.digest(fingerprint.getBytes(StandardCharsets.UTF_8));
+            return HexFormat.of().formatHex(digest);
+        } catch (NoSuchAlgorithmException e) {
+            throw new IllegalStateException("SHA-256 unavailable", e);
+        }
+    }
+}

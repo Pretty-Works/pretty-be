@@ -309,3 +309,25 @@ CREATE TABLE IF NOT EXISTS expenses (
     CONSTRAINT fk_expenses_spender    FOREIGN KEY (spender_id) REFERENCES users (id),
     CONSTRAINT fk_expenses_deleted_by FOREIGN KEY (deleted_by) REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 지출';
+
+
+-- =============================================================================
+-- idempotency_keys : 멱등 키 (생성 API 중복 요청 방어 — 버튼 연타/재시도)
+--   - idempotency_key UNIQUE 인덱스가 보장의 핵심. 본 리소스 INSERT와 같은 트랜잭션에서 기록.
+--   - request_hash: 메서드+실제경로(projectId 포함)+본문 SHA-256 → 같은 키 다른 내용(409) 판별.
+--   - resource_id: 생성된 리소스 ID. 재시도 시 첫 응답을 재생.
+--   - 24시간 보관 후 정리 배치로 삭제(별도). INSERT 성격 생성 API에만 적용.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    idempotency_key VARCHAR(64)  NOT NULL           COMMENT '클라이언트 발급 UUID — 이 UNIQUE가 멱등 보장의 핵심',
+    endpoint        VARCHAR(200) NOT NULL           COMMENT '대상 엔드포인트 (예: POST /api/v1/projects/{projectId}/expenses)',
+    user_id         BIGINT       NOT NULL           COMMENT '요청자 (users FK)',
+    request_hash    VARCHAR(64)  NOT NULL           COMMENT '요청 지문 SHA-256 (메서드+실제경로+본문)',
+    resource_id     BIGINT       NOT NULL           COMMENT '생성된 리소스 ID (예: expenseId) — 재시도 시 재생',
+    created_at      DATETIME(6)  NULL               COMMENT '생성 시각 (정리 배치 기준)',
+    modified_at     DATETIME(6)  NULL               COMMENT '수정 시각 (불변이라 미사용, 컨벤션 일관)',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_idempotency_key (idempotency_key),
+    CONSTRAINT fk_idempotency_user FOREIGN KEY (user_id) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '멱등 키';

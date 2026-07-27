@@ -1,7 +1,7 @@
 package HK.PrettyWorks_BE.project.finance.service;
 
 import HK.PrettyWorks_BE.global.exception.BaseException;
-import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
+import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
 import HK.PrettyWorks_BE.project.finance.domain.ExpenseEntity;
 import HK.PrettyWorks_BE.project.finance.dto.req.ExpenseRequest;
 import HK.PrettyWorks_BE.project.finance.dto.res.ExpenseResponse;
@@ -12,13 +12,12 @@ import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
-import HK.PrettyWorks_BE.user.constant.StatusType;
-import HK.PrettyWorks_BE.user.domain.UserEntity;
-import HK.PrettyWorks_BE.user.exception.UserErrorCode;
-import HK.PrettyWorks_BE.user.repository.UserRepository;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+
+import java.util.function.Supplier;
 
 @Service
 @RequiredArgsConstructor
@@ -27,10 +26,26 @@ public class ExpenseService {
     private final ExpenseRepository expenseRepository;
     private final ProjectRepository projectRepository;
     private final ProjectMemberService projectMemberService;
-    private final UserRepository userRepository;
+    private final IdempotencyService idempotencyService;
+    private final CurrentUserService currentUserService;
 
-    @Transactional
-    public ExpenseResponse create(Long projectId, Long spenderId, ExpenseRequest request) {
+    // 지출 등록. 멱등 키가 있으면 중복 요청을 방어한다(같은 키·같은 요청은 첫 응답 재생, 다른 내용은 409).
+    // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않는다.
+    public ExpenseResponse create(Long projectId, Long spenderId, String idempotencyKey, ExpenseRequest request) {
+        Supplier<Long> creator = () -> doInsert(projectId, spenderId, request);
+
+        // 도메인 조각만 준비: 무엇을 저장할지(creator) + 무엇으로 중복 판정할지(fingerprint).
+        // 키 유무 분기·트랜잭션·해싱·409는 IdempotencyService.run이 담당.
+        String endpoint = "POST /api/v1/projects/{projectId}/expenses";
+        String fingerprint = "POST|/api/v1/projects/" + projectId + "/expenses|" + canonical(request);
+
+        return new ExpenseResponse(
+                idempotencyService.run(idempotencyKey, endpoint, spenderId, fingerprint, creator));
+    }
+
+    // 검증(존재·멤버·활성·기간) + 저장 후 생성된 id 반환. 트랜잭션은 IdempotencyService의 TransactionTemplate이 제공.
+    // (자체 @Transactional을 붙이지 않는다 — self-invocation 프록시 함정 회피)
+    private Long doInsert(Long projectId, Long spenderId, ExpenseRequest request) {
         // 1) 프로젝트 존재 (EXPENSE_001) — 기간 검증에 필요해 엔티티 로드
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(ExpenseErrorCode.PROJECT_NOT_FOUND));
@@ -40,13 +55,8 @@ public class ExpenseService {
             throw BaseException.type(ExpenseErrorCode.NO_EXPENSE_PERMISSION);
         }
 
-        // 3) 지출자(=호출자) 활성 검증 (USER_001). 토큰은 유효한데 유저가 없으면 인증을 신뢰 못 해 UNAUTHORIZED.
-        //    TODO(consolidate): "현재 유저 로드 + 활성 검증"은 공용 CurrentUserService로 이동 예정 (docs/code-review.md 0-3)
-        UserEntity spender = userRepository.findById(spenderId)
-                .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED));
-        if (spender.getStatus() != StatusType.ACTIVE) {
-            throw BaseException.type(UserErrorCode.INACTIVE_USER);
-        }
+        // 3) 지출자(=호출자) 활성 검증 (USER_001)
+        currentUserService.getActiveUser(spenderId);
 
         // 4) 사용일이 프로젝트 기간 내인지 (EXPENSE_003). 미래 날짜도 기간 내면 허용(조회 시 PLANNED로 파생).
         if (!ProjectPolicy.isWithinPeriod(project, request.expenseDate())) {
@@ -65,7 +75,12 @@ public class ExpenseService {
                 .build();
         expenseRepository.save(expense);
 
-        return new ExpenseResponse(expense.getId());
+        return expense.getId();
+    }
+
+    // 본문 지문(정규화) — 필드를 고정 순서로 이어붙인다. path variable은 상위 fingerprint에서 포함한다.
+    private String canonical(ExpenseRequest r) {
+        return r.expenseDate() + "|" + r.category() + "|" + r.merchant() + "|" + r.purpose() + "|" + r.amount();
     }
 
     @Transactional
@@ -84,13 +99,8 @@ public class ExpenseService {
             throw BaseException.type(ExpenseErrorCode.ALREADY_DELETED_EXPENSE);
         }
 
-        // 4) 호출자 활성 검증 (USER_001) — 등록과 동일 기준.
-        //    TODO(consolidate): "현재 유저 로드 + 활성 검증"은 공용 CurrentUserService로 이동 예정 (docs/code-review.md 0-3)
-        UserEntity user = userRepository.findById(userId)
-                .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED));
-        if (user.getStatus() != StatusType.ACTIVE) {
-            throw BaseException.type(UserErrorCode.INACTIVE_USER);
-        }
+        // 4) 호출자 활성 검증 (USER_001)
+        currentUserService.getActiveUser(userId);
 
         // 5) 사용일이 프로젝트 기간 내인지 (EXPENSE_003)
         ProjectEntity project = projectRepository.findById(projectId)
@@ -117,13 +127,8 @@ public class ExpenseService {
             throw BaseException.type(ExpenseErrorCode.NO_EXPENSE_EDIT_PERMISSION);
         }
 
-        // 3) 호출자 활성 검증 (USER_001) — 수정과 동일 기준.
-        //    TODO(consolidate): "현재 유저 로드 + 활성 검증"은 공용 CurrentUserService로 이동 예정 (docs/code-review.md 0-3)
-        UserEntity user = userRepository.findById(userId)
-                .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED));
-        if (user.getStatus() != StatusType.ACTIVE) {
-            throw BaseException.type(UserErrorCode.INACTIVE_USER);
-        }
+        // 3) 호출자 활성 검증 (USER_001)
+        currentUserService.getActiveUser(userId);
 
         // 4) 이미 삭제됐으면 멱등 성공(no-op), 살아있으면 소프트 삭제(dirty checking으로 UPDATE)
         if (expense.getDeletedAt() != null) {
