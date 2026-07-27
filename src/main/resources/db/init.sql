@@ -278,3 +278,33 @@ CREATE TABLE IF NOT EXISTS leave_balances (
     UNIQUE KEY uk_leave_balances_user_year (user_id, year),
     CONSTRAINT fk_leave_balances_user FOREIGN KEY (user_id) REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '연차 현황';
+
+
+-- =============================================================================
+-- expenses : 프로젝트 지출 (재무 - 지출 내역)
+--   - spender_id 는 토큰 userId (대리 등록 없음). 목록 '사용자' 컬럼 · 부서별 집계 근거라 NOT NULL
+--   - status(사용/사용예정)·집행률·잔여는 저장하지 않고 조회 시점 계산(파생)
+--   - 소프트 삭제: 모든 조회 · 집계는 deleted_at IS NULL 을 기본 조건으로 포함
+--   - 집계 쿼리가 (project_id, deleted_at, expense_date)를 함께 타므로 복합 인덱스
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS expenses (
+    id           BIGINT       NOT NULL AUTO_INCREMENT,
+    project_id   BIGINT       NOT NULL           COMMENT '프로젝트 FK (Path Variable)',
+    spender_id   BIGINT       NOT NULL           COMMENT '사용자 FK (토큰 userId) — 사용자 컬럼·부서별 집계 근거',
+    expense_date DATE         NOT NULL           COMMENT '사용일',
+    category     VARCHAR(20)  NOT NULL           COMMENT '지출 유형 (ExpenseCategory, STRING)',
+    merchant     VARCHAR(100) NOT NULL           COMMENT '사용처',
+    purpose      VARCHAR(255) NOT NULL           COMMENT '사용 목적',
+    amount       BIGINT       NOT NULL           COMMENT '금액(원, 1 이상)',
+    deleted_at   DATETIME(6)  NULL               COMMENT '소프트 삭제 시각 (조회·집계에서 IS NULL 제외)',
+    deleted_by   BIGINT       NULL               COMMENT '삭제 실행자 (본인만 삭제 → spender_id와 동일)',
+    created_at   DATETIME(6)  NULL               COMMENT '생성 시각',
+    modified_at  DATETIME(6)  NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    KEY idx_expenses_project_deleted_date (project_id, deleted_at, expense_date),
+    KEY idx_expenses_merchant (merchant),
+    KEY idx_expenses_purpose (purpose),
+    CONSTRAINT fk_expenses_project    FOREIGN KEY (project_id) REFERENCES projects (id),
+    CONSTRAINT fk_expenses_spender    FOREIGN KEY (spender_id) REFERENCES users (id),
+    CONSTRAINT fk_expenses_deleted_by FOREIGN KEY (deleted_by) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 지출';

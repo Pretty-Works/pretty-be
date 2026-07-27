@@ -37,7 +37,8 @@ public class ProjectController {
 
     // 대상 프로젝트의 기본 정보·참여자·마일스톤을 수정합니다.
     @Operation(summary = "프로젝트 수정", description = "대상 프로젝트의 오너 또는 프로젝트 내 역할이 PM인 사용자만 수정 가능")
-      public ResponseEntity<ProjectResponse> update(
+    @PutMapping("/api/v1/projects/{projectId}")
+    public ResponseEntity<ProjectResponse> update(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long projectId,
             @Valid @RequestBody ProjectRequest request

@@ -281,3 +281,35 @@ VALUES
     (8, 2026, 15, NOW(6), NOW(6)),
     (9, 2026, 15, NOW(6), NOW(6)),
     (10, 2026, 15, NOW(6), NOW(6));
+
+
+-- =============================================================================
+-- 13) expenses  (프로젝트 지출) — spender는 해당 프로젝트 ACTIVE 멤버, 사용일은 프로젝트 기간 내.
+--   status(EXECUTED/PLANNED)는 저장 안 함 → 조회 시 today(≈2026-07-23) 기준 파생.
+--   과거·오늘 이하 = EXECUTED(사용), 미래 = PLANNED(사용 예정). 부서별 집계용으로 spender 부서 다양.
+--   마지막 1건은 소프트 삭제(집계에서 deleted_at IS NULL로 제외되는지 테스트).
+-- =============================================================================
+INSERT INTO expenses
+    (project_id, spender_id, expense_date, category, merchant, purpose, amount, deleted_at, deleted_by, created_at, modified_at)
+VALUES
+    -- P1 (AI 검색 고도화, 2026-06-01~09-30)
+    (1, 1, '2026-07-10', 'TRANSPORT',     '코레일',              '부산 거래처 미팅 출장',      48000,   NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
+    (1, 2, '2026-07-15', 'SOFTWARE',      'JetBrains',           'IntelliJ 라이선스 갱신',     250000,  NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
+    (1, 4, '2026-07-20', 'MEAL',          '배달의민족',          '스프린트 회식',              92000,   NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
+    (1, 3, '2026-07-05', 'OFFICE_SUPPLY', '오피스디포',          '모니터 암 구매',             75000,   NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
+    (1, 6, '2026-07-28', 'EDUCATION',     '패스트캠퍼스',        'MLOps 세미나 등록',          180000,  NULL, NULL, NOW(6), NOW(6)),  -- PLANNED
+    (1, 2, '2026-08-05', 'INFRA',         'AWS',                 'GPU 인스턴스 비용',          620000,  NULL, NULL, NOW(6), NOW(6)),  -- PLANNED
+    -- P2 (사내 그룹웨어 리뉴얼, 2026-07-01~12-31)
+    (2, 1, '2026-07-08', 'SOFTWARE',      'Figma',               '디자인 협업 툴 팀 플랜',     144000,  NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
+    (2, 4, '2026-07-18', 'MEAL',          '스타벅스',            '디자인 리뷰 간식',           38000,   NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
+    (2, 5, '2026-07-22', 'TRANSPORT',     '카카오T',             '고객사 미팅 이동',           21000,   NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
+    (2, 8, '2026-08-01', 'INFRA',         'GitHub',              'Actions 추가 사용량',        96000,   NULL, NULL, NOW(6), NOW(6)),  -- PLANNED
+    (2, 7, '2026-07-30', 'EDUCATION',     '인프런',              '웹 접근성 강의 수강',        66000,   NULL, NULL, NOW(6), NOW(6)),  -- PLANNED
+    -- P3 (데이터 파이프라인, 2026-05-01~08-31)
+    (3, 5, '2026-06-20', 'OUTSOURCING',   '데이터라벨링코리아',  '라벨링 외주 1차',            3200000, NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
+    (3, 6, '2026-07-12', 'SOFTWARE',      'Snowflake',           '데이터 웨어하우스 크레딧',   480000,  NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
+    -- P4 (레거시 마이그레이션, 2026-01-01~06-30, 완료 프로젝트 — 전부 과거/EXECUTED)
+    (4, 2, '2026-05-15', 'LABOR',         '외부 계약직',         '마이그레이션 지원 인건비',   2800000, NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
+    (4, 1, '2026-06-10', 'ETC',           '기타',                '컷오버 비상 대기 식대',      120000,  NULL, NULL, NOW(6), NOW(6)),  -- EXECUTED
+    -- 소프트 삭제된 지출 (오기입 정정) — 집계에서 deleted_at IS NULL로 제외되어야 함
+    (1, 2, '2026-07-16', 'TRANSPORT',     '택시',                '오기입(중복 등록) 정정',     30000,   '2026-07-17 10:00:00', 2, NOW(6), NOW(6));
