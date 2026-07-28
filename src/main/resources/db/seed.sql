@@ -247,7 +247,7 @@ VALUES
     (5, '전사 워크숍',          TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 6 DAY), '00:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 6 DAY), '23:59:59'), TRUE,  'MEETING',   NOW(6), NOW(6)),
     (8, '배포 점검',            TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '20:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '22:00:00'), FALSE, 'FIELDWORK', NOW(6), NOW(6)),
     (3, '연차 휴가',            TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 7 DAY), '00:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 7 DAY), '23:59:59'), TRUE,  'PERSONAL',  NOW(6), NOW(6)),
-    (6, '병가',                 TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '00:00:00'), TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '23:59:59'), TRUE,  'PERSONAL',  NOW(6), NOW(6));
+    (6, '공가',                 TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '00:00:00'), TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '23:59:59'), TRUE,  'PERSONAL',  NOW(6), NOW(6));
 
 
 -- =============================================================================
@@ -257,7 +257,7 @@ INSERT INTO schedule_leaves
     (schedule_id, leave_type, reason, days, created_at, modified_at)
 VALUES
     (7, 'ANNUAL', '개인 연차', 1, NOW(6), NOW(6)),
-    (8, 'SICK',   '몸살',      1, NOW(6), NOW(6));
+    (8, 'EXCUSED', '몸살',    1, NOW(6), NOW(6));
 
 
 -- =============================================================================
