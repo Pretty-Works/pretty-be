@@ -36,7 +36,6 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -390,8 +389,8 @@ public class ProjectService {
     }
 
     // 예산 미입력(null)은 0(제한 없음)으로 보정.
-    private BigDecimal budgetOrZero(BigDecimal budget) {
-        return budget == null ? BigDecimal.ZERO : budget;
+    private Long budgetOrZero(Long budget) {
+        return budget == null ? 0L : budget;
     }
 
     // 마일스톤 목록 null 보정 + 목표일·목표 내용이 둘 다 비어 있는 빈 항목은 무시(제거).

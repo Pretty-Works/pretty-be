@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS projects (
     status        VARCHAR(20)   NOT NULL          COMMENT '상태 (ONGOING / HOLDING / DROPPED / COMPLETED / ARCHIVED)',
     start_date    DATE          NOT NULL          COMMENT '시작일',
     target_date   DATE          NOT NULL          COMMENT '목표일',
-    target_budget DECIMAL(15,2) NOT NULL          COMMENT '목표 예산 (0 = 제한 없음)',
+    target_budget BIGINT NOT NULL                 COMMENT '목표 예산 원 단위 (0 = 제한 없음). expenses.amount와 동일 타입',
     description   VARCHAR(500)  NULL              COMMENT '설명',
     version       BIGINT        NOT NULL DEFAULT 0 COMMENT '낙관적 락 버전 (동시 수정 시 나중 요청 차단)',
     created_at    DATETIME(6)   NULL              COMMENT '생성 시각',

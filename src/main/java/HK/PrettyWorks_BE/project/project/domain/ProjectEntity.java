@@ -8,7 +8,6 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 
@@ -36,9 +35,11 @@ public class ProjectEntity extends BaseTimeEntity {
     @Column(name = "target_date", nullable = false)
     private LocalDate targetDate;
 
-    // 금액이므로 오차 없는 BigDecimal 사용 (DECIMAL(15,2)와 매핑). 필수 입력이며 0은 '예산 제한 없음'을 의미합니다.
-    @Column(name = "target_budget", nullable = false, precision = 15, scale = 2)
-    private BigDecimal targetBudget;
+    // 원 단위 정수 금액 (BIGINT와 매핑). 필수 입력이며 0은 '예산 제한 없음'을 의미합니다.
+    // 원화는 보조 단위가 없어 소수점이 필요 없고, 정수 연산은 부동소수점과 달리 오차가 없습니다.
+    // BigDecimal은 equals가 scale까지 비교해(120.0 != 120.00) 비교 버그를 부르므로 쓰지 않습니다. expenses.amount와 같은 타입.
+    @Column(name = "target_budget", nullable = false)
+    private Long targetBudget;
 
     @Column(name = "description", length = 500)
     private String description;
@@ -51,7 +52,7 @@ public class ProjectEntity extends BaseTimeEntity {
 
     @Builder
     public ProjectEntity(String name, ProjectStatus status, LocalDate startDate,
-                         LocalDate targetDate, BigDecimal targetBudget, String description) {
+                         LocalDate targetDate, Long targetBudget, String description) {
         this.name = name;
         this.status = status;
         this.startDate = startDate;
@@ -62,7 +63,7 @@ public class ProjectEntity extends BaseTimeEntity {
 
     // 수정 API: 프로젝트 기본 정보를 갱신합니다. (상태·id는 이 API로 바꾸지 않음)
     public void update(String name, LocalDate startDate, LocalDate targetDate,
-                       BigDecimal targetBudget, String description) {
+                       Long targetBudget, String description) {
         this.name = name;
         this.startDate = startDate;
         this.targetDate = targetDate;
