@@ -237,6 +237,9 @@ CREATE TABLE IF NOT EXISTS schedules (
     created_at  DATETIME(6)  NULL               COMMENT '생성 시각',
     modified_at DATETIME(6)  NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
+    -- 겹침 조회 최적화: start_at <= :toEnd AND end_at >= :fromStart, ORDER BY start_at ASC
+    -- start_at 범위+정렬을 인덱스로 처리, end_at 은 인덱스 조건 푸시다운(ICP) 필터로 활용
+    KEY idx_schedules_start_end (start_at, end_at),
     CONSTRAINT fk_schedules_user FOREIGN KEY (user_id) REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '일정';
 

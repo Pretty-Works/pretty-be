@@ -54,4 +54,9 @@ public class ScheduleParticipantEntity extends BaseTimeEntity {
         this.leftAt = LocalDateTime.now();
     }
 
+    // 재활성화 — 나갔던 참가자를 다시 참여로(소유자가 참가자 목록에 재포함할 때). left_at을 NULL로 되돌린다.
+    public void reactivate() {
+        this.leftAt = null;
+    }
+
 }
