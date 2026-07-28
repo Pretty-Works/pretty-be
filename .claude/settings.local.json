@@ -32,7 +32,8 @@
       "Bash(grep -oE '<frame id=\\\\\\\\\"66[0-9]:2[0-9][0-9]\\\\\\\\\" name=\\\\\\\\\"[^\\\\\\\\]*\\\\\\\\\" x=\\\\\\\\\"[0-9.-]+\\\\\\\\\" y=\\\\\\\\\"[0-9.-]+\\\\\\\\\" width=\\\\\\\\\"[0-9.]+\\\\\\\\\" height=\\\\\\\\\"[0-9.]+\\\\\\\\\"' \"C:/Users/tnals/.claude/projects/C--Users-tnals-Desktop-PrettyWorks-BE/1bebb959-adad-47cf-aeb0-d6098dc6ab4f/tool-results/mcp-ffbe0a75-a3af-4026-bb4d-8710117111ff-get_metadata-1785203612335.txt\")",
       "Bash(curl -sL -o proj041.png \"https://www.figma.com/api/mcp/asset/be0c9ef9-e2cd-4add-81ee-dd1992916aeb\")",
       "Bash(grep -oE '<frame id=\\\\\\\\\"[0-9]+:[0-9]+\\\\\\\\\" name=\\\\\\\\\"[^\\\\\\\\]*\\(팝업|모달|modal|popup|새 창|dropdown|dd_|switch|목록\\)[^\\\\\\\\]*\\\\\\\\\"' \"C:/Users/tnals/.claude/projects/C--Users-tnals-Desktop-PrettyWorks-BE/1bebb959-adad-47cf-aeb0-d6098dc6ab4f/tool-results/mcp-ffbe0a75-a3af-4026-bb4d-8710117111ff-get_metadata-1785203612335.txt\")",
-      "Bash(curl -sL -o finance.png \"https://www.figma.com/api/mcp/asset/903e3b89-5efa-450f-868e-64c31965c76b\")"
+      "Bash(curl -sL -o finance.png \"https://www.figma.com/api/mcp/asset/903e3b89-5efa-450f-868e-64c31965c76b\")",
+      "PowerShell(.\\\\gradlew.bat compileJava --console=plain -q)"
     ]
   }
 }

@@ -34,4 +34,18 @@ public class CurrentUserService {
         }
         return user;
     }
+
+    // 현재 유저 로드 + 재직 검증 (USER_003). 휴직(ON_LEAVE)은 통과, 퇴사(RESIGNED)만 거부.
+    //
+    // 퇴사자는 로그인·재발급이 이미 막혀 있지만 발급된 access token이 만료까지 남아 있어,
+    // 퇴사 처리 직후 그 시간만큼 창이 열린다. 이 검증이 그 창을 닫는다.
+    // 휴직자까지 막아야 하는 행위(업무 수행)라면 getActiveUser를 쓴다.
+    @Transactional(readOnly = true)
+    public UserEntity getEmployedUser(Long userId) {
+        UserEntity user = getCurrentUser(userId);
+        if (!UserPolicy.isEmployed(user)) {
+            throw BaseException.type(UserErrorCode.RESIGNED_USER);
+        }
+        return user;
+    }
 }

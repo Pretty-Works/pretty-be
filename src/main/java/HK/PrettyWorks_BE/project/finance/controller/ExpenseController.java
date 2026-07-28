@@ -1,36 +1,43 @@
 package HK.PrettyWorks_BE.project.finance.controller;
 
+import HK.PrettyWorks_BE.global.base.PageResponse;
+import HK.PrettyWorks_BE.project.finance.constant.ExpenseStatus;
 import HK.PrettyWorks_BE.project.finance.dto.req.ExpenseRequest;
+import HK.PrettyWorks_BE.project.finance.dto.res.BudgetSummaryResponse;
+import HK.PrettyWorks_BE.project.finance.dto.res.ExpenseListResponse;
 import HK.PrettyWorks_BE.project.finance.dto.res.ExpenseResponse;
 import HK.PrettyWorks_BE.project.finance.service.ExpenseService;
-import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
+import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 // @Validated: @RequestHeader 등 메서드 파라미터의 제약(@Size)을 검증하려면 필요합니다. (없으면 조용히 무시됨)
+// Swagger 문서는 ExpenseApi 인터페이스에 있습니다.
 @RestController
 @RequiredArgsConstructor
 @Validated
-public class ExpenseController {
+public class ExpenseController implements ExpenseApi {
 
     private final ExpenseService expenseService;
 
     // 재무 화면 헤더 proj_select로 확정된 프로젝트에 지출 1건 등록. 사용자(spender)는 토큰에서 주입(대리 등록 없음).
-    @Operation(summary = "프로젝트 지출 등록",
-            description = "프로젝트 참여중 멤버가 본인 명의로 지출 1건 등록. spender는 토큰 userId로 서버가 채움. "
-                    + "Idempotency-Key 헤더로 중복 등록을 방지할 수 있음")
+    @Override
     @PostMapping("/api/v1/projects/{projectId}/expenses")
     public ResponseEntity<ExpenseResponse> create(
             @AuthenticationPrincipal Long userId,
@@ -47,9 +54,43 @@ public class ExpenseController {
         return ResponseEntity.ok(response);
     }
 
+    // 재무 화면 '지출 내역' 테이블. 행을 클릭해 여는 수정 팝업이 이 응답을 그대로 초기값으로 쓴다(별도 상세 조회 없음).
+    @Override
+    @GetMapping("/api/v1/projects/{projectId}/expenses")
+    public ResponseEntity<PageResponse<ExpenseListResponse>> getExpenses(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long projectId,
+            @Parameter(description = "조회할 구분. EXECUTED(사용 내역) / PLANNED(예정)", example = "EXECUTED")
+            @RequestParam(defaultValue = "EXECUTED") ExpenseStatus status,
+            @Parameter(description = "사용처·사용 목적 부분 일치 검색어", example = "카카오")
+            @RequestParam(required = false) String keyword,
+            @Parameter(description = "페이지 번호 (0부터)")
+            @RequestParam(defaultValue = "0") @Min(value = 0, message = "페이지 번호는 0 이상이어야 합니다.") int page,
+            @Parameter(description = "한 페이지당 개수 (1~100)")
+            @RequestParam(defaultValue = "10")
+            @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
+            @Max(value = 100, message = "페이지 크기는 100 이하여야 합니다.") int size
+    ) {
+        PageResponse<ExpenseListResponse> response =
+                expenseService.getExpenses(projectId, userId, status, keyword, PageRequest.of(page, size));
+
+        return ResponseEntity.ok(response);
+    }
+
+    // 재무 화면 상단 '예산 현황' 카드. 목록과 분리한 건 페이지마다 전체 합계를 다시 구하지 않기 위해서다.
+    @Override
+    @GetMapping("/api/v1/projects/{projectId}/budget")
+    public ResponseEntity<BudgetSummaryResponse> getBudget(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long projectId
+    ) {
+        BudgetSummaryResponse response = expenseService.getBudget(projectId, userId);
+
+        return ResponseEntity.ok(response);
+    }
+
     // 본인이 등록한 지출 1건 수정 (5필드). projectId·spenderId는 변경 불가(바디에 와도 무시).
-    @Operation(summary = "프로젝트 지출 수정",
-            description = "본인이 등록한 지출만 수정 가능. 사용일·유형·사용처·목적·금액만 변경(프로젝트·사용자 불변)")
+    @Override
     @PutMapping("/api/v1/projects/{projectId}/expenses/{expenseId}")
     public ResponseEntity<ExpenseResponse> update(
             @AuthenticationPrincipal Long userId,
@@ -63,8 +104,7 @@ public class ExpenseController {
     }
 
     // 본인이 등록한 지출 1건 소프트 삭제. 이미 삭제된 건 재요청은 멱등 성공.
-    @Operation(summary = "프로젝트 지출 삭제",
-            description = "본인이 등록한 지출만 소프트 삭제. 이미 삭제된 건 재요청은 성공(멱등)")
+    @Override
     @DeleteMapping("/api/v1/projects/{projectId}/expenses/{expenseId}")
     public Void delete(
             @AuthenticationPrincipal Long userId,

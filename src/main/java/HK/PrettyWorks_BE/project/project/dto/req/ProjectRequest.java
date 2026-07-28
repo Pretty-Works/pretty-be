@@ -7,7 +7,6 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import lombok.Builder;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -25,8 +24,9 @@ public record ProjectRequest(
         LocalDate endDate,
 
         // 예산은 선택 입력. 미입력(null/빈칸)이거나 0이면 '예산 제한 없음'을 의미하며, 서버에서 null은 0으로 저장합니다.
+        // 원 단위 정수 — 소수점이 붙어 오면 Jackson이 400으로 거른다.
         @PositiveOrZero(message = "예산은 0 이상이어야 합니다.")
-        BigDecimal budget,
+        Long budget,
 
         @Size(max = 500, message = "설명은 최대 500자까지 입력 가능합니다.")
         String description,

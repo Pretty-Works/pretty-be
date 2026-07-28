@@ -16,8 +16,7 @@ public final class UserPolicy {
     }
 
     // "아직 회사 소속인가" = 퇴사(RESIGNED)만 거부. 휴직(ON_LEAVE)은 포함.
-    // 로그인 가능 여부와 일정 참가자 등록의 공통 기준.
-    // TODO: 일정 도메인(ScheduleService)의 RESIGNED 직접 비교도 이 술어로 통합 예정 (담당자 작업)
+    // 로그인 가능 여부와 프로젝트 참여자·일정 참가자·지출 등록의 공통 기준.
     public static boolean isEmployed(UserEntity user) {
         return user.getStatus() != StatusType.RESIGNED;
     }

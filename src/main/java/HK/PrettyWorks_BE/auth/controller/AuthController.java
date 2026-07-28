@@ -7,7 +7,6 @@ import HK.PrettyWorks_BE.auth.dto.res.JwtTokenResponse;
 import HK.PrettyWorks_BE.auth.dto.res.SignupResponse;
 import HK.PrettyWorks_BE.auth.service.AuthService;
 import HK.PrettyWorks_BE.security.info.UserAuthentication;
-import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
@@ -20,12 +19,12 @@ import org.springframework.web.bind.annotation.RestController;
 
 @RestController
 @RequiredArgsConstructor
-public class AuthController {
+public class AuthController implements AuthApi {
 
     private final AuthService authService;
 
     // 임직원 정보를 받아 신규 계정을 생성합니다.
-    @Operation(summary = "회원가입", description = "임직원 정보로 신규 계정 생성")
+    @Override
     @PostMapping("/api/v1/auth/signup")
     public ResponseEntity<SignupResponse> signup(@Valid @RequestBody SignupRequest request) {
         SignupResponse response = authService.signup(request);
@@ -34,7 +33,7 @@ public class AuthController {
     }
 
     // 사번/비밀번호로 로그인하고 access/refresh 토큰을 발급합니다. 기기별로 세션이 따로 만들어집니다.
-    @Operation(summary = "로그인", description = "사번과 비밀번호로 로그인 진행. 기기별 동시 로그인 지원(초과 시 가장 오래된 세션 종료)")
+    @Override
     @PostMapping("/api/v1/auth/login")
     public ResponseEntity<JwtTokenResponse> login(
             @Valid @RequestBody LoginRequest request,
@@ -47,7 +46,7 @@ public class AuthController {
     }
 
     // refresh 토큰을 검증해 새 access/refresh 토큰 한 쌍을 발급합니다(RTR). 세션은 그대로 유지됩니다.
-    @Operation(summary = "RTR", description = "Refresh Token 검증 후 재발급. 이미 사용된 토큰이 다시 오면 도난으로 보고 해당 세션을 종료")
+    @Override
     @PostMapping("/api/v1/auth/reissue")
     public ResponseEntity<JwtTokenResponse> reissue(
             @Valid @RequestBody ReissueRequest request,
@@ -59,8 +58,7 @@ public class AuthController {
     }
 
     // 요청한 기기의 세션만 종료합니다. 다른 기기의 로그인은 유지됩니다.
-    @Operation(summary = "로그아웃",
-            description = "요청한 기기의 세션만 종료(멱등). refresh token은 폐기되고 access token도 즉시 차단됩니다")
+    @Override
     @PostMapping("/api/v1/auth/logout")
     public Void logout(Authentication authentication) {
         // 세션 식별자가 필요해 principal 대신 인증 객체를 직접 받습니다. (다른 API는 @AuthenticationPrincipal 그대로)
@@ -70,6 +68,4 @@ public class AuthController {
         // 반환값 없음 → 인터셉터가 BaseResponse로 감싸 result: null 응답을 만든다.
         return null;
     }
-
-
 }
