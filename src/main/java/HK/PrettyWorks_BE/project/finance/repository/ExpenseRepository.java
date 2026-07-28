@@ -64,21 +64,21 @@ public interface ExpenseRepository extends JpaRepository<ExpenseEntity, Long> {
     // 예산 현황 ②: 항목(카테고리)별 사용 합계. 도넛 차트가 '사용' 기준이라 사용 예정은 제외한다.
     // 사용액이 0인 카테고리는 group by 특성상 애초에 행이 생기지 않는다. 금액 내림차순 고정.
     @Query("""
-            select new HK.PrettyWorks_BE.project.finance.repository.BudgetGroupRow(
-                       str(e.category), sum(e.amount))
+            select new HK.PrettyWorks_BE.project.finance.repository.CategorySumRow(
+                       e.category, sum(e.amount))
             from ExpenseEntity e
             where e.projectId = :projectId and e.deletedAt is null
               and e.expenseDate <= :today
             group by e.category
             order by sum(e.amount) desc
             """)
-    List<BudgetGroupRow> sumByCategory(@Param("projectId") Long projectId, @Param("today") LocalDate today);
+    List<CategorySumRow> sumByCategory(@Param("projectId") Long projectId, @Param("today") LocalDate today);
 
     // 예산 현황 ③: 부서별 사용 합계. 부서는 지출에 저장하지 않고 지출자의 현재 소속에서 파생한다
     // (사람의 소속은 바뀌며, 집계는 항상 현재 조직 기준이면 충분하다).
     @Query("""
-            select new HK.PrettyWorks_BE.project.finance.repository.BudgetGroupRow(
-                       str(u.department), sum(e.amount))
+            select new HK.PrettyWorks_BE.project.finance.repository.DepartmentSumRow(
+                       u.department, sum(e.amount))
             from ExpenseEntity e
             join UserEntity u on u.id = e.spenderId
             where e.projectId = :projectId and e.deletedAt is null
@@ -86,7 +86,7 @@ public interface ExpenseRepository extends JpaRepository<ExpenseEntity, Long> {
             group by u.department
             order by sum(e.amount) desc
             """)
-    List<BudgetGroupRow> sumByDepartment(@Param("projectId") Long projectId, @Param("today") LocalDate today);
+    List<DepartmentSumRow> sumByDepartment(@Param("projectId") Long projectId, @Param("today") LocalDate today);
 
     // 프로젝트 기간 축소 검증: 새 기간을 벗어나는 사용일이 남는지 확인한다. (소프트 삭제된 건은 제외)
     @Query("select count(e) > 0 from ExpenseEntity e " +

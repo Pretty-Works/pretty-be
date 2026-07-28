@@ -24,7 +24,8 @@ public record ProjectDetailResponse(
         int progress,
         Owner owner,
         List<Member> members,
-        List<Milestone> milestones
+        // 목표일 오름차순. 마일스톤 목록 조회와 같은 모양(MilestoneSummary)을 쓴다.
+        List<MilestoneSummary> milestones
 ) {
 
     // 오너는 참여자 목록과 분리해 내려준다. ownerRole은 수정 요청의 ownerRole과 형태를 맞춘 값.
@@ -45,12 +46,4 @@ public record ProjectDetailResponse(
     ) {
     }
 
-    // 목표일 오름차순. 수정 시 마일스톤이 전체 교체되므로 milestoneId는 조회 시점 식별자일 뿐 영구 키가 아니다.
-    @Builder
-    public record Milestone(
-            Long milestoneId,
-            LocalDate targetDate,
-            String goal
-    ) {
-    }
 }

@@ -58,6 +58,10 @@ public record ProjectRequest(
 
     @Builder
     public record MilestoneRequest(
+            // 기존 마일스톤이면 상세 조회에서 받은 값을 그대로 넣고, 신규면 비웁니다.
+            // id를 실어 보내야 목표일·내용을 고쳐도 완료 상태가 보존됩니다. 생성 API에서는 무시됩니다.
+            Long milestoneId,
+
             // targetDate·goal 둘 다 있어야 함(한쪽만 입력 차단). 판정은 ProjectPolicy가 갖고 PROJECT_016으로 거부합니다.
             LocalDate targetDate,
 

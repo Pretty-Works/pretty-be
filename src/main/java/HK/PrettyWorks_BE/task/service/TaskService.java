@@ -1,6 +1,7 @@
 package HK.PrettyWorks_BE.task.service;
 
 import HK.PrettyWorks_BE.global.exception.BaseException;
+import HK.PrettyWorks_BE.global.util.Percent;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
@@ -211,7 +212,7 @@ public class TaskService {
             totalAll += teamTotal;
             doneAll += teamDone;
 
-            teamRates.add(new TaskProjectResponse.TeamRate(team, teamDone, teamTotal, rate(teamDone, teamTotal)));
+            teamRates.add(new TaskProjectResponse.TeamRate(team, teamDone, teamTotal, Percent.floorRate(teamDone, teamTotal)));
 
             List<TaskProjectResponse.TaskItem> items = teamRows.stream()
                     .map(r -> toItem(r, today))
@@ -221,7 +222,7 @@ public class TaskService {
 
         // 8) 전체 요약 (rate: 내림, total=0이면 0)
         TaskProjectResponse.Summary summary =
-                new TaskProjectResponse.Summary(totalAll, doneAll, rate(doneAll, totalAll), teamRates);
+                new TaskProjectResponse.Summary(totalAll, doneAll, Percent.floorRate(doneAll, totalAll), teamRates);
 
         return new TaskProjectResponse(weekStart, weekEnd, summary, groups);
     }
@@ -237,11 +238,6 @@ public class TaskService {
                 ChronoUnit.DAYS.between(today, r.dueDate()),
                 r.completedAt() == null && r.dueDate().isBefore(today)
         );
-    }
-
-    // 완료율(%) 내림. total=0이면 0으로 가드.
-    private int rate(int done, int total) {
-        return total == 0 ? 0 : done * 100 / total;
     }
 
     // 쓰기(생성/수정)용: 프로젝트 존재(PROJECT_004)·멤버(MEMBER_001)·상태(완료/보관 불가, PROJECT_020)·마감일 기간(TASK_007) 검증.

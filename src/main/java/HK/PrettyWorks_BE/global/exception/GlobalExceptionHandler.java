@@ -219,9 +219,18 @@ public class GlobalExceptionHandler {
     }
 
     // traceId는 로그 패턴(%X{traceId})이 MdcFilter가 넣은 값을 자동으로 붙여줍니다.
+    //
+    // 레벨을 상태코드로 가릅니다. 4xx는 클라이언트가 고칠 문제라 warn,
+    // 5xx는 서버가 조치해야 하는 문제라 error입니다. 전부 warn으로 남기면
+    // "error만 모아 알림"을 붙였을 때 진짜 장애가 걸러지지 않습니다.
     private void logging(ErrorCode code, String message) {
-        log.warn("{} | {} | {} {} | {}",
-                code.getStatus(), code.getErrorCode(),
+        String format = "{} | {} | {} {} | {}";
+        if (code.getStatus().is5xxServerError()) {
+            log.error(format, code.getStatus(), code.getErrorCode(),
+                    request.getMethod(), request.getRequestURI(), message);
+            return;
+        }
+        log.warn(format, code.getStatus(), code.getErrorCode(),
                 request.getMethod(), request.getRequestURI(), message);
     }
 }
