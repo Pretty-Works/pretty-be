@@ -2,15 +2,20 @@ package HK.PrettyWorks_BE.project.project.controller;
 
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectStatusRequest;
+import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectDetailResponse;
+import HK.PrettyWorks_BE.project.project.dto.res.ProjectListResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectStatusResponse;
 import HK.PrettyWorks_BE.project.project.service.ProjectService;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Max;
+import jakarta.validation.constraints.Min;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
 import org.springframework.validation.annotation.Validated;
@@ -21,6 +26,7 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestHeader;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 // @Validated: @RequestHeader 등 메서드 파라미터의 제약(@Size)을 검증하려면 필요합니다. (없으면 조용히 무시됨)
@@ -46,6 +52,31 @@ public class ProjectController {
             @Valid @RequestBody ProjectRequest request
     ) {
         ProjectResponse response = projectService.create(ownerId, idempotencyKey, request);
+
+        return ResponseEntity.ok(response);
+    }
+
+    // 홈의 '진행 중 프로젝트' 패널과 프로젝트 선택 팝업이 함께 사용합니다.
+    @Operation(summary = "프로젝트 목록 조회",
+            description = "참여중인 프로젝트를 상태·이름으로 걸러 페이지 단위로 조회. 기본은 진행중만. "
+                    + "정렬은 서버 고정(진행중→보류→종료, 진행형은 마감 임박순·종료형은 최근 종료순)")
+    @GetMapping("/api/v1/projects")
+    public ResponseEntity<PageResponse<ProjectListResponse>> getMyProjects(
+            @AuthenticationPrincipal Long userId,
+            @Parameter(description = "조회할 상태. ONGOING/HOLDING/COMPLETED/DROPPED 또는 전체를 뜻하는 ALL",
+                    example = "ONGOING")
+            @RequestParam(defaultValue = "ONGOING") String status,
+            @Parameter(description = "프로젝트명 부분 일치 검색어", example = "그룹웨어")
+            @RequestParam(required = false) String keyword,
+            @Parameter(description = "페이지 번호 (0부터)")
+            @RequestParam(defaultValue = "0") @Min(value = 0, message = "페이지 번호는 0 이상이어야 합니다.") int page,
+            @Parameter(description = "한 페이지당 개수 (1~100)")
+            @RequestParam(defaultValue = "20")
+            @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
+            @Max(value = 100, message = "페이지 크기는 100 이하여야 합니다.") int size
+    ) {
+        PageResponse<ProjectListResponse> response =
+                projectService.getMyProjects(userId, status, keyword, PageRequest.of(page, size));
 
         return ResponseEntity.ok(response);
     }
