@@ -20,9 +20,8 @@ public class ProjectMemberService {
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
 
-    // 이 사용자가 해당 프로젝트의 참여중(ACTIVE) 멤버인지 여부만 반환합니다.
-    @Transactional(readOnly = true)
-    public boolean isActiveMember(Long projectId, Long userId) {
+    // 참여중(ACTIVE) 멤버인지 여부만 판정합니다.
+    private boolean isActiveMember(Long projectId, Long userId) {
         return projectMemberRepository
                 .existsByProjectIdAndUserIdAndStatus(projectId, userId, ProjectMemberStatus.ACTIVE);
     }

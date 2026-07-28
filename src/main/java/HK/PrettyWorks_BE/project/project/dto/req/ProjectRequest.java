@@ -58,7 +58,7 @@ public record ProjectRequest(
 
     @Builder
     public record MilestoneRequest(
-            // targetDate·goal 둘 다 있어야 함(한쪽만 입력 차단). 이 검증은 서비스에서 PROJECT_016으로 처리합니다.
+            // targetDate·goal 둘 다 있어야 함(한쪽만 입력 차단). 판정은 ProjectPolicy가 갖고 PROJECT_016으로 거부합니다.
             LocalDate targetDate,
 
             @Size(max = 200, message = "마일스톤 목표 내용은 최대 200자까지 입력 가능합니다.")

@@ -400,9 +400,7 @@ public class ProjectService {
         }
         List<MilestoneRequest> result = new ArrayList<>();
         for (MilestoneRequest m : milestones) {
-            boolean noDate = m.targetDate() == null;
-            boolean noGoal = !StringUtils.hasText(m.goal());
-            if (noDate && noGoal) {
+            if (ProjectPolicy.isEmptyMilestone(m.targetDate(), m.goal())) {
                 continue;   // 둘 다 비면 빈 항목 → 무시
             }
             result.add(m);
@@ -428,7 +426,7 @@ public class ProjectService {
     // 마일스톤 형식(둘 다 입력, PROJECT_016)·기간(프로젝트 기간 내, PROJECT_015)을 검증한다.
     private void validateMilestones(List<MilestoneRequest> milestones, LocalDate startDate, LocalDate endDate) {
         for (MilestoneRequest m : milestones) {
-            if (m.targetDate() == null || !StringUtils.hasText(m.goal())) {
+            if (!ProjectPolicy.isCompleteMilestone(m.targetDate(), m.goal())) {
                 throw BaseException.type(ProjectErrorCode.MILESTONE_INCOMPLETE);
             }
             if (!ProjectPolicy.isWithinPeriod(startDate, endDate, m.targetDate())) {
