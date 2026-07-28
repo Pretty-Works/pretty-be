@@ -1,7 +1,6 @@
 package HK.PrettyWorks_BE.task.service;
 
 import HK.PrettyWorks_BE.global.exception.BaseException;
-import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
@@ -22,7 +21,7 @@ import HK.PrettyWorks_BE.task.repository.TaskHomeRow;
 import HK.PrettyWorks_BE.task.repository.TaskProjectRow;
 import HK.PrettyWorks_BE.task.repository.TaskRepository;
 import HK.PrettyWorks_BE.user.constant.DepartmentType;
-import HK.PrettyWorks_BE.user.repository.UserRepository;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -45,7 +44,7 @@ public class TaskService {
     private final TaskRepository taskRepository;
     private final ProjectRepository projectRepository;
     private final ProjectMemberService projectMemberService;
-    private final UserRepository userRepository;
+    private final CurrentUserService currentUserService;
 
     @Transactional
     public TaskResponse create(Long userId, TaskRequest request) {
@@ -177,10 +176,8 @@ public class TaskService {
         // 1) 프로젝트 존재·멤버십 검증 (PROJECT_004 / MEMBER_001) — 조회는 상태·마감일 검증 없이 멤버십만
         validateProjectAccess(projectId, userId);
 
-        // 2) 조회자 부서 (isMine 판정용). 토큰은 유효한데 유저가 없으면 인증을 신뢰할 수 없어 UNAUTHORIZED.
-        DepartmentType viewerTeam = userRepository.findById(userId)
-                .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED))
-                .getDepartment();
+        // 2) 조회자 부서 (isMine 판정용)
+        DepartmentType viewerTeam = currentUserService.getCurrentUser(userId).getDepartment();
 
         // 3) 주 범위: 오늘이 속한 주의 월요일 + weekOffset주, 월~일(7일)
         LocalDate today = LocalDate.now();

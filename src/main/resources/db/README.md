@@ -25,9 +25,13 @@ docker exec -i <name> sh -c "mysql -uroot -p1234 -e 'DROP DATABASE IF EXISTS pre
 <details><summary>DB는 유지하고 테이블만 지우려면 (대안)</summary>
 
 ```powershell
-docker exec -i <name> sh -c "mysql -uroot -p1234 prettyworks_test -e 'SET FOREIGN_KEY_CHECKS=0; DROP TABLE IF EXISTS schedule_participants, schedule_leaves, schedules, meeting_attendees, meetings, project_posts, tasks, milestones, project_members, refresh_tokens, leave_balances, projects, users; SET FOREIGN_KEY_CHECKS=1;'"
+docker exec -i <name> sh -c "mysql -uroot -p1234 prettyworks_test -e 'SET FOREIGN_KEY_CHECKS=0; DROP TABLE IF EXISTS idempotency_keys, expenses, schedule_participants, schedule_leaves, schedules, meeting_attendees, meetings, project_posts, tasks, milestones, project_members, refresh_tokens, leave_balances, projects, users; SET FOREIGN_KEY_CHECKS=1;'"
 ```
 FK 때문에 `SET FOREIGN_KEY_CHECKS=0` 없이는 부모 테이블을 못 지웁니다.
+
+> ⚠️ **테이블을 새로 추가했다면 이 목록에도 반드시 넣으세요.** `init.sql`이 `CREATE TABLE IF NOT EXISTS`라서,
+> 빠뜨린 테이블은 지워지지 않고 남았다가 재로드 때 그대로 건너뛰어집니다. 그러면 스키마가 옛 상태로 남아
+> `ddl-auto: validate`에서 앱이 안 뜨거나, 더 나쁘게는 어긋난 채로 뜹니다. 헷갈리면 1번(DB 통째 재생성)을 쓰세요.
 </details>
 
 ## 2) 스키마 로드 (init.sql)
@@ -68,5 +72,6 @@ docker exec -i <name> sh -c "mysql -uroot -p1234 --default-character-set=utf8mb4
 - 비밀번호: 시드의 전 사용자 비밀번호는 `Test1234!` (BCrypt 해시).
 - 순서: 반드시 **init.sql(스키마) → seed.sql(데이터)** 순. seed.sql은 빈 테이블 기준으로 id가
   `users 1~10`, `projects 1~5` … 순서대로 부여되는 것을 전제로 FK를 참조합니다.
-- 날짜: seed의 마감일·완료 시각은 "오늘 ≈ 2026-07-23"에 맞춰져 있습니다. 서버 시계가 크게 다르면
-  이번 주/이월(carry-over) 구분이 어긋날 수 있습니다.
+- 날짜: seed의 모든 날짜는 `CURDATE()` 기준 **상대값**(`DATE_SUB(CURDATE(), INTERVAL n DAY)` 등)이라
+  언제 로드해도 "진행 중 프로젝트", "이번 주 할 일" 같은 상태가 그대로 재현됩니다. 고정 날짜를 새로
+  넣지 마세요 — 시간이 지나면 시드가 낡아 테스트가 어긋납니다.

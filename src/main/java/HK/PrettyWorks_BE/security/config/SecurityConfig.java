@@ -74,6 +74,8 @@ public class SecurityConfig {
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         // 요청 헤더를 모두 허용합니다. (Authorization 포함)
         configuration.setAllowedHeaders(List.of("*"));
+        // 브라우저는 기본적으로 소수의 표준 헤더만 JS에 노출하므로, 추적 ID를 읽으려면 명시해야 합니다.
+        configuration.setExposedHeaders(List.of("X-Trace-Id"));
         // 쿠키, Authorization 헤더 등 인증 정보를 포함한 요청을 허용합니다.
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
