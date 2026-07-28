@@ -6,11 +6,15 @@ import lombok.AccessLevel;
 import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
+import org.hibernate.annotations.SQLDelete;
+import org.hibernate.annotations.SQLRestriction;
 
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "project_posts")
+@SQLDelete(sql = "UPDATE meetings SET deleted_at = NOW() WHERE id = ?")
+@SQLRestriction("deleted_at IS NULL")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
 public class PostEntity extends BaseTimeEntity {
@@ -41,13 +45,17 @@ public class PostEntity extends BaseTimeEntity {
 
     @Builder
     public PostEntity(Long projectId, Long authorId, String title,
-                      String content, LocalDateTime deletedAt) {
+                      String content) {
         this.projectId = projectId;
         this.authorId = authorId;
         this.title = title;
         this.content = content;
     }
 
-    // 수정 관련 내용 작성 예정
-
+    // 수정 가능한 값만 변경
+    public void update(String title,
+                       String content) {
+        this.title = title;
+        this.content = content;
+    }
 }

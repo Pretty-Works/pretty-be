@@ -24,7 +24,9 @@ import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
 import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.exception.UserErrorCode;
+import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import org.springframework.data.domain.Page;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -45,6 +47,7 @@ public class MeetingService {
     private final ProjectRepository projectRepository;
     private final ProjectMemberService projectMemberService;
     private final IdempotencyService idempotencyService;
+    private final CurrentUserService currentUserService;
 
     // 멱등 처리 진입점
     // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않음
@@ -68,12 +71,12 @@ public class MeetingService {
     // 회의록 작성
     private Long doCreate(Long projectId, Long authorId, MeetingCreateRequest request) {
 
-        // 작성자가 이 프로젝트의 참여중 멤버인지 확인
-        projectMemberService.validateActiveMember(projectId, authorId);
-
         // 존재하는 프로젝트인지 확인
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
+
+        // 작성자가 이 프로젝트의 참여중 멤버인지 확인
+        projectMemberService.validateActiveMember(projectId, authorId);
 
         // 완료/보관된 프로젝트가 아닌지 확인
         if (!ProjectPolicy.isOpenForContent(project)) {
@@ -301,7 +304,7 @@ public class MeetingService {
 
         // 재직중 확인
         for (UserEntity attendee : attendees) {
-            if (attendee.getStatus() != StatusType.ACTIVE) {
+            if (!UserPolicy.isActive(attendee)) {
                 throw BaseException.type(UserErrorCode.INACTIVE_USER);
             }
         }
@@ -314,24 +317,20 @@ public class MeetingService {
 
     // 작성자 + 참석자 저장 공통 로직
     private void saveAttendees(Long meetingId, Long authorId, List<Long> attendeeIds) {
-        // 작성자 + 참석자 id를 한 번에 조회
-        List<Long> allIds = new ArrayList<>();
-        allIds.add(authorId);
-        allIds.addAll(attendeeIds);
+        UserEntity author = currentUserService.getCurrentUser(authorId);
 
-        Map<Long, UserEntity> userMap = userRepository.findAllById(allIds).stream()
+        // 참석자들만 한 번에 조회
+        Map<Long, UserEntity> attendeeMap = userRepository.findAllById(attendeeIds).stream()
                 .collect(Collectors.toMap(UserEntity::getId, user -> user));
 
         List<MeetingAttendeeEntity> toSave = new ArrayList<>();
 
         // 작성자(WRITER)
-        UserEntity author = userMap.get(authorId);
-        if (author == null) throw BaseException.type(MeetingErrorCode.AUTHOR_NOT_FOUND);
         toSave.add(toAttendee(meetingId, author, MeetingRole.WRITER));
 
         // 참석자(ATTENDEE)
         for (Long attendeeId : attendeeIds) {
-            UserEntity attendee = userMap.get(attendeeId);
+            UserEntity attendee = attendeeMap.get(attendeeId);
             if (attendee == null) throw BaseException.type(MeetingErrorCode.ATTENDEE_NOT_FOUND);
             toSave.add(toAttendee(meetingId, attendee, MeetingRole.ATTENDEE));
         }

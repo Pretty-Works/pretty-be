@@ -160,6 +160,7 @@ CREATE TABLE IF NOT EXISTS project_posts (
     project_id  BIGINT       NOT NULL          COMMENT '프로젝트 FK',
     author_id   BIGINT       NOT NULL          COMMENT '작성자 (users FK)',
     title       VARCHAR(200) NOT NULL          COMMENT '제목',
+    priority    VARCHAR(10)  NOT NULL          COMMENT '중요도 (HIGH / MiD / LOW)',
     content     TEXT         NOT NULL          COMMENT '내용',
     created_at  DATETIME(6)  NULL              COMMENT '작성 시각',
     modified_at DATETIME(6)  NULL              COMMENT '수정 시각',
