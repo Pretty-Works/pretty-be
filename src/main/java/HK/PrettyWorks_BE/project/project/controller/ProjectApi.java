@@ -32,6 +32,7 @@ public interface ProjectApi {
                     [budget] 원 단위 정수. 미입력이나 0은 '예산 제한 없음'이며 소수점은 넣지 않습니다.
                     [members] 오너는 서버가 자동 등록합니다. 퇴사자는 넣을 수 없고(USER_003) 휴직자는 가능합니다.
                     [milestones] targetDate와 goal이 **둘 다** 있어야 합니다(PROJECT_016).
+                    milestoneId를 실어 보내도 무시됩니다 — 새 프로젝트라 전부 신규입니다.
                     [role] 참여자의 role을 "PM"으로 주면 오너가 아니어도 이 프로젝트를 수정할 수 있습니다.
 
                     Idempotency-Key 헤더에 UUID를 담아 보내면 연타·재시도해도 프로젝트가 두 개 생기지 않습니다.
@@ -76,7 +77,8 @@ public interface ProjectApi {
 
                     [owner] 오너는 members와 분리해 내려주며 members에는 포함되지 않습니다.
                     [members] 참여중인 참여자만. 프로젝트를 떠난 사람은 나오지 않습니다.
-                    [milestoneId] 수정 시 마일스톤이 전체 교체되어 id가 바뀝니다. 저장해두지 마세요.
+                    [milestones[].milestoneId] **영구 식별자입니다.** 수정(PUT) 요청에 그대로 실어 보내야 완료 상태가 보존됩니다.
+                    [milestones[].done] 완료 여부. 사용자가 완료된 마일스톤을 지우려 할 때 확인을 띄우는 데 쓰세요.
                     [budget] 원 단위 정수. 0은 '예산 제한 없음'.
                     [progress] 기간 경과율(%). 작업 진척도가 아닙니다.
                     """
@@ -101,11 +103,17 @@ public interface ProjectApi {
             description = """
                     오너 또는 역할이 "PM"인 참여자만 수정할 수 있습니다. 완료·보관된 프로젝트는 수정할 수 없습니다(PROJECT_020).
 
-                    ⚠️ **전체 상태를 보냅니다(PUT).** members에서 빠진 참여자는 프로젝트를 떠난 것으로 처리되므로,
-                    변경분만 보내면 나머지 인원이 모두 빠집니다. 마일스톤도 전량 교체됩니다.
+                    ⚠️ **전체 상태를 보냅니다(PUT).** members·milestones에서 빠진 항목은 삭제(참여자는 탈퇴 처리)되므로,
+                    변경분만 보내면 나머지가 모두 사라집니다.
+
+                    [마일스톤] milestoneId 기준으로 대조합니다. id가 있으면 기존 항목을 갱신하고, 없으면(null) 새로 만듭니다.
+                    - **id를 실어 보내면 목표일·내용을 고쳐도 완료 상태가 유지**됩니다. 생략하면 새 마일스톤으로 취급되어 완료 표시가 사라집니다.
+                    - 이 프로젝트에 없는 id를 보내면 404(PROJECT_022)입니다. 다른 프로젝트의 id도 마찬가지입니다.
+                    - ⚠️ **완료 체크된 마일스톤도 요청에서 빠지면 삭제**되며 복구할 수 없습니다. 상세 조회의 done을 보고 확인을 띄우세요.
 
                     ⚠️ X-Resource-Version 헤더 필수 — 상세 조회에서 받은 version을 그대로 넣습니다.
                     409(REQUEST_029)면 상세 조회를 다시 해 최신 내용을 보여준 뒤 재시도하세요.
+                    (마일스톤 완료 토글은 version을 올리지 않으므로 이 저장을 방해하지 않습니다)
 
                     새 기간을 벗어나는 할 일·지출·회의록이 남아 있으면 기간을 줄일 수 없습니다(PROJECT_021).
                     """
@@ -115,7 +123,8 @@ public interface ProjectApi {
             @ApiResponse(responseCode = "400",
                     description = "입력값 검증 실패 / 기간 오류(PROJECT_003) / 마일스톤 오류(PROJECT_015·PROJECT_016) / 퇴사자 참여(USER_003)"),
             @ApiResponse(responseCode = "403", description = "오너도 PM도 아님(PROJECT_005)"),
-            @ApiResponse(responseCode = "404", description = "프로젝트(PROJECT_004) 또는 참여자(PROJECT_002)를 찾을 수 없음"),
+            @ApiResponse(responseCode = "404",
+                    description = "프로젝트(PROJECT_004) / 참여자(PROJECT_002) / 마일스톤(PROJECT_022)을 찾을 수 없음"),
             @ApiResponse(responseCode = "409",
                     description = "완료·보관된 프로젝트(PROJECT_020) / 다른 사용자가 먼저 수정함(REQUEST_029) / 기간 축소 불가(PROJECT_021)",
                     content = @Content(mediaType = "application/json",
