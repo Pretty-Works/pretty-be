@@ -253,7 +253,7 @@ CREATE TABLE IF NOT EXISTS schedules (
 CREATE TABLE IF NOT EXISTS schedule_leaves (
     id          BIGINT       NOT NULL AUTO_INCREMENT,
     schedule_id BIGINT       NOT NULL          COMMENT '일정 FK (1:1)',
-    leave_type  VARCHAR(20)  NOT NULL          COMMENT '휴가 유형 (ANNUAL 연차 / SICK 병가)',
+    leave_type  VARCHAR(20)  NOT NULL          COMMENT '휴가 유형 (ANNUAL 연차 / EXCUSED 공가)',
     reason      VARCHAR(255) NULL              COMMENT '사유',
     days        INT          NOT NULL          COMMENT '일수 (연차 사용/잔여 계산용)',
     created_at  DATETIME(6)  NULL              COMMENT '생성 시각',

@@ -10,7 +10,7 @@ import java.time.LocalDate;
 
 @Builder
 public record LeaveCreateRequest(
-        @Schema(example = "ANNUAL", description = "휴가 유형 (ANNUAL: 연차, SICK: 병가)")
+        @Schema(example = "ANNUAL", description = "휴가 유형 (ANNUAL: 연차, EXCUSED: 공가)")
         @NotNull(message = "휴가 유형을 선택해주세요.")
         LeaveType leaveType,
 
