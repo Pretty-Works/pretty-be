@@ -2,6 +2,7 @@ package HK.PrettyWorks_BE.project.meeting.service;
 
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
+import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
 import HK.PrettyWorks_BE.project.meeting.constant.MeetingRole;
 import HK.PrettyWorks_BE.project.meeting.domain.MeetingAttendeeEntity;
 import HK.PrettyWorks_BE.project.meeting.domain.MeetingEntity;
@@ -32,6 +33,7 @@ import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDate;
 import java.util.*;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 @Service
@@ -42,11 +44,29 @@ public class MeetingService {
     private final UserRepository userRepository;
     private final ProjectRepository projectRepository;
     private final ProjectMemberService projectMemberService;
+    private final IdempotencyService idempotencyService;
+
+    // 멱등 처리 진입점
+    // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않음
+    public MeetingCreateResponse createMeeting(
+            Long projectId, Long authorId, String idempotencyKey, MeetingCreateRequest request) {
+
+        String path = "/api/v1/projects/" + projectId + "/meetings";
+
+        // 무엇을 저장할지(creator) + 무엇으로 중복 판정할지(fingerprint).
+        Supplier<Long> creator = () -> doCreate(projectId, authorId, request);
+        String fingerprint = idempotencyService.fingerprint("POST", path, request);
+
+        // run()이 생성된 회의록 id를 돌려줌 (재요청이면 첫 응답 id 재생)
+        Long meetingId = idempotencyService.run(idempotencyKey, "POST " + path, authorId, fingerprint, creator);
+
+        return MeetingCreateResponse.builder()
+                .meetingId(meetingId)
+                .build();
+    }
 
     // 회의록 작성
-    @Transactional
-    public MeetingCreateResponse createMeeting
-    (Long projectId, Long authorId, MeetingCreateRequest request) {
+    private Long doCreate(Long projectId, Long authorId, MeetingCreateRequest request) {
 
         // 작성자가 이 프로젝트의 참여중 멤버인지 확인
         projectMemberService.validateActiveMember(projectId, authorId);
@@ -91,10 +111,7 @@ public class MeetingService {
         // 작성자 + 참석자 저장
         saveAttendees(savedMeeting.getId(), authorId, request.attendeeIds());
 
-        // 저장된 회의록 id를 응답으로 반환
-        return MeetingCreateResponse.builder()
-                .meetingId(savedMeeting.getId())
-                .build();
+        return savedMeeting.getId();
     }
 
     // 회의록 목록 조회
