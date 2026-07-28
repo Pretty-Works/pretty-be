@@ -16,6 +16,7 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -74,8 +75,12 @@ public class MeetingController {
     public ResponseEntity<MeetingCreateResponse> createMeeting(
             @PathVariable Long projectId,
             @Parameter(hidden = true) @AuthenticationPrincipal Long authorId,
+            @Parameter(description = "중복 생성 방지용 멱등 키. 폼 열릴 때 UUID v4 발급해 두고 연타·재시도 시 같은 키 재사용",
+                    example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
+            @Size(max = 64, message = "Idempotency-Key는 64자 이하여야 합니다.")
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,   // ← 이거 추가
             @Valid @RequestBody MeetingCreateRequest request) {
-        MeetingCreateResponse response = meetingService.createMeeting(projectId, authorId, request);
+        MeetingCreateResponse response = meetingService.createMeeting(projectId, authorId, idempotencyKey, request);
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 

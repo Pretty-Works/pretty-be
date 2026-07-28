@@ -26,7 +26,8 @@ import org.springframework.transaction.annotation.Transactional;
 public class AuthService {
 
     private final UserRepository userRepository;
-    private final RefreshTokenService refreshTokenService;
+    private final RefreshTokenService
+            refreshTokenService;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
 
