@@ -17,6 +17,7 @@ import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleRepository;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -33,6 +34,7 @@ public class LeaveService {
     private final ScheduleParticipantRepository scheduleParticipantRepository;
     private final ScheduleLeaveRepository scheduleLeaveRepository;
     private final IdempotencyService idempotencyService;
+    private final CurrentUserService currentUserService;
 
     // 휴가 신청. 멱등 키가 있으면 중복 요청을 방어한다(같은 키·같은 요청은 첫 응답 재생, 다른 내용은 409).
     // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않는다.
@@ -49,15 +51,18 @@ public class LeaveService {
     // 검증(기간) + 저장(schedules → 참가자 → schedule_leaves) 후 생성된 leaveId 반환.
     // 트랜잭션은 IdempotencyService의 TransactionTemplate이 제공(자체 @Transactional 미부착 — self-invocation 회피).
     private Long doCreate(Long userId, LeaveCreateRequest request) {
+        // 1) 신청자 조회 — 토큰 userId로 현재 유저 로드(없으면 UNAUTHORIZED). user 도메인 공용 진입점 재사용.
+        currentUserService.getCurrentUser(userId);
+
         LocalDate startDate = request.startDate();
         LocalDate endDate = request.endDate();
 
-        // 1) 기간 검증(REQUEST_001): 시작일이 종료일보다 늦으면 차단. 같은 날 허용, 과거·미래 허용.
+        // 2) 기간 검증(REQUEST_001): 시작일이 종료일보다 늦으면 차단. 같은 날 허용, 과거·미래 허용.
         if (startDate.isAfter(endDate)) {
             throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
         }
 
-        // 2) 휴가도 schedules 행으로 저장(종일). 제목은 유형명, 기간 00:00:00~23:59:59, type은 PERSONAL(휴가 구분은 schedule_leaves로).
+        // 3) 휴가도 schedules 행으로 저장(종일). 제목은 유형명, 기간 00:00:00~23:59:59, type은 PERSONAL(휴가 구분은 schedule_leaves로).
         String title = titleOf(request.leaveType());
         ScheduleEntity schedule = ScheduleEntity.builder()
                 .userId(userId)
@@ -69,14 +74,14 @@ public class LeaveService {
                 .build();
         scheduleRepository.save(schedule);
 
-        // 3) 신청자를 WRITER 참가자로 등록
+        // 4) 신청자를 WRITER 참가자로 등록
         scheduleParticipantRepository.save(ScheduleParticipantEntity.builder()
                 .scheduleId(schedule.getId())
                 .userId(userId)
                 .role(ParticipantRole.WRITER)
                 .build());
 
-        // 4) 휴가 상세(schedule_leaves) 저장. days = 시작~종료 포함 일수.
+        // 5) 휴가 상세(schedule_leaves) 저장. days = 시작~종료 포함 일수.
         int days = (int) ChronoUnit.DAYS.between(startDate, endDate) + 1;
         ScheduleLeaveEntity leave = ScheduleLeaveEntity.builder()
                 .scheduleId(schedule.getId())
@@ -86,7 +91,7 @@ public class LeaveService {
                 .build();
         scheduleLeaveRepository.save(leave);
 
-        // 5) 생성된 휴가 id 반환
+        // 6) 생성된 휴가 id 반환
         return leave.getId();
     }
 

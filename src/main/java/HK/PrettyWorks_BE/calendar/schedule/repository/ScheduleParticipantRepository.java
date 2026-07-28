@@ -9,8 +9,8 @@ import java.util.Optional;
 
 public interface ScheduleParticipantRepository extends JpaRepository<ScheduleParticipantEntity, Long> {
 
-    // 참가자 교체 시 기존 PARTICIPANT 행만 정리(WRITER는 건드리지 않음)하는 용도.
-    void deleteByScheduleIdAndRole(Long scheduleId, ParticipantRole role);
+    // 참가자 교체(diff): 특정 역할의 참가 행 전부(활성 + 나간 것 포함). 재활성화/신규 판정에 필요.
+    List<ScheduleParticipantEntity> findByScheduleIdAndRole(Long scheduleId, ParticipantRole role);
 
     // 목록 조회: 여러 일정의 '활성' 참가자를 IN 절로 한 번에 가져온다(나간 사람 left_at IS NOT NULL은 제외).
     List<ScheduleParticipantEntity> findByScheduleIdInAndLeftAtIsNull(List<Long> scheduleIds);
