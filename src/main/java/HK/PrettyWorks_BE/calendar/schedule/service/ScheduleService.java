@@ -246,8 +246,8 @@ public class ScheduleService {
     // 검증(작성자·기간·참가자) + 저장(schedule → participants) 후 생성된 scheduleId 반환.
     // 트랜잭션은 IdempotencyService의 TransactionTemplate이 제공(자체 @Transactional 미부착 — self-invocation 회피).
     private Long doCreate(Long writerId, ScheduleCreateRequest request) {
-        // 1) 작성자 조회 — 토큰 userId로 현재 유저 로드(없으면 UNAUTHORIZED). user 도메인 공용 진입점 재사용.
-        currentUserService.getCurrentUser(writerId);
+        // 1) 작성자 조회 + 재직 검증 — 퇴사자(RESIGNED) 차단(USER_003), 휴직(ON_LEAVE)은 허용. 퇴사 후 미만료 토큰 우회 방지. user 도메인 공용 진입점 재사용.
+        currentUserService.getEmployedUser(writerId);
 
         // 2) allDay면 시간 정규화(00:00:00 ~ 23:59:59). 이후 검증·저장은 이 '최종값' 기준.
         //    allDay 생략(null)은 false로 처리. Boolean.TRUE.equals는 null/false→false, true만 true.

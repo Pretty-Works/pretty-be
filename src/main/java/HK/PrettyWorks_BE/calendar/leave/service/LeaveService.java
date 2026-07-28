@@ -58,8 +58,8 @@ public class LeaveService {
     // 검증(기간) + 저장(schedules → 참가자 → schedule_leaves) 후 생성된 leaveId 반환.
     // 트랜잭션은 IdempotencyService의 TransactionTemplate이 제공(자체 @Transactional 미부착 — self-invocation 회피).
     private Long doCreate(Long userId, LeaveCreateRequest request) {
-        // 1) 신청자 조회 — 토큰 userId로 현재 유저 로드(없으면 UNAUTHORIZED). user 도메인 공용 진입점 재사용.
-        currentUserService.getCurrentUser(userId);
+        // 1) 신청자 조회 + 재직 검증 — 퇴사자(RESIGNED) 차단(USER_003), 휴직(ON_LEAVE)은 허용. 퇴사 후 미만료 토큰 우회 방지. user 도메인 공용 진입점 재사용.
+        currentUserService.getEmployedUser(userId);
 
         LocalDate startDate = request.startDate();
         LocalDate endDate = request.endDate();
