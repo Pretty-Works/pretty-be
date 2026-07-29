@@ -186,15 +186,15 @@ VALUES
 -- 6) project_posts  (프로젝트 게시판)
 -- =============================================================================
 INSERT INTO project_posts
-    (project_id, author_id, title, content, created_at, modified_at)
+    (project_id, author_id, title, priority, content, created_at, modified_at)
 VALUES
-    (1, 1, '킥오프 회의록 공유',      '검색 고도화 프로젝트 킥오프 내용 정리했습니다. 확인 부탁드려요.', DATE_SUB(NOW(6), INTERVAL 55 DAY), DATE_SUB(NOW(6), INTERVAL 55 DAY)),
-    (1, 2, '인덱싱 개선 논의',        '역색인 구조를 이렇게 바꾸면 어떨지 의견 주세요.',                DATE_SUB(NOW(6), INTERVAL 20 DAY), DATE_SUB(NOW(6), INTERVAL 20 DAY)),
-    (1, 6, '임베딩 모델 비교표',      '후보 모델 3종의 성능·비용 비교표입니다.',                        DATE_SUB(NOW(6), INTERVAL 6 DAY),  DATE_SUB(NOW(6), INTERVAL 6 DAY)),
-    (2, 1, '리뉴얼 범위 공지',        '이번 스프린트 리뉴얼 범위와 우선순위 공유합니다.',              DATE_SUB(NOW(6), INTERVAL 25 DAY), DATE_SUB(NOW(6), INTERVAL 25 DAY)),
-    (2, 8, '배포 파이프라인 안내',    'CI/CD 파이프라인 사용법 문서 링크 첨부합니다.',                 DATE_SUB(NOW(6), INTERVAL 10 DAY), DATE_SUB(NOW(6), INTERVAL 10 DAY)),
-    (2, 4, '디자인 시스템 리뷰 요청', '토큰화한 디자인 시스템 리뷰 부탁드립니다.',                     DATE_SUB(NOW(6), INTERVAL 2 DAY),  DATE_SUB(NOW(6), INTERVAL 2 DAY)),
-    (3, 5, '수집 대상 확정',          '1차 수집 대상 소스 목록 확정했습니다.',                         DATE_SUB(NOW(6), INTERVAL 70 DAY), DATE_SUB(NOW(6), INTERVAL 70 DAY));
+    (1, 1, '킥오프 회의록 공유',      'HIGH',  '검색 고도화 프로젝트 킥오프 내용 정리했습니다. 확인 부탁드려요.', DATE_SUB(NOW(6), INTERVAL 55 DAY), DATE_SUB(NOW(6), INTERVAL 55 DAY)),
+    (1, 2, '인덱싱 개선 논의',       'HIGH',   '역색인 구조를 이렇게 바꾸면 어떨지 의견 주세요.',                DATE_SUB(NOW(6), INTERVAL 20 DAY), DATE_SUB(NOW(6), INTERVAL 20 DAY)),
+    (1, 6, '임베딩 모델 비교표',      'HIGH',  '후보 모델 3종의 성능·비용 비교표입니다.',                        DATE_SUB(NOW(6), INTERVAL 6 DAY),  DATE_SUB(NOW(6), INTERVAL 6 DAY)),
+    (2, 1, '리뉴얼 범위 공지',        'HIGH',  '이번 스프린트 리뉴얼 범위와 우선순위 공유합니다.',              DATE_SUB(NOW(6), INTERVAL 25 DAY), DATE_SUB(NOW(6), INTERVAL 25 DAY)),
+    (2, 8, '배포 파이프라인 안내',    'HIGH',   'CI/CD 파이프라인 사용법 문서 링크 첨부합니다.',                 DATE_SUB(NOW(6), INTERVAL 10 DAY), DATE_SUB(NOW(6), INTERVAL 10 DAY)),
+    (2, 4, '디자인 시스템 리뷰 요청', 'HIGH',   '토큰화한 디자인 시스템 리뷰 부탁드립니다.',                     DATE_SUB(NOW(6), INTERVAL 2 DAY),  DATE_SUB(NOW(6), INTERVAL 2 DAY)),
+    (3, 5, '수집 대상 확정',         'HIGH',   '1차 수집 대상 소스 목록 확정했습니다.',                         DATE_SUB(NOW(6), INTERVAL 70 DAY), DATE_SUB(NOW(6), INTERVAL 70 DAY));
 
 
 -- =============================================================================
