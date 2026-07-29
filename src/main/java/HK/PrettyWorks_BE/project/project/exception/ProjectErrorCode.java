@@ -22,7 +22,9 @@ public enum ProjectErrorCode implements ErrorCode {
     // 프로젝트 자체 수정뿐 아니라 하위 콘텐츠(할 일·회의록 등) 추가·수정 차단에도 함께 쓰는 공용 코드라
     // 메시지를 특정 행위에 묶지 않는다. 판정 근거는 ProjectPolicy.isOpenForContent 하나.
     PROJECT_CLOSED(HttpStatus.CONFLICT, "PROJECT_020", "완료·보관된 프로젝트는 변경할 수 없습니다."),
-    PERIOD_SHRINK_BLOCKED(HttpStatus.CONFLICT, "PROJECT_021", "새 기간을 벗어나는 할 일·지출·회의록이 있어 기간을 줄일 수 없습니다.");
+    PERIOD_SHRINK_BLOCKED(HttpStatus.CONFLICT, "PROJECT_021", "새 기간을 벗어나는 할 일·지출·회의록이 있어 기간을 줄일 수 없습니다."),
+    // 다른 프로젝트의 마일스톤을 지정한 경우도 이 코드로 응답한다. "없음"과 "남의 것"을 구분하면 존재 여부가 새어나간다.
+    MILESTONE_NOT_FOUND(HttpStatus.NOT_FOUND, "PROJECT_022", "마일스톤을 찾을 수 없습니다.");
 
     private final HttpStatus status;
     private final String errorCode;

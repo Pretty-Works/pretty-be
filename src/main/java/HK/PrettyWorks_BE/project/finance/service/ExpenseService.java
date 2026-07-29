@@ -2,8 +2,8 @@ package HK.PrettyWorks_BE.project.finance.service;
 
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
+import HK.PrettyWorks_BE.global.util.Percent;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
-import HK.PrettyWorks_BE.project.finance.constant.ExpenseCategory;
 import HK.PrettyWorks_BE.project.finance.constant.ExpenseStatus;
 import HK.PrettyWorks_BE.project.finance.domain.ExpenseEntity;
 import HK.PrettyWorks_BE.project.finance.dto.req.ExpenseRequest;
@@ -19,10 +19,10 @@ import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
-import HK.PrettyWorks_BE.user.constant.DepartmentType;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import HK.PrettyWorks_BE.user.service.UserService;
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -37,9 +37,13 @@ import java.util.Set;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class ExpenseService {
+
+    // 지출자 이름을 찾지 못했을 때의 표시값. null을 그대로 내려보내지 않기 위한 것이며, 실제로 나오면 정합성 문제다.
+    private static final String UNKNOWN_SPENDER_NAME = "(알 수 없음)";
 
     private final ExpenseRepository expenseRepository;
     private final ProjectRepository projectRepository;
@@ -177,6 +181,13 @@ public class ExpenseService {
                 .collect(Collectors.toSet());
         Map<Long, String> nameMap = userService.getNameMap(spenderIds);
 
+        // 사용자는 삭제하지 않으므로(퇴사도 status만 바뀜) 이름이 비는 것은 데이터 정합성 문제다.
+        // 조용히 null을 내려보내면 화면이 빈칸으로 표시돼 원인을 찾기 어려우므로 흔적을 남긴다.
+        if (nameMap.size() != spenderIds.size()) {
+            log.error("[지출 목록] 이름을 찾을 수 없는 지출자가 있습니다 - projectId={}, 요청={}, 조회={}",
+                    projectId, spenderIds.size(), nameMap.size());
+        }
+
         return PageResponse.from(expenses.map(expense -> ExpenseListResponse.builder()
                 .expenseId(expense.getId())
                 .expenseDate(expense.getExpenseDate())
@@ -185,7 +196,7 @@ public class ExpenseService {
                 .purpose(expense.getPurpose())
                 .spender(ExpenseListResponse.Spender.builder()
                         .userId(expense.getSpenderId())
-                        .name(nameMap.get(expense.getSpenderId()))
+                        .name(nameMap.getOrDefault(expense.getSpenderId(), UNKNOWN_SPENDER_NAME))
                         .build())
                 .amount(expense.getAmount())
                 .build()));
@@ -216,28 +227,22 @@ public class ExpenseService {
                 .executed(executed)
                 .planned(planned)
                 .remaining(remaining)
-                .executionRate(rate(executed, totalBudget))
+                .executionRate(Percent.floorRate(executed, totalBudget))
                 .byCategory(expenseRepository.sumByCategory(projectId, today).stream()
                         .map(row -> BudgetSummaryResponse.CategoryAmount.builder()
-                                .category(ExpenseCategory.valueOf(row.key()))
+                                .category(row.category())
                                 .amount(row.amount())
-                                .ratio(rate(row.amount(), executed))
+                                .ratio(Percent.floorRate(row.amount(), executed))
                                 .build())
                         .toList())
                 .byDepartment(expenseRepository.sumByDepartment(projectId, today).stream()
                         .map(row -> BudgetSummaryResponse.DepartmentAmount.builder()
-                                .department(DepartmentType.valueOf(row.key()))
+                                .department(row.department())
                                 .amount(row.amount())
-                                .ratio(rate(row.amount(), executed))
+                                .ratio(Percent.floorRate(row.amount(), executed))
                                 .build())
                         .toList())
                 .build();
-    }
-
-    // 비율(%) 내림. 분모가 0이면 나눌 수 없으므로 0으로 가드한다.
-    // 집행률에서 분모 0은 '예산 제한 없음'을, 항목 비율에서는 '사용 내역 없음'을 뜻하며 둘 다 0이 자연스럽다.
-    private int rate(long part, long whole) {
-        return whole == 0 ? 0 : (int) (part * 100 / whole);
     }
 
     // 집계 대상 행이 0건이면 SUM은 0이 아니라 null을 반환한다.

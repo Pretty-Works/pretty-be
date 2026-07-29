@@ -98,19 +98,25 @@ VALUES
 
 -- =============================================================================
 -- 4) milestones  (목표일은 각 프로젝트 기간 안)
+--   completed_at 은 목표일과 무관합니다. 사람이 체크해야 채워지므로 아래처럼 섞어 둡니다.
+--     P1: 3개 중 1개 완료 → 완료율 33%
+--     P2: 2개 중 0개 완료 → 완료율 0% (도넛이 빈 경우)
+--     P3: 2개 중 1개 완료, 단 미완료 항목의 목표일이 이미 지남 → '지연' 상태 확인용
+--         (날짜로 파생했다면 100%가 나왔을 케이스라, 완료율이 날짜와 무관함을 검증합니다)
+--     P4: 2개 모두 완료 → 완료율 100%, 목표 마일스톤 null
 -- =============================================================================
 INSERT INTO milestones
-    (project_id, target_date, goal, created_at, modified_at)
+    (project_id, target_date, goal, completed_at, created_at, modified_at)
 VALUES
-    (1, DATE_SUB(CURDATE(), INTERVAL 20 DAY), '1차 검색 품질 벤치마크', NOW(6), NOW(6)),
-    (1, DATE_ADD(CURDATE(), INTERVAL 15 DAY), '임베딩 파이프라인 완료', NOW(6), NOW(6)),
-    (1, DATE_ADD(CURDATE(), INTERVAL 55 DAY), '정식 배포',              NOW(6), NOW(6)),
-    (2, DATE_ADD(CURDATE(), INTERVAL 30 DAY), '디자인 시스템 확정',     NOW(6), NOW(6)),
-    (2, DATE_ADD(CURDATE(), INTERVAL 120 DAY),'전 기능 QA 완료',        NOW(6), NOW(6)),
-    (3, DATE_SUB(CURDATE(), INTERVAL 40 DAY), '수집 스키마 설계',       NOW(6), NOW(6)),
-    (3, DATE_ADD(CURDATE(), INTERVAL 20 DAY), '적재 자동화',            NOW(6), NOW(6)),
-    (4, DATE_SUB(CURDATE(), INTERVAL 120 DAY),'스키마 이관',            NOW(6), NOW(6)),
-    (4, DATE_SUB(CURDATE(), INTERVAL 45 DAY), '컷오버',                 NOW(6), NOW(6));
+    (1, DATE_SUB(CURDATE(), INTERVAL 20 DAY), '1차 검색 품질 벤치마크', DATE_SUB(NOW(6), INTERVAL 18 DAY), NOW(6), NOW(6)),
+    (1, DATE_ADD(CURDATE(), INTERVAL 15 DAY), '임베딩 파이프라인 완료', NULL,                              NOW(6), NOW(6)),
+    (1, DATE_ADD(CURDATE(), INTERVAL 55 DAY), '정식 배포',              NULL,                              NOW(6), NOW(6)),
+    (2, DATE_ADD(CURDATE(), INTERVAL 30 DAY), '디자인 시스템 확정',     NULL,                              NOW(6), NOW(6)),
+    (2, DATE_ADD(CURDATE(), INTERVAL 120 DAY),'전 기능 QA 완료',        NULL,                              NOW(6), NOW(6)),
+    (3, DATE_SUB(CURDATE(), INTERVAL 40 DAY), '수집 스키마 설계',       DATE_SUB(NOW(6), INTERVAL 38 DAY), NOW(6), NOW(6)),
+    (3, DATE_SUB(CURDATE(), INTERVAL 10 DAY), '적재 자동화',            NULL,                              NOW(6), NOW(6)),
+    (4, DATE_SUB(CURDATE(), INTERVAL 120 DAY),'스키마 이관',            DATE_SUB(NOW(6), INTERVAL 118 DAY),NOW(6), NOW(6)),
+    (4, DATE_SUB(CURDATE(), INTERVAL 45 DAY), '컷오버',                 DATE_SUB(NOW(6), INTERVAL 44 DAY), NOW(6), NOW(6));
 
 
 -- =============================================================================

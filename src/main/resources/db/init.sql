@@ -114,14 +114,17 @@ CREATE TABLE IF NOT EXISTS project_members (
 -- milestones : 프로젝트 마일스톤 (시기별 목표)
 --   - target_date 는 프로젝트 기간(projects.start_date ~ target_date) 내여야 함 (앱 레벨 검증)
 --   - 목록은 target_date 오름차순 조회
+--   - completed_at 은 목표일과 무관하다. 목표일이 지나도 자동 완료되지 않으며, 사람이 체크해야 채워진다.
+--     날짜로 완료를 파생하면 지연된 마일스톤이 완료로 잡혀 완료율이 실제 진척을 왜곡한다.
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS milestones (
-    id          BIGINT       NOT NULL AUTO_INCREMENT,
-    project_id  BIGINT       NOT NULL          COMMENT '프로젝트 FK',
-    target_date DATE         NOT NULL          COMMENT '목표일',
-    goal        VARCHAR(200) NOT NULL          COMMENT '목표 내용',
-    created_at  DATETIME(6)  NULL              COMMENT '생성 시각',
-    modified_at DATETIME(6)  NULL              COMMENT '수정 시각',
+    id           BIGINT       NOT NULL AUTO_INCREMENT,
+    project_id   BIGINT       NOT NULL          COMMENT '프로젝트 FK',
+    target_date  DATE         NOT NULL          COMMENT '목표일',
+    goal         VARCHAR(200) NOT NULL          COMMENT '목표 내용',
+    completed_at DATETIME(6)  NULL              COMMENT '완료 시각. NULL이면 미완료(대기)',
+    created_at   DATETIME(6)  NULL              COMMENT '생성 시각',
+    modified_at  DATETIME(6)  NULL              COMMENT '수정 시각',
     PRIMARY KEY (id),
     KEY idx_milestones_project_target (project_id, target_date),
     CONSTRAINT fk_milestones_project FOREIGN KEY (project_id) REFERENCES projects (id)

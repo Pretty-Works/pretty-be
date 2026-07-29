@@ -15,10 +15,7 @@ import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest.MemberRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest.MilestoneRequest;
-import HK.PrettyWorks_BE.project.project.dto.res.ProjectDetailResponse;
-import HK.PrettyWorks_BE.project.project.dto.res.ProjectListResponse;
-import HK.PrettyWorks_BE.project.project.dto.res.ProjectResponse;
-import HK.PrettyWorks_BE.project.project.dto.res.ProjectStatusResponse;
+import HK.PrettyWorks_BE.project.project.dto.res.*;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.MilestoneRepository;
@@ -39,8 +36,9 @@ import org.springframework.util.StringUtils;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
-import java.util.Comparator;
+import java.util.HashSet;
 import java.util.LinkedHashMap;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
@@ -134,7 +132,7 @@ public class ProjectService {
         }
         projectMemberRepository.saveAll(memberEntities);
 
-        // 5-3) milestones
+        // 5-3) milestones — 새 프로젝트라 전부 신규다. 요청에 milestoneId가 실려 와도 읽지 않고 무시한다.
         List<MilestoneEntity> milestoneEntities = new ArrayList<>();
         for (MilestoneRequest m : milestones) {
             milestoneEntities.add(MilestoneEntity.builder()
@@ -204,8 +202,8 @@ public class ProjectService {
         // 12) 참여자 diff (추가 insert / 재활성화 / 역할 변경 / 빠짐 soft-delete)
         updateParticipants(projectId, requested);
 
-        // 13) 마일스톤: 현재와 비교해 다르면 전체 교체
-        replaceMilestonesIfChanged(projectId, milestones);
+        // 13) 마일스톤 diff (신규 insert / 기존 갱신 / 요청에서 빠진 것 삭제) — 완료 상태는 보존
+        syncMilestones(projectId, milestones);
 
         return ProjectResponse.builder()
                 .projectId(project.getId())
@@ -294,7 +292,7 @@ public class ProjectService {
         Map<Long, String> nameById = userService.getNameMap(memberUserIds);
 
         // 5) 마일스톤 (목표일 오름차순)
-        List<MilestoneEntity> milestones = milestoneRepository.findByProjectIdOrderByTargetDateAsc(projectId);
+        List<MilestoneEntity> milestones = milestoneRepository.findByProjectIdOrderByTargetDateAscIdAsc(projectId);
 
         // 6) 조립 — progress는 오늘 날짜로 계산한 파생값
         ProjectDetailResponse.Owner owner = ProjectDetailResponse.Owner.builder()
@@ -311,12 +309,8 @@ public class ProjectService {
                         .build())
                 .toList();
 
-        List<ProjectDetailResponse.Milestone> milestoneDtos = milestones.stream()
-                .map(m -> ProjectDetailResponse.Milestone.builder()
-                        .milestoneId(m.getId())
-                        .targetDate(m.getTargetDate())
-                        .goal(m.getGoal())
-                        .build())
+        List<MilestoneSummary> milestoneDtos = milestones.stream()
+                .map(MilestoneSummary::from)
                 .toList();
 
         return ProjectDetailResponse.builder()
@@ -490,49 +484,73 @@ public class ProjectService {
         // 기존 엔티티(reactivate/updateRole/leave)는 영속 상태라 flush 시 dirty checking으로 자동 UPDATE.
     }
 
-    // 마일스톤을 현재와 비교해 내용이 다르면 전체 교체한다(같으면 DB를 건드리지 않음).
-    private void replaceMilestonesIfChanged(Long projectId, List<MilestoneRequest> milestones) {
-        List<MilestoneEntity> current = milestoneRepository.findByProjectId(projectId);
-        if (milestonesEqual(current, milestones)) {
-            return;
+    // 마일스톤 동기화(diff) — 요청 목록을 최종 상태로 맞춘다. 참여자 diff(updateParticipants)와 같은 패턴.
+    // 전체 교체가 아니라 diff여야 하는 이유: 마일스톤은 완료 시각(completed_at)을 갖는데,
+    // 지웠다 다시 넣으면 한 건만 고쳐도 나머지 전부의 완료 기록이 사라진다.
+    //
+    // 현재 프로젝트의 마일스톤만 후보로 두므로, 다른 프로젝트의 id를 실어 보내도 자동으로 걸러진다.
+    // (id는 테이블 전역으로 부여되어 남의 마일스톤 id도 유효한 값이다 → 소속 확인이 없으면 덮어쓸 수 있다)
+    private void syncMilestones(Long projectId, List<MilestoneRequest> milestones) {
+        Map<Long, MilestoneEntity> current = new LinkedHashMap<>();
+        for (MilestoneEntity m : milestoneRepository.findByProjectId(projectId)) {
+            current.put(m.getId(), m);
         }
 
-        if (!current.isEmpty()) {
-            milestoneRepository.deleteAll(current);
-        }
-        List<MilestoneEntity> toInsert = new ArrayList<>();
+        // 기존 항목(id 있음)의 내용을 먼저 모은다. 신규가 기존과 같은 내용이면 요청 순서와 무관하게 신규를 버리기 위함이다.
+        // 이미 저장된 중복(과거 데이터)은 id로 식별되므로 이 집합 때문에 지워지지 않는다.
+        Set<MilestoneKey> seen = new HashSet<>();
         for (MilestoneRequest m : milestones) {
-            toInsert.add(MilestoneEntity.builder()
-                    .projectId(projectId)
-                    .targetDate(m.targetDate())
-                    .goal(m.goal())
-                    .build());
+            if (m.milestoneId() != null) {
+                seen.add(new MilestoneKey(m.targetDate(), m.goal()));
+            }
         }
+
+        List<MilestoneEntity> toInsert = new ArrayList<>();
+        Set<Long> kept = new LinkedHashSet<>();
+        for (MilestoneRequest m : milestones) {
+            // id 없음 = 신규. 목표일·내용이 완전히 같은 것이 이미 있으면 건너뛴다 —
+            // 구별할 수 없는 마일스톤이 둘이면 완료 체크도 어느 쪽에 한 건지 알 수 없어진다.
+            if (m.milestoneId() == null) {
+                if (!seen.add(new MilestoneKey(m.targetDate(), m.goal()))) {
+                    continue;
+                }
+                toInsert.add(MilestoneEntity.builder()
+                        .projectId(projectId)
+                        .targetDate(m.targetDate())
+                        .goal(m.goal())
+                        .build());
+                continue;
+            }
+            // 같은 id가 두 번 오면 첫 것만 채택한다(참여자 중복 처리와 동일).
+            if (!kept.add(m.milestoneId())) {
+                continue;
+            }
+            // 이 프로젝트에 없는 id — 존재하지 않거나 다른 프로젝트의 것.
+            // 신규로 만들어 주면 완료 상태가 사라진 것을 아무도 모르므로 명시적으로 거부한다.
+            MilestoneEntity existing = current.get(m.milestoneId());
+            if (existing == null) {
+                throw BaseException.type(ProjectErrorCode.MILESTONE_NOT_FOUND);
+            }
+            // 완료 시각은 건드리지 않는다. 목표일을 미루거나 문구를 고쳐도 달성한 사실은 그대로다.
+            existing.update(m.targetDate(), m.goal());
+        }
+
         if (!toInsert.isEmpty()) {
             milestoneRepository.saveAll(toInsert);
         }
+
+        // 요청에 없던 기존 마일스톤은 삭제(hard). 완료된 것도 함께 사라지므로
+        // 수정 화면은 반드시 전체 목록을 실어 보내야 한다.
+        List<MilestoneEntity> toDelete = current.values().stream()
+                .filter(m -> !kept.contains(m.getId()))
+                .toList();
+        if (!toDelete.isEmpty()) {
+            milestoneRepository.deleteAll(toDelete);
+        }
     }
 
-    // 마일스톤을 (targetDate, goal) 기준으로 정렬해 순서 무관하게 내용이 같은지 비교한다.
-    private boolean milestonesEqual(List<MilestoneEntity> current, List<MilestoneRequest> requested) {
-        if (current.size() != requested.size()) {
-            return false;
-        }
-        List<MilestoneEntity> a = current.stream()
-                .sorted(Comparator.comparing(MilestoneEntity::getTargetDate)
-                        .thenComparing(MilestoneEntity::getGoal))
-                .toList();
-        List<MilestoneRequest> b = requested.stream()
-                .sorted(Comparator.comparing(MilestoneRequest::targetDate)
-                        .thenComparing(MilestoneRequest::goal))
-                .toList();
-        for (int i = 0; i < a.size(); i++) {
-            if (!a.get(i).getTargetDate().equals(b.get(i).targetDate())
-                    || !a.get(i).getGoal().equals(b.get(i).goal())) {
-                return false;
-            }
-        }
-        return true;
+    // 마일스톤 중복 판정용 값 키. 사용자에게 두 마일스톤은 목표일과 목표 내용이 같으면 같은 것이다.
+    private record MilestoneKey(LocalDate targetDate, String goal) {
     }
 
     // 상태 문자열을 ProjectStatus로 변환한다. 정의된 값이 아니면 PROJECT_018.
