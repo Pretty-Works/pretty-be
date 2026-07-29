@@ -3,7 +3,6 @@ package HK.PrettyWorks_BE.project.project.dto.res;
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
 import lombok.Builder;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -18,7 +17,8 @@ public record ProjectDetailResponse(
         LocalDate startDate,
         // 엔티티의 targetDate. 생성·수정 요청이 endDate라 계약을 맞춘다.
         LocalDate endDate,
-        BigDecimal budget,
+        // 원 단위 정수. 0은 '예산 제한 없음'.
+        Long budget,
         String description,
         ProjectStatus status,
         int progress,

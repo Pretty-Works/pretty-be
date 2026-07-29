@@ -1,5 +1,6 @@
 package HK.PrettyWorks_BE.project.project.service;
 
+import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.global.lock.VersionGuard;
@@ -15,6 +16,7 @@ import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest.MemberRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest.MilestoneRequest;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectDetailResponse;
+import HK.PrettyWorks_BE.project.project.dto.res.ProjectListResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectStatusResponse;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
@@ -28,11 +30,12 @@ import HK.PrettyWorks_BE.user.repository.UserRepository;
 import HK.PrettyWorks_BE.user.service.UserService;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Page;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
@@ -48,6 +51,9 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class ProjectService {
+
+    // 목록 필터에서 "상태를 가리지 않음"을 뜻하는 값. ProjectStatus에는 없는 조회 전용 키워드다.
+    private static final String STATUS_FILTER_ALL = "ALL";
 
     private final UserRepository userRepository;
     private final CurrentUserService currentUserService;
@@ -206,6 +212,54 @@ public class ProjectService {
                 .build();
     }
 
+    // 내가 참여중인 프로젝트 목록. 홈의 '진행 중 프로젝트' 패널과 프로젝트 선택 팝업이 함께 사용한다.
+    // 필터·검색·정렬·페이징을 모두 서버가 처리한다 — 클라이언트가 페이지 안에서 거르면 페이지 크기·전체 개수가
+    // 어긋나고, 무엇보다 걸러낼 데이터(누적된 완료 프로젝트)까지 전부 전송하게 된다.
+    @Transactional(readOnly = true)
+    public PageResponse<ProjectListResponse> getMyProjects(Long userId, String statusParam,
+                                                           String keyword, Pageable pageable) {
+        // 1) 상태 필터 해석 — 미지정은 진행중, ALL은 필터 없음(null), ARCHIVED는 조회 불가
+        ProjectStatus status = parseFilterStatus(statusParam);
+
+        // 2) 검색어 정리 — 공백만 들어오면 검색하지 않은 것으로 본다
+        String searchKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+
+        Page<ProjectEntity> projects = projectRepository.findMyProjects(
+                userId, ProjectMemberStatus.ACTIVE, ProjectStatus.ARCHIVED,
+                status, searchKeyword,
+                ProjectStatus.ONGOING, ProjectStatus.HOLDING,
+                pageable);
+
+        // 3) 진행률은 조회 시점 날짜로 계산한 파생값 (상세 조회와 동일한 계산)
+        LocalDate today = LocalDate.now();
+
+        return PageResponse.from(projects.map(project -> ProjectListResponse.builder()
+                .projectId(project.getId())
+                .name(project.getName())
+                .status(project.getStatus())
+                .targetDate(project.getTargetDate())
+                .progress(project.calculateProgress(today))
+                .build()));
+    }
+
+    // 목록 필터용 상태 해석. 값이 없으면 진행중(홈의 기본 화면), ALL이면 상태 조건을 걸지 않는다.
+    // ARCHIVED는 소프트 삭제에 해당하므로 명시적으로 요청해도 조회할 수 없다.
+    private ProjectStatus parseFilterStatus(String statusParam) {
+        if (!StringUtils.hasText(statusParam)) {
+            return ProjectStatus.ONGOING;
+        }
+        if (STATUS_FILTER_ALL.equalsIgnoreCase(statusParam)) {
+            return null;
+        }
+
+        ProjectStatus status = parseStatus(statusParam);
+        if (status == ProjectStatus.ARCHIVED) {
+            throw BaseException.type(ProjectErrorCode.INVALID_STATUS);
+        }
+
+        return status;
+    }
+
     // 수정 화면 진입용 상세 조회. 참여중(ACTIVE) 멤버면 누구나 조회할 수 있다(수정 권한과 달리 역할을 보지 않음).
     @Transactional(readOnly = true)
     public ProjectDetailResponse getDetail(Long userId, Long projectId) {
@@ -335,8 +389,8 @@ public class ProjectService {
     }
 
     // 예산 미입력(null)은 0(제한 없음)으로 보정.
-    private BigDecimal budgetOrZero(BigDecimal budget) {
-        return budget == null ? BigDecimal.ZERO : budget;
+    private Long budgetOrZero(Long budget) {
+        return budget == null ? 0L : budget;
     }
 
     // 마일스톤 목록 null 보정 + 목표일·목표 내용이 둘 다 비어 있는 빈 항목은 무시(제거).
@@ -346,9 +400,7 @@ public class ProjectService {
         }
         List<MilestoneRequest> result = new ArrayList<>();
         for (MilestoneRequest m : milestones) {
-            boolean noDate = m.targetDate() == null;
-            boolean noGoal = !StringUtils.hasText(m.goal());
-            if (noDate && noGoal) {
+            if (ProjectPolicy.isEmptyMilestone(m.targetDate(), m.goal())) {
                 continue;   // 둘 다 비면 빈 항목 → 무시
             }
             result.add(m);
@@ -374,7 +426,7 @@ public class ProjectService {
     // 마일스톤 형식(둘 다 입력, PROJECT_016)·기간(프로젝트 기간 내, PROJECT_015)을 검증한다.
     private void validateMilestones(List<MilestoneRequest> milestones, LocalDate startDate, LocalDate endDate) {
         for (MilestoneRequest m : milestones) {
-            if (m.targetDate() == null || !StringUtils.hasText(m.goal())) {
+            if (!ProjectPolicy.isCompleteMilestone(m.targetDate(), m.goal())) {
                 throw BaseException.type(ProjectErrorCode.MILESTONE_INCOMPLETE);
             }
             if (!ProjectPolicy.isWithinPeriod(startDate, endDate, m.targetDate())) {

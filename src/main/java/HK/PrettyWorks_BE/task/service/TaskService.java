@@ -1,7 +1,6 @@
 package HK.PrettyWorks_BE.task.service;
 
 import HK.PrettyWorks_BE.global.exception.BaseException;
-import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
@@ -15,13 +14,14 @@ import HK.PrettyWorks_BE.task.dto.res.TaskHomeResponse.TaskGroup;
 import HK.PrettyWorks_BE.task.dto.res.TaskHomeResponse.TaskItem;
 import HK.PrettyWorks_BE.task.dto.res.TaskProjectResponse;
 import HK.PrettyWorks_BE.task.dto.res.TaskResponse;
+import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.task.exception.TaskErrorCode;
 import HK.PrettyWorks_BE.task.policy.TaskPolicy;
 import HK.PrettyWorks_BE.task.repository.TaskHomeRow;
 import HK.PrettyWorks_BE.task.repository.TaskProjectRow;
 import HK.PrettyWorks_BE.task.repository.TaskRepository;
 import HK.PrettyWorks_BE.user.constant.DepartmentType;
-import HK.PrettyWorks_BE.user.repository.UserRepository;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -44,7 +44,7 @@ public class TaskService {
     private final TaskRepository taskRepository;
     private final ProjectRepository projectRepository;
     private final ProjectMemberService projectMemberService;
-    private final UserRepository userRepository;
+    private final CurrentUserService currentUserService;
 
     @Transactional
     public TaskResponse create(Long userId, TaskRequest request) {
@@ -173,13 +173,11 @@ public class TaskService {
 
     @Transactional(readOnly = true)
     public TaskProjectResponse getTaskProject(Long userId, Long projectId, int weekOffset) {
-        // 1) 프로젝트 존재·멤버십 검증 (TASK_001 / MEMBER_001) — 조회는 상태·마감일 검증 없이 멤버십만
+        // 1) 프로젝트 존재·멤버십 검증 (PROJECT_004 / MEMBER_001) — 조회는 상태·마감일 검증 없이 멤버십만
         validateProjectAccess(projectId, userId);
 
-        // 2) 조회자 부서 (isMine 판정용). 토큰은 유효한데 유저가 없으면 인증을 신뢰할 수 없어 UNAUTHORIZED.
-        DepartmentType viewerTeam = userRepository.findById(userId)
-                .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED))
-                .getDepartment();
+        // 2) 조회자 부서 (isMine 판정용)
+        DepartmentType viewerTeam = currentUserService.getCurrentUser(userId).getDepartment();
 
         // 3) 주 범위: 오늘이 속한 주의 월요일 + weekOffset주, 월~일(7일)
         LocalDate today = LocalDate.now();
@@ -246,31 +244,28 @@ public class TaskService {
         return total == 0 ? 0 : done * 100 / total;
     }
 
-    // 쓰기(생성/수정)용: 프로젝트 존재(TASK_001)·멤버(MEMBER_001)·상태(완료/보관 불가, TASK_006)·마감일 기간(TASK_007) 검증.
+    // 쓰기(생성/수정)용: 프로젝트 존재(PROJECT_004)·멤버(MEMBER_001)·상태(완료/보관 불가, PROJECT_020)·마감일 기간(TASK_007) 검증.
     // null이면 개인 할 일이라 통과. 마감일은 프로젝트 기간 양끝(start·target 당일) 포함.
     private void validateProjectForWrite(Long projectId, Long userId, LocalDate dueDate) {
         if (projectId == null) {
             return;
         }
         ProjectEntity project = projectRepository.findById(projectId)
-                .orElseThrow(() -> BaseException.type(TaskErrorCode.PROJECT_NOT_FOUND));
+                .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
         projectMemberService.validateActiveMember(projectId, userId);
         if (!ProjectPolicy.isOpenForContent(project)) {
-            throw BaseException.type(TaskErrorCode.PROJECT_CLOSED);
+            throw BaseException.type(ProjectErrorCode.PROJECT_CLOSED);
         }
         if (!ProjectPolicy.isWithinPeriod(project, dueDate)) {
             throw BaseException.type(TaskErrorCode.DUE_DATE_OUT_OF_RANGE);
         }
     }
 
-    // 읽기(조회)용: projectId가 있으면 프로젝트 존재(TASK_001)·작성자 멤버(MEMBER_001)만 검증. null이면 개인 할 일이라 통과.
+    // 읽기(조회)용: projectId가 있으면 프로젝트 존재(PROJECT_004)·작성자 멤버(MEMBER_001)만 검증. null이면 개인 할 일이라 통과.
     private void validateProjectAccess(Long projectId, Long userId) {
         if (projectId == null) {
             return;
         }
-        if (!projectRepository.existsById(projectId)) {
-            throw BaseException.type(TaskErrorCode.PROJECT_NOT_FOUND);
-        }
-        projectMemberService.validateActiveMember(projectId, userId);
+        projectMemberService.validateAccess(projectId, userId);
     }
 }

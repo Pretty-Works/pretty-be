@@ -51,15 +51,15 @@ INSERT INTO projects
     (name, status, start_date, target_date, target_budget, description, created_at, modified_at)
 VALUES
     -- 진행 중(중반) — 기간 -60 ~ +60
-    ('AI 검색 고도화',        'ONGOING',   DATE_SUB(CURDATE(), INTERVAL 60 DAY),  DATE_ADD(CURDATE(), INTERVAL 60 DAY),  50000000.00, '사내 검색 품질 개선 및 임베딩 기반 랭킹 도입', NOW(6), NOW(6)),
+    ('AI 검색 고도화',        'ONGOING',   DATE_SUB(CURDATE(), INTERVAL 60 DAY),  DATE_ADD(CURDATE(), INTERVAL 60 DAY),  50000000, '사내 검색 품질 개선 및 임베딩 기반 랭킹 도입', NOW(6), NOW(6)),
     -- 진행 중(초반) — 기간 -30 ~ +150
-    ('사내 그룹웨어 리뉴얼',  'ONGOING',   DATE_SUB(CURDATE(), INTERVAL 30 DAY),  DATE_ADD(CURDATE(), INTERVAL 150 DAY), 80000000.00, '레거시 그룹웨어 UI/UX 전면 개편',            NOW(6), NOW(6)),
+    ('사내 그룹웨어 리뉴얼',  'ONGOING',   DATE_SUB(CURDATE(), INTERVAL 30 DAY),  DATE_ADD(CURDATE(), INTERVAL 150 DAY), 80000000, '레거시 그룹웨어 UI/UX 전면 개편',            NOW(6), NOW(6)),
     -- 보류 — 기간 -90 ~ +30
-    ('데이터 파이프라인 구축','HOLDING',   DATE_SUB(CURDATE(), INTERVAL 90 DAY),  DATE_ADD(CURDATE(), INTERVAL 30 DAY),  30000000.00, '수집~적재 자동화 파이프라인 (일시 보류)',     NOW(6), NOW(6)),
+    ('데이터 파이프라인 구축','HOLDING',   DATE_SUB(CURDATE(), INTERVAL 90 DAY),  DATE_ADD(CURDATE(), INTERVAL 30 DAY),  30000000, '수집~적재 자동화 파이프라인 (일시 보류)',     NOW(6), NOW(6)),
     -- 완료 — 기간 -210 ~ -30 (수정 차단 PROJECT_020 테스트용)
-    ('레거시 마이그레이션',   'COMPLETED', DATE_SUB(CURDATE(), INTERVAL 210 DAY), DATE_SUB(CURDATE(), INTERVAL 30 DAY),  20000000.00, '온프레미스 → 클라우드 이관 (완료)',           NOW(6), NOW(6)),
+    ('레거시 마이그레이션',   'COMPLETED', DATE_SUB(CURDATE(), INTERVAL 210 DAY), DATE_SUB(CURDATE(), INTERVAL 30 DAY),  20000000, '온프레미스 → 클라우드 이관 (완료)',           NOW(6), NOW(6)),
     -- 보관(소프트 삭제) — 기간 -520 ~ -210
-    ('구 사내포털',           'ARCHIVED',  DATE_SUB(CURDATE(), INTERVAL 520 DAY), DATE_SUB(CURDATE(), INTERVAL 210 DAY), 10000000.00, '구버전 사내포털 (보관 처리)',                 NOW(6), NOW(6));
+    ('구 사내포털',           'ARCHIVED',  DATE_SUB(CURDATE(), INTERVAL 520 DAY), DATE_SUB(CURDATE(), INTERVAL 210 DAY), 10000000, '구버전 사내포털 (보관 처리)',                 NOW(6), NOW(6));
 
 
 -- =============================================================================
@@ -247,7 +247,7 @@ VALUES
     (5, '전사 워크숍',          TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 6 DAY), '00:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 6 DAY), '23:59:59'), TRUE,  'MEETING',   NOW(6), NOW(6)),
     (8, '배포 점검',            TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '20:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 2 DAY), '22:00:00'), FALSE, 'FIELDWORK', NOW(6), NOW(6)),
     (3, '연차 휴가',            TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 7 DAY), '00:00:00'), TIMESTAMP(DATE_ADD(CURDATE(), INTERVAL 7 DAY), '23:59:59'), TRUE,  'PERSONAL',  NOW(6), NOW(6)),
-    (6, '병가',                 TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '00:00:00'), TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '23:59:59'), TRUE,  'PERSONAL',  NOW(6), NOW(6));
+    (6, '공가',                 TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '00:00:00'), TIMESTAMP(DATE_SUB(CURDATE(), INTERVAL 2 DAY), '23:59:59'), TRUE,  'PERSONAL',  NOW(6), NOW(6));
 
 
 -- =============================================================================
@@ -257,7 +257,7 @@ INSERT INTO schedule_leaves
     (schedule_id, leave_type, reason, days, created_at, modified_at)
 VALUES
     (7, 'ANNUAL', '개인 연차', 1, NOW(6), NOW(6)),
-    (8, 'SICK',   '몸살',      1, NOW(6), NOW(6));
+    (8, 'EXCUSED', '몸살',    1, NOW(6), NOW(6));
 
 
 -- =============================================================================

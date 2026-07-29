@@ -6,6 +6,7 @@ import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.user.constant.DepartmentType;
 import HK.PrettyWorks_BE.user.constant.PositionType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
+import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
 
@@ -56,6 +57,17 @@ public final class ProjectPolicy {
     public static boolean isOpenForContent(ProjectEntity project) {
         ProjectStatus status = project.getStatus();
         return status != ProjectStatus.COMPLETED && status != ProjectStatus.ARCHIVED;
+    }
+
+    // 마일스톤이 비어 있는지(입력 자체가 없는지) 판정합니다. 화면에서 빈 줄이 딸려오는 경우라 무시 대상입니다.
+    public static boolean isEmptyMilestone(LocalDate targetDate, String goal) {
+        return targetDate == null && !StringUtils.hasText(goal);
+    }
+
+    // 마일스톤이 저장 가능한 형태인지 판정합니다. 목표일과 목표 내용은 한쪽만 있을 수 없습니다.
+    // isEmptyMilestone과 같은 두 필드를 보므로, 규칙이 바뀌면 이 두 메서드를 함께 고쳐야 합니다.
+    public static boolean isCompleteMilestone(LocalDate targetDate, String goal) {
+        return targetDate != null && StringUtils.hasText(goal);
     }
 
     // 상태 전이 규칙: 보관(ARCHIVED)은 완전 종료라 어디로도 못 가고, 완료(COMPLETED)는 보관으로만 갈 수 있습니다.

@@ -1,12 +1,15 @@
 package HK.PrettyWorks_BE.calendar.leave.service;
 
 import HK.PrettyWorks_BE.calendar.leave.constant.LeaveType;
+import HK.PrettyWorks_BE.calendar.leave.domain.LeaveBalanceEntity;
 import HK.PrettyWorks_BE.calendar.leave.domain.ScheduleLeaveEntity;
 import HK.PrettyWorks_BE.calendar.leave.dto.req.LeaveCreateRequest;
 import HK.PrettyWorks_BE.calendar.leave.dto.req.LeaveUpdateRequest;
+import HK.PrettyWorks_BE.calendar.leave.dto.res.LeaveBalanceResponse;
 import HK.PrettyWorks_BE.calendar.leave.dto.res.LeaveCreateResponse;
 import HK.PrettyWorks_BE.calendar.leave.dto.res.LeaveUpdateResponse;
 import HK.PrettyWorks_BE.calendar.leave.exception.LeaveErrorCode;
+import HK.PrettyWorks_BE.calendar.leave.repository.LeaveBalanceRepository;
 import HK.PrettyWorks_BE.calendar.leave.repository.ScheduleLeaveRepository;
 import HK.PrettyWorks_BE.calendar.schedule.constant.ParticipantRole;
 import HK.PrettyWorks_BE.calendar.schedule.constant.ScheduleType;
@@ -17,12 +20,15 @@ import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleRepository;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
+import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.Period;
 import java.time.temporal.ChronoUnit;
 import java.util.function.Supplier;
 
@@ -33,6 +39,7 @@ public class LeaveService {
     private final ScheduleRepository scheduleRepository;
     private final ScheduleParticipantRepository scheduleParticipantRepository;
     private final ScheduleLeaveRepository scheduleLeaveRepository;
+    private final LeaveBalanceRepository leaveBalanceRepository;
     private final IdempotencyService idempotencyService;
     private final CurrentUserService currentUserService;
 
@@ -51,8 +58,8 @@ public class LeaveService {
     // 검증(기간) + 저장(schedules → 참가자 → schedule_leaves) 후 생성된 leaveId 반환.
     // 트랜잭션은 IdempotencyService의 TransactionTemplate이 제공(자체 @Transactional 미부착 — self-invocation 회피).
     private Long doCreate(Long userId, LeaveCreateRequest request) {
-        // 1) 신청자 조회 — 토큰 userId로 현재 유저 로드(없으면 UNAUTHORIZED). user 도메인 공용 진입점 재사용.
-        currentUserService.getCurrentUser(userId);
+        // 1) 신청자 조회 + 재직 검증 — 퇴사자(RESIGNED) 차단(USER_003), 휴직(ON_LEAVE)은 허용. 퇴사 후 미만료 토큰 우회 방지. user 도메인 공용 진입점 재사용.
+        currentUserService.getEmployedUser(userId);
 
         LocalDate startDate = request.startDate();
         LocalDate endDate = request.endDate();
@@ -153,6 +160,40 @@ public class LeaveService {
         scheduleRepository.delete(schedule);
     }
 
+    // 연차 현황 조회: 로그인 사용자의 연도별 부여·사용·잔여 + 근속연수. 캘린더/휴가 페이지 카드 공용. 읽기 전용.
+    @Transactional(readOnly = true)
+    public LeaveBalanceResponse getBalance(Long userId, Integer year) {
+        // 1) 현재 유저 로드(없으면 UNAUTHORIZED). 근속연수 계산에 hireDate 사용.
+        UserEntity user = currentUserService.getCurrentUser(userId);
+
+        // 2) 조회 연도 — 미지정이면 올해.
+        int targetYear = (year != null) ? year : LocalDate.now().getYear();
+
+        // 3) 부여일수 — leave_balances 조회. 아직 부여 안 됐으면 0(부여는 스케줄 배치 담당, 이 API는 조회만).
+        int grantedDays = leaveBalanceRepository.findByUserIdAndYear(userId, (short) targetYear)
+                .map(LeaveBalanceEntity::getGrantedDays)
+                .orElse(0);
+
+        // 4) 사용일수 — 그 해 ANNUAL 휴가 days 합계. 공가(EXCUSED)은 제외. 귀속 연도는 휴가 시작일 기준.
+        LocalDateTime yearStart = LocalDate.of(targetYear, 1, 1).atStartOfDay();
+        LocalDateTime yearEnd = LocalDate.of(targetYear + 1, 1, 1).atStartOfDay();
+        int usedDays = (int) scheduleLeaveRepository.sumUsedDays(userId, LeaveType.ANNUAL, yearStart, yearEnd);
+
+        // 5) 잔여 = 부여 - 사용.
+        int remainingDays = grantedDays - usedDays;
+
+        // 6) 근속연수 "N년 M개월"(입사일~오늘). 미래 입사(사전등록)면 0년 0개월.
+        String tenureYears = formatTenure(user.getHireDate(), LocalDate.now());
+
+        return LeaveBalanceResponse.builder()
+                .year(targetYear)
+                .grantedDays(grantedDays)
+                .usedDays(usedDays)
+                .remainingDays(remainingDays)
+                .tenureYears(tenureYears)
+                .build();
+    }
+
     // 휴가 + 연결 일정을 로드하고 소유권을 검증한다(LEAVE_001/002). update·cancel 공용 가드.
     private OwnedLeave loadOwnedLeave(Long userId, Long leaveId) {
         ScheduleLeaveEntity leave = scheduleLeaveRepository.findById(leaveId)
@@ -170,8 +211,17 @@ public class LeaveService {
     private record OwnedLeave(ScheduleLeaveEntity leave, ScheduleEntity schedule) {
     }
 
-    // 휴가 유형 → 일정 제목 매핑(연차/병가). create·update 공용.
+    // 휴가 유형 → 일정 제목 매핑(연차/공가). create·update 공용.
     private String titleOf(LeaveType leaveType) {
-        return leaveType == LeaveType.ANNUAL ? "연차" : "병가";
+        return leaveType == LeaveType.ANNUAL ? "연차" : "공가";
+    }
+
+    // 입사일~기준일 근속연수를 "N년 M개월"로 포맷. 미래 입사(사전등록 허용)면 음수 방지해 "0년 0개월".
+    private String formatTenure(LocalDate hireDate, LocalDate baseDate) {
+        if (hireDate.isAfter(baseDate)) {
+            return "0년 0개월";
+        }
+        Period period = Period.between(hireDate, baseDate);
+        return period.getYears() + "년 " + period.getMonths() + "개월";
     }
 }

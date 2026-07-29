@@ -15,6 +15,7 @@ import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import HK.PrettyWorks_BE.auth.exception.AuthErrorCode;
@@ -24,6 +25,10 @@ import org.springframework.transaction.annotation.Transactional;
 @Service
 @RequiredArgsConstructor
 public class AuthService {
+
+    // users 테이블의 unique 인덱스 이름(init.sql). 어느 컬럼이 겹쳤는지 판별하는 데 씁니다.
+    private static final String UK_USERS_EMPLOYEE_NO = "uk_users_employee_no";
+    private static final String UK_USERS_EMAIL = "uk_users_email";
 
     private final UserRepository userRepository;
     private final RefreshTokenService
@@ -99,6 +104,7 @@ public class AuthService {
     @Transactional
     public SignupResponse signup(SignupRequest request) {
         // 사번/이메일은 unique 제약이라 저장 전에 중복을 먼저 걸러 명확한 에러로 응답합니다.
+        // 이 검사와 저장 사이에 다른 요청이 끼어들 수 있어, 최종 보증은 아래 unique 위반 처리가 맡습니다.
         if (userRepository.existsByEmployeeNo(request.employeeNo())) {
             throw BaseException.type(AuthErrorCode.EMPLOYEE_NO_DUPLICATED);
         }
@@ -121,7 +127,23 @@ public class AuthService {
                 .hireDate(request.hireDate())
                 .build();
 
-        UserEntity saved = userRepository.save(user);
+        // 사전 검사를 통과해도 동시 요청이면 여기서 겹칠 수 있어, DB unique 제약이 최종 방어선입니다.
+        // saveAndFlush로 INSERT를 이 자리에서 실행해, 위반을 커밋 시점이 아닌 아래 catch에서 잡습니다.
+        UserEntity saved;
+        try {
+            saved = userRepository.saveAndFlush(user);
+        } catch (DataIntegrityViolationException e) {
+            // 걸린 unique 인덱스 이름으로 어느 컬럼이 겹쳤는지 판별합니다.
+            // 제약 위반 후에는 영속성 컨텍스트가 오염돼 재조회가 불가능하므로 예외 메시지만 사용합니다.
+            String cause = String.valueOf(e.getMostSpecificCause().getMessage()).toLowerCase();
+            if (cause.contains(UK_USERS_EMPLOYEE_NO)) {
+                throw BaseException.type(AuthErrorCode.EMPLOYEE_NO_DUPLICATED);
+            }
+            if (cause.contains(UK_USERS_EMAIL)) {
+                throw BaseException.type(AuthErrorCode.EMAIL_DUPLICATED);
+            }
+            throw e; // 중복이 아닌 무결성 오류는 그대로 전파합니다.
+        }
 
         return SignupResponse.builder()
                 .userId(saved.getId())

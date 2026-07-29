@@ -10,7 +10,7 @@ import java.time.LocalDate;
 @Builder
 public record LeaveUpdateRequest(
         // 아래 필드는 모두 선택. 미전달(null)이면 기존 값을 유지한다.
-        @Schema(example = "SICK", description = "휴가 유형(선택, ANNUAL/SICK). 미전달 시 기존 유지")
+        @Schema(example = "EXCUSED", description = "휴가 유형(선택, ANNUAL/EXCUSED). 미전달 시 기존 유지")
         LeaveType leaveType,
 
         @Schema(example = "2026-08-11", description = "시작일(선택). 미전달 시 기존 유지")

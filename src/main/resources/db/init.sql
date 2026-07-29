@@ -78,7 +78,7 @@ CREATE TABLE IF NOT EXISTS projects (
     status        VARCHAR(20)   NOT NULL          COMMENT '상태 (ONGOING / HOLDING / DROPPED / COMPLETED / ARCHIVED)',
     start_date    DATE          NOT NULL          COMMENT '시작일',
     target_date   DATE          NOT NULL          COMMENT '목표일',
-    target_budget DECIMAL(15,2) NOT NULL          COMMENT '목표 예산 (0 = 제한 없음)',
+    target_budget BIGINT NOT NULL                 COMMENT '목표 예산 원 단위 (0 = 제한 없음). expenses.amount와 동일 타입',
     description   VARCHAR(500)  NULL              COMMENT '설명',
     version       BIGINT        NOT NULL DEFAULT 0 COMMENT '낙관적 락 버전 (동시 수정 시 나중 요청 차단)',
     created_at    DATETIME(6)   NULL              COMMENT '생성 시각',
@@ -254,7 +254,7 @@ CREATE TABLE IF NOT EXISTS schedules (
 CREATE TABLE IF NOT EXISTS schedule_leaves (
     id          BIGINT       NOT NULL AUTO_INCREMENT,
     schedule_id BIGINT       NOT NULL          COMMENT '일정 FK (1:1)',
-    leave_type  VARCHAR(20)  NOT NULL          COMMENT '휴가 유형 (ANNUAL 연차 / SICK 병가)',
+    leave_type  VARCHAR(20)  NOT NULL          COMMENT '휴가 유형 (ANNUAL 연차 / EXCUSED 공가)',
     reason      VARCHAR(255) NULL              COMMENT '사유',
     days        INT          NOT NULL          COMMENT '일수 (연차 사용/잔여 계산용)',
     created_at  DATETIME(6)  NULL              COMMENT '생성 시각',

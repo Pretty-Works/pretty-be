@@ -30,17 +30,17 @@ import java.util.List;
 @RestControllerAdvice
 @RequiredArgsConstructor
 public class GlobalExceptionHandler {
+
+    // 실패한 요청의 경로를 로그에 남기기 위해 주입받습니다. 이 어드바이스는 싱글턴이지만
+    // 스프링이 요청마다 현재 요청으로 위임하는 프록시를 넣어주므로 값은 항상 처리 중인 요청의 것입니다.
+    private final HttpServletRequest request;
+
     /**
      * Custom Exception 전용 ExceptionHandler (@RequestBody)
      */
     @ExceptionHandler(BaseException.class)
     public ResponseEntity<CustomErrorResponse> applicationException(BaseException e) {
-        ErrorCode code = e.getCode();
-        logging(code);
-
-        return ResponseEntity
-                .status(code.getStatus())
-                .body(CustomErrorResponse.from(code));
+        return convert(e.getCode());
     }
 
     /**
@@ -86,7 +86,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<CustomErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
-        log.warn("[파라미터 타입 불일치] name={}, value={}", e.getName(), e.getValue());
+        // 파라미터 이름·값은 아래 메시지에 담겨 convert에서 함께 로깅됩니다.
         return convert(GlobalErrorCode.VALIDATION_ERROR,
                 String.format("'%s' 파라미터 값이 잘못되었습니다: %s", e.getName(), e.getValue()));
     }
@@ -141,7 +141,8 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(MissingRequestHeaderException.class)
     public ResponseEntity<CustomErrorResponse> handleMissingRequestHeader(MissingRequestHeaderException e) {
-        log.error("[필수 헤더 누락] {}", e.getMessage());
+        // 400(클라이언트 오류)이므로 warn. ERROR는 서버가 조치해야 하는 문제에만 씁니다.
+        log.warn("[필수 헤더 누락] {}", e.getMessage());
         return convert(GlobalErrorCode.MISSING_REQUEST_HEADER);
     }
 
@@ -168,8 +169,9 @@ public class GlobalExceptionHandler {
      * 내부 서버 오류 전용 ExceptionHandler
      */
     @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<CustomErrorResponse> handleAnyException(RuntimeException e, HttpServletRequest request) {
-        log.error("[내부 서버 오류] {} {}", request.getMethod(), request.getRequestURI(), e);
+    public ResponseEntity<CustomErrorResponse> handleAnyException(RuntimeException e) {
+        // 경로는 convert가 남기므로 여기서는 원인 추적에 필요한 스택트레이스만 ERROR로 남깁니다.
+        log.error("[내부 서버 오류]", e);
         return convert(GlobalErrorCode.INTERNAL_SERVER_ERROR);
     }
 
@@ -202,20 +204,25 @@ public class GlobalExceptionHandler {
         return convert(GlobalErrorCode.INVALID_JWT);
     }
 
+    // 응답 생성과 로깅을 한 곳에 묶습니다. 핸들러마다 따로 로그를 남기게 두면
+    // 실제로 여러 핸들러가 아무 흔적도 남기지 않아, 400·401·404가 왜 났는지 추적할 수 없었습니다.
     private ResponseEntity<CustomErrorResponse> convert(ErrorCode code) {
-        return ResponseEntity
-                .status(code.getStatus())
-                .body(CustomErrorResponse.from(code));
+        return convert(code, code.getMessage());
     }
 
     private ResponseEntity<CustomErrorResponse> convert(ErrorCode code, String message) {
+        logging(code, message);
+
         return ResponseEntity
                 .status(code.getStatus())
                 .body(CustomErrorResponse.of(code, message));
     }
 
-    private void logging(ErrorCode code) {
-        log.warn("{} | {} | {}", code.getStatus(), code.getErrorCode(), code.getMessage());
+    // traceId는 로그 패턴(%X{traceId})이 MdcFilter가 넣은 값을 자동으로 붙여줍니다.
+    private void logging(ErrorCode code, String message) {
+        log.warn("{} | {} | {} {} | {}",
+                code.getStatus(), code.getErrorCode(),
+                request.getMethod(), request.getRequestURI(), message);
     }
 }
 
