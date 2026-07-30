@@ -15,6 +15,7 @@ import HK.PrettyWorks_BE.calendar.schedule.constant.ParticipantRole;
 import HK.PrettyWorks_BE.calendar.schedule.constant.ScheduleType;
 import HK.PrettyWorks_BE.calendar.schedule.domain.ScheduleEntity;
 import HK.PrettyWorks_BE.calendar.schedule.domain.ScheduleParticipantEntity;
+import HK.PrettyWorks_BE.calendar.schedule.policy.SchedulePolicy;
 import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleParticipantRepository;
 import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleRepository;
 import HK.PrettyWorks_BE.global.exception.BaseException;
@@ -201,7 +202,9 @@ public class LeaveService {
         // 일정이 없으면 데이터 무결성 문제 — 클라이언트는 leaveId만 아므로 동일하게 404 처리.
         ScheduleEntity schedule = scheduleRepository.findById(leave.getScheduleId())
                 .orElseThrow(() -> BaseException.type(LeaveErrorCode.LEAVE_NOT_FOUND));
-        if (!schedule.getUserId().equals(userId)) {
+        // 휴가의 주인 = 연결된 일정 행의 작성자(휴가엔 별도 신청자 컬럼이 없음) → 일정 소유권 판정을 그대로 재사용.
+        // 에러코드만 휴가 전용(LEAVE_002)으로 던진다.
+        if (!SchedulePolicy.canModify(schedule, userId)) {
             throw BaseException.type(LeaveErrorCode.NO_LEAVE_PERMISSION);
         }
         return new OwnedLeave(leave, schedule);
