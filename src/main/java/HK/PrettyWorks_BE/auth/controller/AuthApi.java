@@ -1,7 +1,6 @@
 package HK.PrettyWorks_BE.auth.controller;
 
 import HK.PrettyWorks_BE.auth.dto.req.LoginRequest;
-import HK.PrettyWorks_BE.auth.dto.req.ReissueRequest;
 import HK.PrettyWorks_BE.auth.dto.req.SignupRequest;
 import HK.PrettyWorks_BE.auth.dto.res.JwtTokenResponse;
 import HK.PrettyWorks_BE.auth.dto.res.SignupResponse;
@@ -52,8 +51,9 @@ public interface AuthApi {
     @Operation(
             summary = "로그인",
             description = """
-                    사번·비밀번호로 access/refresh 토큰을 발급합니다. 토큰이 필요 없습니다.
-                    accessToken은 이후 요청에 `Authorization: Bearer {accessToken}`으로 보냅니다.
+                    사번·비밀번호로 로그인합니다. 토큰이 필요 없습니다.
+                    accessToken은 응답 바디로 내려주며, 이후 요청에 `Authorization: Bearer {accessToken}`으로 보냅니다.
+                    refreshToken은 `Set-Cookie`로 내려갑니다(HttpOnly·SameSite=Strict, path=/api/v1/auth) — 바디에는 없고 JS로 읽을 수 없습니다.
 
                     로그인할 때마다 기기별 세션이 생겨 여러 기기에서 동시에 쓸 수 있습니다.
                     최대 세션 수를 넘기면 가장 오래된 세션이 자동 종료됩니다.
@@ -76,10 +76,12 @@ public interface AuthApi {
     @Operation(
             summary = "토큰 재발급 (RTR)",
             description = """
-                    refresh 토큰을 검증해 access/refresh 토큰을 **둘 다** 새로 발급합니다. 세션(기기)은 유지됩니다.
-                    access token은 보지 않으므로 만료된 토큰이 헤더에 남아 있어도 됩니다.
+                    refreshToken 쿠키를 검증해 access token은 바디로, 새 refreshToken은 다시 `Set-Cookie`로 발급합니다.
+                    세션(기기)은 유지됩니다. access token은 보지 않으므로 만료된 토큰이 헤더에 남아 있어도 됩니다.
 
-                    ⚠️ 응답의 새 refreshToken으로 반드시 교체하세요. 이미 쓴 refresh 토큰이 다시 오면
+                    refreshToken 쿠키는 요청에 자동으로 실려가므로 별도 바디가 필요 없습니다.
+
+                    ⚠️ 응답의 새 refreshToken 쿠키로 반드시 교체(브라우저가 자동 처리)하세요. 이미 쓴 refresh 토큰이 다시 오면
                     **도난으로 판단해 해당 기기의 세션을 통째로 종료**하며 재로그인이 필요합니다.
                     재발급 요청이 동시에 두 번 나가지 않도록 하세요.
                     """
@@ -87,19 +89,19 @@ public interface AuthApi {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "재발급 성공"),
             @ApiResponse(responseCode = "401",
-                    description = "토큰 없음·만료(REQUEST_024) / 불일치(REQUEST_025) / 재사용 감지로 세션 종료 / 퇴사 처리된 계정",
+                    description = "쿠키 없음·만료(REQUEST_024) / 불일치(REQUEST_025) / 재사용 감지로 세션 종료 / 퇴사 처리된 계정",
                     content = @Content(mediaType = "application/json",
                             examples = @ExampleObject(value = """
                                     { "errorCode": "REQUEST_024", "message": "리프레시 토큰이 만료되었거나 존재하지 않습니다.", "result": null }
                                     """)))
     })
-    ResponseEntity<JwtTokenResponse> reissue(ReissueRequest request, String userAgent);
+    ResponseEntity<JwtTokenResponse> reissue(String refreshToken, String userAgent);
 
     @Operation(
             summary = "로그아웃",
             description = """
                     요청을 보낸 **그 기기의 세션만** 종료합니다. 다른 기기의 로그인은 유지됩니다.
-                    refresh 토큰이 폐기되고 남은 access token도 즉시 차단됩니다.
+                    refresh 토큰이 폐기되고 남은 access token도 즉시 차단됩니다. refreshToken 쿠키도 함께 삭제됩니다.
 
                     이미 로그아웃된 세션으로 다시 호출해도 성공합니다(멱등). result는 null입니다.
                     """
@@ -107,5 +109,5 @@ public interface AuthApi {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "로그아웃 성공 (이미 로그아웃된 경우에도 성공)")
     })
-    Void logout(@Parameter(hidden = true) Authentication authentication);
+    ResponseEntity<Void> logout(@Parameter(hidden = true) Authentication authentication);
 }
