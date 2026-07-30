@@ -17,6 +17,10 @@ public class AuthConstant {
     public static final String ACCESS_TOKEN_TYPE = "access";
     // 토큰 재발급에만 사용할 토큰 타입입니다.
     public static final String REFRESH_TOKEN_TYPE = "refresh";
+    // refreshToken을 담는 HttpOnly 쿠키의 이름입니다. 발급(로그인·재발급)과 삭제(로그아웃)에서 함께 씁니다.
+    public static final String REFRESH_TOKEN_COOKIE_NAME = "refreshToken";
+    // 쿠키를 인증 API로만 좁혀, 다른 모든 요청에 자동으로 딸려가지 않게 합니다(CSRF 노출 범위 최소화).
+    public static final String REFRESH_TOKEN_COOKIE_PATH = "/api/v1/auth";
     // 인증 없이 접근 가능한 최소 공개 경로입니다. 여기에 없는 모든 요청은 access token이 필요합니다.
     // 로그아웃은 "누가·어느 세션인지"를 알아야 하므로 공개 경로가 아닙니다.
     public static final String[] AUTH_WHITELIST = {

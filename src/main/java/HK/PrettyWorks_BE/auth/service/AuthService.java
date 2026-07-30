@@ -3,11 +3,10 @@ package HK.PrettyWorks_BE.auth.service;
 import HK.PrettyWorks_BE.auth.constant.AuthConstant;
 import HK.PrettyWorks_BE.auth.constant.RevokeReason;
 import HK.PrettyWorks_BE.auth.dto.req.LoginRequest;
-import HK.PrettyWorks_BE.auth.dto.req.ReissueRequest;
 import HK.PrettyWorks_BE.auth.dto.req.SignupRequest;
-import HK.PrettyWorks_BE.auth.dto.res.JwtTokenResponse;
 import HK.PrettyWorks_BE.auth.dto.res.SignupResponse;
 import HK.PrettyWorks_BE.auth.jwt.JwtUtil;
+import HK.PrettyWorks_BE.auth.jwt.TokenPair;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.constant.StatusType;
@@ -37,7 +36,7 @@ public class AuthService {
     private final JwtUtil jwtUtil;
 
     @Transactional
-    public JwtTokenResponse login(LoginRequest request, String userAgent) {
+    public TokenPair login(LoginRequest request, String userAgent) {
         // 사번 미존재와 비밀번호 불일치 모두 동일한 에러로 응답하여 계정 존재 여부 노출을 막습니다.
         UserEntity user = userRepository.findByEmployeeNo(request.employeeNo())
                 .orElseThrow(() -> BaseException.type(AuthErrorCode.INVALID_CREDENTIALS));
@@ -54,7 +53,7 @@ public class AuthService {
 
         // 기기별 세션을 새로 만들고, 그 세션 식별자(sid)를 토큰에 심습니다.
         String sessionId = refreshTokenService.createSession(user.getId());
-        JwtTokenResponse tokens = jwtUtil.generateTokens(user.getId(), sessionId);
+        TokenPair tokens = jwtUtil.generateTokens(user.getId(), sessionId);
         refreshTokenService.save(sessionId, user.getId(), tokens.refreshToken(), userAgent);
 
         return tokens;
@@ -62,9 +61,9 @@ public class AuthService {
 
     // 도난 탐지·퇴사 차단 분기에서 세션 폐기를 커밋해야 하므로 BaseException은 롤백 대상에서 제외합니다.
     @Transactional(noRollbackFor = BaseException.class)
-    public JwtTokenResponse reissue(ReissueRequest request, String userAgent) {
+    public TokenPair reissue(String refreshToken, String userAgent) {
         // 서명/만료/타입 검증을 먼저 통과한 토큰만 DB와 대조합니다.
-        Claims claims = jwtUtil.getTokenBody(request.refreshToken());
+        Claims claims = jwtUtil.getTokenBody(refreshToken);
 
         String tokenType = claims.get(AuthConstant.TOKEN_TYPE_CLAIM_NAME, String.class);
         if (!AuthConstant.REFRESH_TOKEN_TYPE.equals(tokenType)) {
@@ -85,10 +84,10 @@ public class AuthService {
 
         // 제시된 토큰을 폐기하고 이어서 쓸 세션을 받습니다.
         // 이미 폐기된 토큰이면(=누군가 옛 토큰을 들고 있음) 여기서 세션 전체가 무효화되고 예외가 납니다.
-        String sessionId = refreshTokenService.rotate(request.refreshToken());
+        String sessionId = refreshTokenService.rotate(refreshToken);
 
         // 같은 세션으로 새 토큰 쌍을 발급합니다. sid가 유지돼야 세션 추적·무효화가 이어집니다.
-        JwtTokenResponse tokens = jwtUtil.generateTokens(userId, sessionId);
+        TokenPair tokens = jwtUtil.generateTokens(userId, sessionId);
         refreshTokenService.save(sessionId, userId, tokens.refreshToken(), userAgent);
 
         return tokens;
