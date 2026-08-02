@@ -1,6 +1,8 @@
 package HK.PrettyWorks_BE.user.service;
 
+import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
+import HK.PrettyWorks_BE.user.dto.res.MyProfileResponse;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -16,6 +18,15 @@ import java.util.stream.Collectors;
 public class UserService {
 
     private final UserRepository userRepository;
+    private final CurrentUserService currentUserService;
+
+    // 내 정보 조회. 토큰의 userId로만 조회하므로 남의 정보에 접근할 경로가 없다.
+    @Transactional(readOnly = true)
+    public MyProfileResponse getMyProfile(Long userId) {
+        UserEntity user = currentUserService.getCurrentUser(userId);
+
+        return MyProfileResponse.of(user, ProjectPolicy.canCreate(user));
+    }
 
     // userId → 이름 맵. 사람 이름을 함께 보여주는 조회에서 루프 안 개별 조회(N+1) 대신 한 번에 가져온다.
     // 이름은 항상 현재 값이므로 개명·부서 이동이 조회 결과에 바로 반영된다.
