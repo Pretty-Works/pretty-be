@@ -60,7 +60,7 @@ public interface MilestoneApi {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "변경 성공 (이미 같은 상태여도 성공)"),
-            @ApiResponse(responseCode = "400", description = "done 미입력(REQUEST_001)"),
+            @ApiResponse(responseCode = "400", description = "done 미입력(REQUEST_001) / 퇴사한 사용자(USER_003)"),
             @ApiResponse(responseCode = "403", description = "오너도 PM도 아님(PROJECT_005)"),
             @ApiResponse(responseCode = "404",
                     description = "프로젝트를 찾을 수 없음(PROJECT_004) / 마일스톤이 없거나 이 프로젝트의 것이 아님(PROJECT_022)",

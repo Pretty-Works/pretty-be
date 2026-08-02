@@ -31,6 +31,7 @@ public interface ProjectApi {
 
                     [budget] 원 단위 정수. 미입력이나 0은 '예산 제한 없음'이며 소수점은 넣지 않습니다.
                     [members] 오너는 서버가 자동 등록합니다. 퇴사자는 넣을 수 없고(USER_003) 휴직자는 가능합니다.
+                    호출자 본인이 퇴사자여도 같은 코드로 차단됩니다.
                     [milestones] targetDate와 goal이 **둘 다** 있어야 합니다(PROJECT_016).
                     milestoneId를 실어 보내도 무시됩니다 — 새 프로젝트라 전부 신규입니다.
                     [role] 참여자의 role을 "PM"으로 주면 오너가 아니어도 이 프로젝트를 수정할 수 있습니다.
@@ -41,7 +42,8 @@ public interface ProjectApi {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "생성 성공"),
             @ApiResponse(responseCode = "400",
-                    description = "입력값 검증 실패 / 기간 오류(PROJECT_003) / 마일스톤 오류(PROJECT_015·PROJECT_016) / 퇴사자 참여(USER_003)"),
+                    description = "입력값 검증 실패 / 기간 오류(PROJECT_003) / 마일스톤 오류(PROJECT_015·PROJECT_016)"
+                            + " / 퇴사자(USER_003) — 호출자 본인이거나 참여자로 지정한 사람"),
             @ApiResponse(responseCode = "403", description = "생성 권한 없음(PROJECT_001) — 팀장 미만이면서 PM 부서도 아님"),
             @ApiResponse(responseCode = "404", description = "참여자로 지정한 사용자를 찾을 수 없음(PROJECT_002)"),
             @ApiResponse(responseCode = "409", description = "같은 멱등 키로 다른 내용의 요청이 접수됨(REQUEST_028)")
@@ -121,7 +123,8 @@ public interface ProjectApi {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "수정 성공"),
             @ApiResponse(responseCode = "400",
-                    description = "입력값 검증 실패 / 기간 오류(PROJECT_003) / 마일스톤 오류(PROJECT_015·PROJECT_016) / 퇴사자 참여(USER_003)"),
+                    description = "입력값 검증 실패 / 기간 오류(PROJECT_003) / 마일스톤 오류(PROJECT_015·PROJECT_016)"
+                            + " / 퇴사자(USER_003) — 호출자 본인이거나 참여자로 지정한 사람"),
             @ApiResponse(responseCode = "403", description = "오너도 PM도 아님(PROJECT_005)"),
             @ApiResponse(responseCode = "404",
                     description = "프로젝트(PROJECT_004) / 참여자(PROJECT_002) / 마일스톤(PROJECT_022)을 찾을 수 없음"),
@@ -146,7 +149,7 @@ public interface ProjectApi {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "상태 변경 성공"),
-            @ApiResponse(responseCode = "400", description = "유효하지 않은 상태 값(PROJECT_018)"),
+            @ApiResponse(responseCode = "400", description = "유효하지 않은 상태 값(PROJECT_018) / 퇴사한 사용자(USER_003)"),
             @ApiResponse(responseCode = "403", description = "오너도 PM도 아님(PROJECT_017)"),
             @ApiResponse(responseCode = "404", description = "프로젝트를 찾을 수 없음(PROJECT_004)"),
             @ApiResponse(responseCode = "409", description = "완료·중단된 프로젝트를 되돌리려 함(PROJECT_019)")

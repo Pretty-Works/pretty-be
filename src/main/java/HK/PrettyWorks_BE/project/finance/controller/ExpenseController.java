@@ -1,5 +1,6 @@
 package HK.PrettyWorks_BE.project.finance.controller;
 
+import HK.PrettyWorks_BE.global.base.PageRequests;
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.project.finance.constant.ExpenseStatus;
 import HK.PrettyWorks_BE.project.finance.dto.req.ExpenseRequest;
@@ -9,14 +10,9 @@ import HK.PrettyWorks_BE.project.finance.dto.res.ExpenseResponse;
 import HK.PrettyWorks_BE.project.finance.service.ExpenseService;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -27,11 +23,10 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-// @Validated: @RequestHeader 등 메서드 파라미터의 제약(@Size)을 검증하려면 필요합니다. (없으면 조용히 무시됨)
 // Swagger 문서는 ExpenseApi 인터페이스에 있습니다.
+// 파라미터 제약을 붙이지 않는 이유는 ProjectController 주석 참고.
 @RestController
 @RequiredArgsConstructor
-@Validated
 public class ExpenseController implements ExpenseApi {
 
     private final ExpenseService expenseService;
@@ -42,10 +37,9 @@ public class ExpenseController implements ExpenseApi {
     public ResponseEntity<ExpenseResponse> create(
             @AuthenticationPrincipal Long userId,
             @PathVariable Long projectId,
-            @Parameter(description = "중복 등록 방지용 멱등 키(선택). 폼이 열릴 때 UUID v4를 발급해 두고, "
+            @Parameter(description = "중복 등록 방지용 멱등 키(선택, 64자 이하). 폼이 열릴 때 UUID v4를 발급해 두고, "
                     + "연타·재시도 시 같은 키를 재사용하면 첫 응답이 그대로 반환됩니다.",
                     example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
-            @Size(max = 64, message = "Idempotency-Key는 64자 이하여야 합니다.")
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody ExpenseRequest request
     ) {
@@ -65,14 +59,12 @@ public class ExpenseController implements ExpenseApi {
             @Parameter(description = "사용처·사용 목적 부분 일치 검색어", example = "카카오")
             @RequestParam(required = false) String keyword,
             @Parameter(description = "페이지 번호 (0부터)")
-            @RequestParam(defaultValue = "0") @Min(value = 0, message = "페이지 번호는 0 이상이어야 합니다.") int page,
+            @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "한 페이지당 개수 (1~100)")
-            @RequestParam(defaultValue = "10")
-            @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
-            @Max(value = 100, message = "페이지 크기는 100 이하여야 합니다.") int size
+            @RequestParam(defaultValue = "10") int size
     ) {
         PageResponse<ExpenseListResponse> response =
-                expenseService.getExpenses(projectId, userId, status, keyword, PageRequest.of(page, size));
+                expenseService.getExpenses(projectId, userId, status, keyword, PageRequests.of(page, size));
 
         return ResponseEntity.ok(response);
     }
