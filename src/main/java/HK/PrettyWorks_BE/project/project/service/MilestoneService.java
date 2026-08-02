@@ -12,6 +12,7 @@ import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.MilestoneRepository;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -28,6 +29,7 @@ public class MilestoneService {
     private final MilestoneRepository milestoneRepository;
     private final ProjectRepository projectRepository;
     private final ProjectMemberService projectMemberService;
+    private final CurrentUserService currentUserService;
 
     // 마일스톤 목록 + 완료 집계. 개요 화면의 '마일스톤 완료율' 카드를 채운다.
     // 페이지네이션을 두지 않는다 — 프로젝트당 최대 50개이고 화면이 타임라인으로 전부 보여준다.
@@ -83,6 +85,10 @@ public class MilestoneService {
         if (!ProjectPolicy.canUpdate(caller)) {
             throw BaseException.type(ProjectErrorCode.NO_EDIT_PERMISSION);
         }
+
+        // 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단.
+        // 완료 체크가 곧 완료율이라, 퇴사한 오너·PM이 지표를 움직이면 안 된다.
+        currentUserService.getEmployedUser(userId);
 
         // 3) 완료·보관된 프로젝트는 변경 불가 (PROJECT_020)
         if (!ProjectPolicy.isOpenForContent(project)) {
