@@ -32,6 +32,10 @@ import java.util.Map;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
+// 검증 순서(전 API 공통):
+//   ① 프로젝트 존재(404) → ② 프로젝트 멤버십(403) → ③ 게시글 존재·소속(404) → ④ 작성자 권한(403) → ⑤ 프로젝트 상태(400)
+// 프로젝트 '존재'를 '멤버십'보다 먼저 보는 이유: 권한을 먼저 보면 없는 projectId도 "참여 기록 없음"이 되어
+// 404여야 할 응답이 403으로 가려진다. (ProjectMemberService.validateAccess 주석 참고)
 @Service
 @RequiredArgsConstructor
 public class PostService {
@@ -89,7 +93,8 @@ public class PostService {
     public PageResponse<PostListResponse> getPostList(
             Long projectId, Long userId, String title, PostPriority priority, Pageable pageable) {
 
-        projectMemberService.validateActiveMember(projectId, userId);
+        // 프로젝트 존재 + 참여중 멤버 검증
+        projectMemberService.validateAccess(projectId, userId);
 
         Page<PostEntity> posts = postRepository.findPostSummaries(projectId, title, priority, pageable);
 
@@ -99,16 +104,21 @@ public class PostService {
                 .distinct()
                 .toList();
 
-        Map<Long, String> authorNames = userRepository.findAllById(authorIds).stream()
-                .collect(Collectors.toMap(UserEntity::getId, UserEntity::getName));
+        Map<Long, UserEntity> authors = userRepository.findAllById(authorIds).stream()
+                .collect(Collectors.toMap(UserEntity::getId, user -> user));
 
-        Page<PostListResponse> mapped = posts.map(post -> PostListResponse.builder()
-                .postId(post.getId())
-                .title(post.getTitle())
-                .priority(post.getPriority())
-                .authorName(authorNames.getOrDefault(post.getAuthorId(), "알 수 없음"))
-                .createdAt(post.getCreatedAt())
-                .build());
+        // 작성자가 탈퇴 등으로 조회되지 않아도 목록 자체는 깨지지 않게 대체값을 쓴다
+        Page<PostListResponse> mapped = posts.map(post -> {
+            UserEntity author = authors.get(post.getAuthorId());
+            return PostListResponse.builder()
+                    .postId(post.getId())
+                    .title(post.getTitle())
+                    .priority(post.getPriority())
+                    .authorName(author == null ? "알 수 없음" : author.getName())
+                    .department(author == null ? null : author.getDepartment().name())
+                    .createdAt(post.getCreatedAt())
+                    .build();
+        });
 
         return PageResponse.from(mapped);
     }
@@ -117,7 +127,8 @@ public class PostService {
     @Transactional(readOnly = true)
     public PostDetailResponse getPostDetail(Long projectId, Long postId, Long userId) {
 
-        projectMemberService.validateActiveMember(projectId, userId);
+        // 프로젝트 존재 + 참여중 멤버 검증
+        projectMemberService.validateAccess(projectId, userId);
 
         PostEntity post = getPostInProject(projectId, postId);
 
@@ -129,20 +140,24 @@ public class PostService {
     public PostDetailResponse updatePost(
             Long projectId, Long postId, Long userId, PostUpdateRequest request) {
 
-        projectMemberService.validateActiveMember(projectId, userId);
-
-        PostEntity post = getPostInProject(projectId, postId);
-
-        // 완료/보관된 프로젝트가 아닌지 확인
+        // 존재하는 프로젝트인지 확인 (상태 검증에도 쓰므로 직접 로드)
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
-        if (!ProjectPolicy.isOpenForContent(project)) {
-            throw BaseException.type(PostErrorCode.PROJECT_CLOSED);
-        }
 
-        // 작성자만 수정 가능
+        // 사용자가 이 프로젝트의 참여중 멤버인지 확인
+        projectMemberService.validateActiveMember(projectId, userId);
+
+        // 게시글 존재 + 프로젝트 소속 확인
+        PostEntity post = getPostInProject(projectId, postId);
+
+        // 작성자만 수정 가능 (권한을 상태 검증보다 먼저 판정)
         if (!PostPolicy.canEdit(post, userId)) {
             throw BaseException.type(PostErrorCode.NO_PERMISSION);
+        }
+
+        // 완료/보관된 프로젝트가 아닌지 확인
+        if (!ProjectPolicy.isOpenForContent(project)) {
+            throw BaseException.type(PostErrorCode.PROJECT_CLOSED);
         }
 
         post.update(request.title(), request.priority(), request.content());
@@ -154,7 +169,8 @@ public class PostService {
     @Transactional
     public PostDeleteResponse deletePost(Long projectId, Long postId, Long userId) {
 
-        projectMemberService.validateActiveMember(projectId, userId);
+        // 프로젝트 존재 + 참여중 멤버 검증
+        projectMemberService.validateAccess(projectId, userId);
 
         PostEntity post = getPostInProject(projectId, postId);
 

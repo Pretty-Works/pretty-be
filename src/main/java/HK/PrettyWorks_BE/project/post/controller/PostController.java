@@ -1,5 +1,6 @@
 package HK.PrettyWorks_BE.project.post.controller;
 
+import HK.PrettyWorks_BE.global.base.PageRequests;
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.project.post.constant.PostPriority;
 import HK.PrettyWorks_BE.project.post.dto.req.PostCreateRequest;
@@ -11,8 +12,6 @@ import HK.PrettyWorks_BE.project.post.dto.res.PostListResponse;
 import HK.PrettyWorks_BE.project.post.service.PostService;
 import io.swagger.v3.oas.annotations.Parameter;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
-import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
@@ -53,9 +52,9 @@ public class PostController implements PostApi {
             @Parameter(description = "한 페이지당 개수")
             @RequestParam(defaultValue = "10") int size) {
 
-        Pageable pageable = PageRequest.of(page, size);
+        // 잘못된 page/size(page<0, size<1, size>100)는 PageRequests가 400으로 거부한다
         PageResponse<PostListResponse> response =
-                postService.getPostList(projectId, userId, title, priority, pageable);
+                postService.getPostList(projectId, userId, title, priority, PageRequests.of(page, size));
         return ResponseEntity.ok(response);
     }
 

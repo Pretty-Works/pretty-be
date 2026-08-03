@@ -29,11 +29,14 @@ public interface TaskApi {
                     프로젝트 할 일은 참여중인 멤버만 만들 수 있고(MEMBER_001),
                     마감일이 프로젝트 기간 안이어야 하며(TASK_007), 완료·보관된 프로젝트에는 만들 수 없습니다(PROJECT_020).
                     개인 할 일에는 이 세 제약이 모두 적용되지 않습니다.
+
+                    단 퇴사자 차단(USER_003)은 개인 할 일에도 걸립니다. 휴직자는 가능합니다.
                     """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "생성 성공"),
-            @ApiResponse(responseCode = "400", description = "입력값 검증 실패 / 마감일이 프로젝트 기간을 벗어남(TASK_007)"),
+            @ApiResponse(responseCode = "400",
+                    description = "입력값 검증 실패 / 마감일이 프로젝트 기간을 벗어남(TASK_007) / 퇴사한 사용자(USER_003)"),
             @ApiResponse(responseCode = "403", description = "해당 프로젝트의 참여자가 아님",
                     content = @Content(mediaType = "application/json",
                             examples = @ExampleObject(value = """
@@ -55,7 +58,8 @@ public interface TaskApi {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "수정 성공"),
-            @ApiResponse(responseCode = "400", description = "입력값 검증 실패 / 마감일이 프로젝트 기간을 벗어남(TASK_007)"),
+            @ApiResponse(responseCode = "400",
+                    description = "입력값 검증 실패 / 마감일이 프로젝트 기간을 벗어남(TASK_007) / 퇴사한 사용자(USER_003)"),
             @ApiResponse(responseCode = "403", description = "작성자가 아님(TASK_004) / 프로젝트 참여자가 아님(MEMBER_001)"),
             @ApiResponse(responseCode = "404", description = "할 일(TASK_003) 또는 프로젝트(PROJECT_004)를 찾을 수 없음"),
             @ApiResponse(responseCode = "409", description = "완료·보관된 프로젝트(PROJECT_020)")
@@ -72,6 +76,7 @@ public interface TaskApi {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "삭제 성공"),
+            @ApiResponse(responseCode = "400", description = "퇴사한 사용자(USER_003)"),
             @ApiResponse(responseCode = "403", description = "작성자가 아님(TASK_005)"),
             @ApiResponse(responseCode = "404", description = "할 일을 찾을 수 없음(TASK_003)")
     })
@@ -86,7 +91,7 @@ public interface TaskApi {
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "변경 성공"),
-            @ApiResponse(responseCode = "400", description = "done 미입력"),
+            @ApiResponse(responseCode = "400", description = "done 미입력 / 퇴사한 사용자(USER_003)"),
             @ApiResponse(responseCode = "403", description = "작성자가 아님(TASK_004)"),
             @ApiResponse(responseCode = "404", description = "할 일을 찾을 수 없음(TASK_003)")
     })

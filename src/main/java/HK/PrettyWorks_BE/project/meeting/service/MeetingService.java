@@ -54,6 +54,10 @@ public class MeetingService {
     public MeetingCreateResponse createMeeting(
             Long projectId, Long authorId, String idempotencyKey, MeetingCreateRequest request) {
 
+        // 작성자 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단.
+        // 멱등 처리 '바깥'에 둔다. 안에 두면 어차피 거부할 요청이 멱등 키로 기록돼 재시도까지 막힌다.
+        currentUserService.getEmployedUser(authorId);
+
         String path = "/api/v1/projects/" + projectId + "/meetings";
 
         // 무엇을 저장할지(creator) + 무엇으로 중복 판정할지(fingerprint).
@@ -209,6 +213,10 @@ public class MeetingService {
 
         // 작성자 또는 참석자만 수정 가능
         boolean isParticipant = meetingAttendeeRepository.existsByMeetingIdAndUserId(meetingId, userId);
+        // 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단.
+        // 권한 판정 다음에 둬서, 남의 회의록을 건드리는 요청은 권한 에러가 먼저 나가게 한다.
+        currentUserService.getEmployedUser(userId);
+
         if (!MeetingPolicy.canEdit(meeting, userId, isParticipant)) {
             throw BaseException.type(MeetingErrorCode.NO_PERMISSION);
         }
@@ -265,6 +273,9 @@ public class MeetingService {
         if (!MeetingPolicy.canDelete(meeting, userId)) {
             throw BaseException.type(MeetingErrorCode.NO_PERMISSION);
         }
+
+        // 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단
+        currentUserService.getEmployedUser(userId);
 
         // soft delete
         meetingRepository.delete(meeting);

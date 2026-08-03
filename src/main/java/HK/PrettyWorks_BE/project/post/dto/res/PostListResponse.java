@@ -12,6 +12,7 @@ public record PostListResponse(
         String title,
         PostPriority priority,
         String authorName,
+        String department,
         @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd HH:mm:ss", timezone = "Asia/Seoul")
         LocalDateTime createdAt
 ) {

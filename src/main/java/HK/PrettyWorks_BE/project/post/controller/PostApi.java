@@ -33,6 +33,7 @@ public interface PostApi {
                     - 완료/보관된 프로젝트에는 작성할 수 없습니다.
                     - 중요도(priority)는 HIGH / MID / LOW 중 하나입니다.
                     - Idempotency-Key 헤더를 보내면 연타·재시도로 게시글이 중복 생성되지 않습니다.
+                    - 검증 순서: 프로젝트 존재(404) → 참여중 멤버(403) → 프로젝트 상태(400)
                     """
     )
     @ApiResponses({
@@ -75,8 +76,10 @@ public interface PostApi {
                     프로젝트의 게시글 목록을 검색·페이징하여 조회합니다. (해당 프로젝트의 참여중 멤버만 가능)
 
                     - title: 제목 부분 일치 검색 (선택)
-                    - priority: 중요도 필터, HIGH / MID / LOW (선택)
+                    - priority: 중요도 필터, HIGH / MID / LOW (선택, 잘못된 값이면 400)
+                    - page는 0 이상, size는 1~100 — 범위를 벗어나면 400
                     - 작성일(createdAt) 최신순으로 정렬됩니다.
+                    - 검증 순서: 프로젝트 존재(404) → 참여중 멤버(403)
                     """
     )
     @ApiResponses({
@@ -93,6 +96,7 @@ public interface PostApi {
                                             "title": "임베딩 모델 비교표",
                                             "priority": "LOW",
                                             "authorName": "강지우",
+                                            "department": "DATA",
                                             "createdAt": "2026-07-28 10:00:00"
                                           },
                                           {
@@ -100,6 +104,7 @@ public interface PostApi {
                                             "title": "인덱싱 개선 논의",
                                             "priority": "MID",
                                             "authorName": "이하늘",
+                                            "department": "BACKEND",
                                             "createdAt": "2026-07-14 10:00:00"
                                           },
                                           {
@@ -107,6 +112,7 @@ public interface PostApi {
                                             "title": "킥오프 회의록 공유",
                                             "priority": "HIGH",
                                             "authorName": "김피엠",
+                                            "department": "PM",
                                             "createdAt": "2026-06-09 10:00:00"
                                           }
                                         ],
@@ -118,10 +124,20 @@ public interface PostApi {
                                       }
                                     }
                                     """))),
+            @ApiResponse(responseCode = "400", description = "올바르지 않은 조회 조건 (page/size 범위 초과, 잘못된 priority 값 등)",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    { "errorCode": "REQUEST_001", "message": "'priority' 파라미터 값이 잘못되었습니다: URGENT", "result": null }
+                                    """))),
             @ApiResponse(responseCode = "403", description = "해당 프로젝트의 참여중 멤버가 아님",
                     content = @Content(mediaType = "application/json",
                             examples = @ExampleObject(value = """
                                     { "errorCode": "MEMBER_001", "message": "해당 프로젝트에 참여하고 있지 않습니다.", "result": null }
+                                    """))),
+            @ApiResponse(responseCode = "404", description = "프로젝트를 찾을 수 없음",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    { "errorCode": "PROJECT_004", "message": "프로젝트를 찾을 수 없습니다.", "result": null }
                                     """))),
             @ApiResponse(responseCode = "500", description = "서버 내부 오류",
                     content = @Content(mediaType = "application/json",
@@ -145,6 +161,7 @@ public interface PostApi {
 
                     - 작성자 정보(userId·이름·부서)를 함께 내려줍니다. (본인 글 여부 판단·수정 화면 프리필용)
                     - URL의 projectId와 게시글의 소속 프로젝트가 일치하는지 검증합니다.
+                    - 검증 순서: 프로젝트 존재(404) → 참여중 멤버(403) → 게시글 존재·소속(404)
                     """
     )
     @ApiResponses({
@@ -170,7 +187,7 @@ public interface PostApi {
                             examples = @ExampleObject(value = """
                                     { "errorCode": "MEMBER_001", "message": "해당 프로젝트에 참여하고 있지 않습니다.", "result": null }
                                     """))),
-            @ApiResponse(responseCode = "404", description = "게시글을 찾을 수 없거나 해당 프로젝트 소속이 아님",
+            @ApiResponse(responseCode = "404", description = "프로젝트·게시글을 찾을 수 없거나 해당 프로젝트 소속이 아님",
                     content = @Content(mediaType = "application/json",
                             examples = @ExampleObject(value = """
                                     { "errorCode": "POST_001", "message": "존재하지 않는 게시글입니다.", "result": null }
@@ -195,6 +212,7 @@ public interface PostApi {
                     - 제목·중요도·내용을 수정합니다.
                     - 작성자·소속 프로젝트는 변경되지 않습니다.
                     - 수정된 최신 상세를 반환합니다.
+                    - 검증 순서: 프로젝트 존재(404) → 참여중 멤버(403) → 게시글 존재·소속(404) → 작성자 권한(403) → 프로젝트 상태(400)
                     """
     )
     @ApiResponses({
@@ -225,7 +243,7 @@ public interface PostApi {
                             examples = @ExampleObject(value = """
                                     { "errorCode": "POST_004", "message": "게시글에 대한 권한이 없습니다.", "result": null }
                                     """))),
-            @ApiResponse(responseCode = "404", description = "게시글을 찾을 수 없거나 해당 프로젝트 소속이 아님",
+            @ApiResponse(responseCode = "404", description = "프로젝트·게시글을 찾을 수 없거나 해당 프로젝트 소속이 아님",
                     content = @Content(mediaType = "application/json",
                             examples = @ExampleObject(value = """
                                     { "errorCode": "POST_001", "message": "존재하지 않는 게시글입니다.", "result": null }
@@ -249,6 +267,7 @@ public interface PostApi {
                     게시글 1건을 삭제합니다. (작성자만 가능)
 
                     - soft delete 방식입니다. deleted_at만 기록되며, 이후 목록·상세 조회에서 제외됩니다.
+                    - 검증 순서: 프로젝트 존재(404) → 참여중 멤버(403) → 게시글 존재·소속(404) → 작성자 권한(403)
                     """
     )
     @ApiResponses({
@@ -262,7 +281,7 @@ public interface PostApi {
                             examples = @ExampleObject(value = """
                                     { "errorCode": "POST_004", "message": "게시글에 대한 권한이 없습니다.", "result": null }
                                     """))),
-            @ApiResponse(responseCode = "404", description = "게시글을 찾을 수 없거나 해당 프로젝트 소속이 아님",
+            @ApiResponse(responseCode = "404", description = "프로젝트·게시글을 찾을 수 없거나 해당 프로젝트 소속이 아님",
                     content = @Content(mediaType = "application/json",
                             examples = @ExampleObject(value = """
                                     { "errorCode": "POST_002", "message": "해당 프로젝트의 게시글이 아닙니다.", "result": null }

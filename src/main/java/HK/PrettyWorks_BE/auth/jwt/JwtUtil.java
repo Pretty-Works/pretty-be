@@ -1,7 +1,6 @@
 package HK.PrettyWorks_BE.auth.jwt;
 
 import HK.PrettyWorks_BE.auth.constant.AuthConstant;
-import HK.PrettyWorks_BE.auth.dto.res.JwtTokenResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import io.jsonwebtoken.Claims;
@@ -46,11 +45,11 @@ public class JwtUtil implements InitializingBean {
 
     // access·refresh에 같은 sessionId를 심습니다. 재발급으로 토큰이 회전해도 세션은 유지되므로,
     // 세션 하나를 무효화하면 그 세션에서 나온 모든 토큰이 함께 죽습니다.
-    public JwtTokenResponse generateTokens(final Long userId, final String sessionId) {
-        return JwtTokenResponse.builder()
-                .accessToken(generateToken(userId, sessionId, accessTokenExpirePeriod, AuthConstant.ACCESS_TOKEN_TYPE))
-                .refreshToken(generateToken(userId, sessionId, refreshTokenExpirePeriod, AuthConstant.REFRESH_TOKEN_TYPE))
-                .build();
+    public TokenPair generateTokens(final Long userId, final String sessionId) {
+        return new TokenPair(
+                generateToken(userId, sessionId, accessTokenExpirePeriod, AuthConstant.ACCESS_TOKEN_TYPE),
+                generateToken(userId, sessionId, refreshTokenExpirePeriod, AuthConstant.REFRESH_TOKEN_TYPE)
+        );
     }
 
     private String generateToken(

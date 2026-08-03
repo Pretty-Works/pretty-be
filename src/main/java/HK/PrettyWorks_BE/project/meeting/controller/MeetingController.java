@@ -8,13 +8,7 @@ import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingDeleteResponse;
 import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingDetailResponse;
 import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingListResponse;
 import HK.PrettyWorks_BE.project.meeting.service.MeetingService;
-import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
-import io.swagger.v3.oas.annotations.media.Content;
-import io.swagger.v3.oas.annotations.media.ExampleObject;
-import io.swagger.v3.oas.annotations.responses.ApiResponse;
-import io.swagger.v3.oas.annotations.responses.ApiResponses;
-import io.swagger.v3.oas.annotations.tags.Tag;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
@@ -37,7 +31,8 @@ public class MeetingController implements MeetingApi {
     public ResponseEntity<MeetingCreateResponse> createMeeting(
             @PathVariable Long projectId,
             @Parameter(hidden = true) @AuthenticationPrincipal Long authorId,
-            @Parameter(description = "중복 생성 방지용 멱등 키. 폼 열릴 때 UUID v4 발급해 두고 연타·재시도 시 같은 키 재사용",
+            // 길이 검증은 IdempotencyService가 합니다. (@Validated가 없어 여기 @Size를 붙여도 무시됩니다)
+            @Parameter(description = "중복 생성 방지용 멱등 키(선택, 64자 이하). 폼 열릴 때 UUID v4 발급해 두고 연타·재시도 시 같은 키 재사용",
                     example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
             @Size(max = 64, message = "Idempotency-Key는 64자 이하여야 합니다.")
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
