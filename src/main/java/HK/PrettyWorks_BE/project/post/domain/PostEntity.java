@@ -1,6 +1,7 @@
 package HK.PrettyWorks_BE.project.post.domain;
 
 import HK.PrettyWorks_BE.global.domain.BaseTimeEntity;
+import HK.PrettyWorks_BE.project.post.constant.PostPriority;
 import jakarta.persistence.*;
 import lombok.AccessLevel;
 import lombok.Builder;
@@ -13,7 +14,7 @@ import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "project_posts")
-@SQLDelete(sql = "UPDATE meetings SET deleted_at = NOW() WHERE id = ?")
+@SQLDelete(sql = "UPDATE project_posts SET deleted_at = NOW() WHERE id = ?")
 @SQLRestriction("deleted_at IS NULL")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -35,6 +36,11 @@ public class PostEntity extends BaseTimeEntity {
     @Column(name = "title", nullable = false, length = 200)
     private String title;
 
+    // 중요도
+    @Enumerated(EnumType.STRING)
+    @Column(name = "priority", nullable = false, length = 10)
+    private PostPriority priority;
+
     // 내용
     @Column(name = "content", columnDefinition = "TEXT")
     private String content;
@@ -45,17 +51,18 @@ public class PostEntity extends BaseTimeEntity {
 
     @Builder
     public PostEntity(Long projectId, Long authorId, String title,
-                      String content) {
+                      PostPriority priority, String content) {
         this.projectId = projectId;
         this.authorId = authorId;
         this.title = title;
+        this.priority = priority;
         this.content = content;
     }
 
     // 수정 가능한 값만 변경
-    public void update(String title,
-                       String content) {
+    public void update(String title, PostPriority priority, String content) {
         this.title = title;
+        this.priority = priority;
         this.content = content;
     }
 }
