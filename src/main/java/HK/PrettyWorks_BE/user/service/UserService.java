@@ -1,14 +1,18 @@
 package HK.PrettyWorks_BE.user.service;
 
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
+import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.dto.res.MyProfileResponse;
+import HK.PrettyWorks_BE.user.dto.res.UserSearchResponse;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.util.Collection;
+import java.util.List;
 import java.util.Map;
 import java.util.stream.Collectors;
 
@@ -16,6 +20,9 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class UserService {
+
+    private static final List<StatusType> EMPLOYED_STATUSES =
+            List.of(StatusType.ACTIVE, StatusType.ON_LEAVE);
 
     private final UserRepository userRepository;
     private final CurrentUserService currentUserService;
@@ -26,6 +33,24 @@ public class UserService {
         UserEntity user = currentUserService.getCurrentUser(userId);
 
         return MyProfileResponse.of(user, ProjectPolicy.canCreate(user));
+    }
+
+    // 프로젝트·일정의 사용자 선택 드롭다운용 이름 자동완성.
+    @Transactional(readOnly = true)
+    public List<UserSearchResponse> searchUsers(Long requesterId, String keyword, int limit) {
+        currentUserService.getEmployedUser(requesterId);
+
+        UserSearchCondition condition = UserSearchCondition.of(keyword, limit);
+        if (condition.isEmpty()) {
+            return List.of();
+        }
+
+        return userRepository.searchByName(
+                        requesterId, condition.keyword(), EMPLOYED_STATUSES,
+                        PageRequest.of(0, condition.limit()))
+                .stream()
+                .map(UserSearchResponse::from)
+                .toList();
     }
 
     // userId → 이름 맵. 사람 이름을 함께 보여주는 조회에서 루프 안 개별 조회(N+1) 대신 한 번에 가져온다.

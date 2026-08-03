@@ -1,14 +1,18 @@
 package HK.PrettyWorks_BE.user.controller;
 
 import HK.PrettyWorks_BE.user.dto.res.MyProfileResponse;
+import HK.PrettyWorks_BE.user.dto.res.UserSearchResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
 
+import java.util.List;
+
 // 사용자 API의 Swagger 문서 전용 인터페이스. 컨트롤러(UserController)가 implements 한다.
-@Tag(name = "사용자", description = "로그인한 본인의 정보 조회 API.")
+@Tag(name = "사용자", description = "내 정보 조회와 사용자 선택 자동완성 API.")
 public interface UserApi {
 
     @Operation(
@@ -41,4 +45,24 @@ public interface UserApi {
             @ApiResponse(responseCode = "200", description = "조회 성공")
     })
     ResponseEntity<MyProfileResponse> getMyProfile(Long userId);
+
+    @Operation(
+            summary = "사용자 이름 자동완성 검색",
+            description = """
+                    프로젝트 구성원·일정 참가자 선택 드롭다운에서 사용할 사용자를 이름 일부로 검색합니다.
+                    로그인한 사용자 본인은 검색 결과에서 제외합니다.
+                    재직자(ACTIVE)와 휴직자(ON_LEAVE)를 함께 조회하며 퇴사자(RESIGNED)는 제외합니다.
+                    검색어는 최대 20자이며 한글·영문과 단어 사이 공백만 사용할 수 있습니다.
+                    이름·부서·직급·재직 상태만 반환하며 최대 20건까지 조회할 수 있습니다.
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "검색 성공 (검색 결과가 없으면 빈 배열)"),
+            @ApiResponse(responseCode = "400", description = "검색어·limit 범위 위반 또는 퇴사한 사용자의 요청")
+    })
+    ResponseEntity<List<UserSearchResponse>> searchUsers(
+            Long requesterId,
+            @Parameter(description = "이름 부분 검색어", example = "예린") String keyword,
+            @Parameter(description = "최대 검색 결과 수 (1~20)", example = "10") int limit
+    );
 }

@@ -2,6 +2,8 @@ package HK.PrettyWorks_BE.project.project.controller;
 
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectStatusRequest;
+import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberSearchResponse;
+import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.global.base.PageRequests;
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectDetailResponse;
@@ -24,6 +26,8 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
+import java.util.List;
+
 // Swagger 문서는 ProjectApi 인터페이스에 있습니다.
 // 파라미터 제약(@Min·@Size)을 붙이지 않습니다 — @Validated가 필요해지는데, 그러면 인터페이스에 없는 제약을
 // 구현체가 재정의한 셈이라 HV000151로 이 컨트롤러의 모든 API가 500이 됩니다.
@@ -33,6 +37,7 @@ import org.springframework.web.bind.annotation.RestController;
 public class ProjectController implements ProjectApi {
 
     private final ProjectService projectService;
+    private final ProjectMemberService projectMemberService;
 
     // 호출자(로그인 사용자)가 오너가 되어 프로젝트를 생성합니다.
     @Override
@@ -79,6 +84,20 @@ public class ProjectController implements ProjectApi {
             @PathVariable Long projectId
     ) {
         ProjectDetailResponse response = projectService.getDetail(userId, projectId);
+
+        return ResponseEntity.ok(response);
+    }
+
+    @Override
+    @GetMapping("/api/v1/projects/{projectId}/members/search")
+    public ResponseEntity<List<ProjectMemberSearchResponse>> searchMembers(
+            @AuthenticationPrincipal Long requesterId,
+            @PathVariable Long projectId,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "10") int limit
+    ) {
+        List<ProjectMemberSearchResponse> response =
+                projectMemberService.searchMembers(projectId, requesterId, keyword, limit);
 
         return ResponseEntity.ok(response);
     }
