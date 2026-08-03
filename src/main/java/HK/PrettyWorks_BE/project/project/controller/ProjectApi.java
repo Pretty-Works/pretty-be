@@ -1,6 +1,7 @@
 package HK.PrettyWorks_BE.project.project.controller;
 
 import HK.PrettyWorks_BE.global.base.PageResponse;
+import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberSearchResponse;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectStatusRequest;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectDetailResponse;
@@ -8,12 +9,15 @@ import HK.PrettyWorks_BE.project.project.dto.res.ProjectListResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectStatusResponse;
 import io.swagger.v3.oas.annotations.Operation;
+import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.media.Content;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
+
+import java.util.List;
 
 // 프로젝트 API의 Swagger 문서 전용 인터페이스. 컨트롤러(ProjectController)가 implements 한다.
 //
@@ -99,6 +103,28 @@ public interface ProjectApi {
                                     """)))
     })
     ResponseEntity<ProjectDetailResponse> getDetail(Long userId, Long projectId);
+
+    @Operation(
+            summary = "프로젝트 멤버 이름 자동완성 검색",
+            description = """
+                    회의 참석자·할 일 담당자 등 프로젝트 하위 기능의 사용자 선택 드롭다운에 사용합니다.
+                    호출자가 해당 프로젝트의 참여중 멤버여야 하며, 프로젝트에 참여중인 재직자(ACTIVE)만
+                    이름 일부로 검색합니다. 로그인한 사용자 본인과 프로젝트를 떠난 멤버·휴직자·퇴사자는 제외합니다.
+                    검색어는 최대 20자이며 한글·영문과 단어 사이 공백만 사용할 수 있습니다.
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "검색 성공 (검색 결과가 없으면 빈 배열)"),
+            @ApiResponse(responseCode = "400", description = "검색어·limit 범위 위반 또는 퇴사한 사용자의 요청(USER_003)"),
+            @ApiResponse(responseCode = "403", description = "해당 프로젝트의 참여중 멤버가 아님(MEMBER_001)"),
+            @ApiResponse(responseCode = "404", description = "프로젝트를 찾을 수 없음(PROJECT_004)")
+    })
+    ResponseEntity<List<ProjectMemberSearchResponse>> searchMembers(
+            Long requesterId,
+            Long projectId,
+            @Parameter(description = "이름 부분 검색어", example = "하늘") String keyword,
+            @Parameter(description = "최대 검색 결과 수 (1~20)", example = "10") int limit
+    );
 
     @Operation(
             summary = "프로젝트 수정",

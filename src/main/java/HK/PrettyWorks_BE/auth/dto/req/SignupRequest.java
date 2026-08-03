@@ -3,6 +3,7 @@ package HK.PrettyWorks_BE.auth.dto.req;
 import HK.PrettyWorks_BE.user.constant.DepartmentType;
 import HK.PrettyWorks_BE.user.constant.GenderType;
 import HK.PrettyWorks_BE.user.constant.PositionType;
+import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import jakarta.validation.constraints.Email;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -25,6 +26,7 @@ public record SignupRequest(
 
         @NotBlank(message = "이름을 입력해주세요.")
         @Size(max = 20, message = "이름은 최대 20자까지 입력 가능합니다.")
+        @Pattern(regexp = UserPolicy.NAME_PATTERN, message = "이름은 한글, 영문, 공백만 입력 가능합니다.")
         String name,
 
         @NotBlank(message = "이메일을 입력해주세요.")
