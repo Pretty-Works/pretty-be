@@ -4,13 +4,19 @@ import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.project.member.constant.ProjectMemberStatus;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
 import HK.PrettyWorks_BE.project.member.exception.ProjectMemberErrorCode;
+import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberSearchResponse;
 import HK.PrettyWorks_BE.project.member.repository.ProjectMemberRepository;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
+import HK.PrettyWorks_BE.user.constant.StatusType;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
+import HK.PrettyWorks_BE.user.service.UserSearchCondition;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.List;
 import java.util.Optional;
 
 @Service
@@ -19,6 +25,7 @@ public class ProjectMemberService {
 
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
+    private final CurrentUserService currentUserService;
 
     // 참여중(ACTIVE) 멤버인지 여부만 판정합니다.
     private boolean isActiveMember(Long projectId, Long userId) {
@@ -56,5 +63,26 @@ public class ProjectMemberService {
     public Optional<ProjectMemberEntity> getActiveMembership(Long projectId, Long userId) {
         return projectMemberRepository
                 .findByProjectIdAndUserIdAndStatus(projectId, userId, ProjectMemberStatus.ACTIVE);
+    }
+
+    // 회의록·할 일 등 프로젝트 하위 기능에서 사용할 참여중 재직자 이름 자동완성.
+    @Transactional(readOnly = true)
+    public List<ProjectMemberSearchResponse> searchMembers(Long projectId, Long requesterId,
+                                                           String keyword, int limit) {
+        currentUserService.getEmployedUser(requesterId);
+        validateAccess(projectId, requesterId);
+
+        UserSearchCondition condition = UserSearchCondition.of(keyword, limit);
+        if (condition.isEmpty()) {
+            return List.of();
+        }
+
+        return projectMemberRepository.searchActiveMembers(
+                        projectId, requesterId, condition.keyword(),
+                        ProjectMemberStatus.ACTIVE, StatusType.ACTIVE,
+                        PageRequest.of(0, condition.limit()))
+                .stream()
+                .map(ProjectMemberSearchResponse::from)
+                .toList();
     }
 }
