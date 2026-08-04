@@ -216,17 +216,7 @@ public class ProjectService {
     @Transactional(readOnly = true)
     public PageResponse<ProjectListResponse> getMyProjects(Long userId, String statusParam,
                                                            String keyword, Pageable pageable) {
-        // 1) 상태 필터 해석 — 미지정은 진행중, ALL은 필터 없음(null), ARCHIVED는 조회 불가
-        ProjectStatus status = parseFilterStatus(statusParam);
-
-        // 2) 검색어 정리 — 공백만 들어오면 검색하지 않은 것으로 본다
-        String searchKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
-
-        Page<ProjectEntity> projects = projectRepository.findMyProjects(
-                userId, ProjectMemberStatus.ACTIVE, ProjectStatus.ARCHIVED,
-                status, searchKeyword,
-                ProjectStatus.ONGOING, ProjectStatus.HOLDING,
-                pageable);
+        Page<ProjectEntity> projects = findMyProjects(userId, statusParam, keyword, pageable);
 
         // 3) 진행률은 조회 시점 날짜로 계산한 파생값 (상세 조회와 동일한 계산)
         LocalDate today = LocalDate.now();
@@ -242,6 +232,36 @@ public class ProjectService {
 
     // 목록 필터용 상태 해석. 값이 없으면 진행중(홈의 기본 화면), ALL이면 상태 조건을 걸지 않는다.
     // ARCHIVED는 소프트 삭제에 해당하므로 명시적으로 요청해도 조회할 수 없다.
+    /**
+     * Uses the same membership, status filtering and fixed ordering as the public project list,
+     * while exposing the period and write-state data required by internal tools.
+     */
+    @Transactional(readOnly = true)
+    public Page<ProjectSearchResult> searchMyProjects(Long userId, String statusParam,
+                                                       String keyword, Pageable pageable) {
+        return findMyProjects(userId, statusParam, keyword, pageable)
+                .map(project -> new ProjectSearchResult(
+                        project.getId(),
+                        project.getName(),
+                        project.getStatus(),
+                        project.getStartDate(),
+                        project.getTargetDate(),
+                        project.getTargetBudget(),
+                        ProjectPolicy.isOpenForContent(project)));
+    }
+
+    private Page<ProjectEntity> findMyProjects(Long userId, String statusParam,
+                                                String keyword, Pageable pageable) {
+        ProjectStatus status = parseFilterStatus(statusParam);
+        String searchKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+
+        return projectRepository.findMyProjects(
+                userId, ProjectMemberStatus.ACTIVE, ProjectStatus.ARCHIVED,
+                status, searchKeyword,
+                ProjectStatus.ONGOING, ProjectStatus.HOLDING,
+                pageable);
+    }
+
     private ProjectStatus parseFilterStatus(String statusParam) {
         if (!StringUtils.hasText(statusParam)) {
             return ProjectStatus.ONGOING;

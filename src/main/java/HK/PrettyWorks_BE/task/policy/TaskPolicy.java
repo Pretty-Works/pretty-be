@@ -5,6 +5,8 @@ import HK.PrettyWorks_BE.task.domain.TaskEntity;
 // 할 일 관련 권한 규칙. 순수 판정(엔티티 받아 boolean 반환, DB·throw 없음).
 public final class TaskPolicy {
 
+    public static final int MAX_CREATE_BATCH_SIZE = 50;
+
     private TaskPolicy() {
     }
 

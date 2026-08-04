@@ -13,9 +13,13 @@ public final class Sha256 {
     }
 
     public static String hash(String value) {
+        return hash(value.getBytes(StandardCharsets.UTF_8));
+    }
+
+    public static String hash(byte[] value) {
         try {
             MessageDigest digest = MessageDigest.getInstance("SHA-256");
-            return HexFormat.of().formatHex(digest.digest(value.getBytes(StandardCharsets.UTF_8)));
+            return HexFormat.of().formatHex(digest.digest(value));
         } catch (NoSuchAlgorithmException e) {
             // SHA-256은 모든 JVM이 제공하도록 표준에 명시되어 있어 실제로는 발생하지 않습니다.
             throw new IllegalStateException("SHA-256 unavailable", e);

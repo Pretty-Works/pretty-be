@@ -1,12 +1,21 @@
 package HK.PrettyWorks_BE.security.config;
 
+import HK.PrettyWorks_BE.agent.internal.InternalAgentFilter;
+import HK.PrettyWorks_BE.agent.repository.AgentRunRepository;
+import HK.PrettyWorks_BE.agent.service.AgentRunEventService;
+import HK.PrettyWorks_BE.agent.service.ApprovalTokenService;
 import HK.PrettyWorks_BE.auth.constant.AuthConstant;
+import HK.PrettyWorks_BE.global.exception.ErrorResponseWriter;
 import HK.PrettyWorks_BE.security.filter.JwtAuthenticationFilter;
 import HK.PrettyWorks_BE.security.filter.JwtExceptionFilter;
 import HK.PrettyWorks_BE.security.handler.JwtAuthenticationEntryPoint;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
@@ -33,6 +42,47 @@ public class SecurityConfig {
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
     @Bean
+    public InternalAgentFilter internalAgentFilter(
+            @Value("${agent.internal.api-key}") String internalApiKey,
+            AgentRunRepository runRepository,
+            CurrentUserService currentUserService,
+            AgentRunEventService runEventService,
+            ApprovalTokenService approvalTokenService,
+            ErrorResponseWriter errorResponseWriter
+    ) {
+        return new InternalAgentFilter(internalApiKey, runRepository, currentUserService,
+                runEventService, approvalTokenService, errorResponseWriter);
+    }
+
+    // SecurityFilterChain 안에서만 실행하고 서블릿 필터로 중복 등록되지는 않게 한다.
+    @Bean
+    public FilterRegistrationBean<InternalAgentFilter> internalAgentFilterRegistration(
+            InternalAgentFilter internalAgentFilter) {
+        FilterRegistrationBean<InternalAgentFilter> registration =
+                new FilterRegistrationBean<>(internalAgentFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    @Order(1)
+    public SecurityFilterChain internalAgentSecurityFilterChain(
+            HttpSecurity http, InternalAgentFilter internalAgentFilter) throws Exception {
+        return http
+                .securityMatcher("/api/internal/**")
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .addFilterBefore(internalAgentFilter, UsernamePasswordAuthenticationFilter.class)
+                .build();
+    }
+
+    @Bean
+    @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
                 // JWT 기반 API 서버에서는 브라우저 세션 CSRF 방어가 필요하지 않으므로 비활성화합니다.
@@ -75,7 +125,7 @@ public class SecurityConfig {
         // 요청 헤더를 모두 허용합니다. (Authorization 포함)
         configuration.setAllowedHeaders(List.of("*"));
         // 브라우저는 기본적으로 소수의 표준 헤더만 JS에 노출하므로, 추적 ID를 읽으려면 명시해야 합니다.
-        configuration.setExposedHeaders(List.of("X-Trace-Id"));
+        configuration.setExposedHeaders(List.of("X-Trace-Id", "X-Run-Id"));
         // 쿠키, Authorization 헤더 등 인증 정보를 포함한 요청을 허용합니다.
         configuration.setAllowCredentials(true);
         UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
