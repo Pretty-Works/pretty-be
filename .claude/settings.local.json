@@ -34,6 +34,9 @@
       "Bash(grep -oE '<frame id=\\\\\\\\\"[0-9]+:[0-9]+\\\\\\\\\" name=\\\\\\\\\"[^\\\\\\\\]*\\(팝업|모달|modal|popup|새 창|dropdown|dd_|switch|목록\\)[^\\\\\\\\]*\\\\\\\\\"' \"C:/Users/tnals/.claude/projects/C--Users-tnals-Desktop-PrettyWorks-BE/1bebb959-adad-47cf-aeb0-d6098dc6ab4f/tool-results/mcp-ffbe0a75-a3af-4026-bb4d-8710117111ff-get_metadata-1785203612335.txt\")",
       "Bash(curl -sL -o finance.png \"https://www.figma.com/api/mcp/asset/903e3b89-5efa-450f-868e-64c31965c76b\")",
       "PowerShell(.\\\\gradlew.bat compileJava --console=plain -q)",
+      "Bash(py --version)",
+      "Bash(python check_seed.py)"
+      "PowerShell(.\\\\gradlew.bat compileJava --console=plain -q)",
       "mcp__43f00aa3-43ea-4039-a4ee-56d478bed2fe__notion-update-page",
       "mcp__43f00aa3-43ea-4039-a4ee-56d478bed2fe__notion-fetch",
       "mcp__43f00aa3-43ea-4039-a4ee-56d478bed2fe__notion-query-data-sources",

@@ -181,7 +181,7 @@ CREATE TABLE IF NOT EXISTS project_posts (
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS meetings (
     id            BIGINT       NOT NULL AUTO_INCREMENT,
-    project_id    BIGINT       NULL              COMMENT '프로젝트 FK (없을 수 있음)',
+    project_id    BIGINT       NOT NULL          COMMENT '프로젝트 FK (없을 수 있음)',
     document_no   VARCHAR(30)  NOT NULL          COMMENT '문서번호',
     title         VARCHAR(200) NOT NULL          COMMENT '회의명',
     author_id     BIGINT       NOT NULL          COMMENT '작성자 (users FK)',

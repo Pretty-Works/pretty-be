@@ -28,6 +28,8 @@ import org.springframework.web.bind.annotation.*;
 @RestController
 @RequiredArgsConstructor
 @RequestMapping("/api/v1/projects/{projectId}/meetings")
+public class MeetingController implements MeetingApi {
+
 public class MeetingController {
     private final MeetingService meetingService;
 
@@ -73,6 +75,26 @@ public class MeetingController {
     @PostMapping
     public ResponseEntity<MeetingCreateResponse> createMeeting(
             @PathVariable Long projectId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal Long authorId,
+            @Parameter(
+                    description = "중복 생성 방지용 멱등 키(선택, 64자 이하). 폼 열릴 때 UUID v4 발급해 두고 연타·재시도 시 같은 키 재사용",
+                    example = "3fa85f64-5717-4562-b3fc-2c963f66afa6"
+            )
+            @RequestHeader(
+                    value = "Idempotency-Key",
+                    required = false
+            )
+            String idempotencyKey,
+            @RequestBody MeetingCreateRequest request
+    ) {
+        MeetingCreateResponse response = meetingService.createMeeting(
+                projectId,
+                authorId,
+                idempotencyKey,
+                request
+        );
+
             @Parameter(hidden = true) @AuthenticationPrincipal Long authorId,
             // 길이 검증은 IdempotencyService가 합니다. (@Validated가 없어 여기 @Size를 붙여도 무시됩니다)
             @Parameter(description = "중복 생성 방지용 멱등 키(선택, 64자 이하). 폼 열릴 때 UUID v4 발급해 두고 연타·재시도 시 같은 키 재사용",
@@ -124,7 +146,8 @@ public class MeetingController {
     @GetMapping
     public ResponseEntity<PageResponse<MeetingListResponse>> getMeetingList(
             @PathVariable Long projectId,
-            @Parameter(hidden = true) @AuthenticationPrincipal Long userId,
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal Long userId,
             @Parameter(description = "회의명 검색어 (부분 일치)")
             @RequestParam(required = false) String title,
             @Parameter(description = "참석자 이름 검색어 (정확히 일치)")
@@ -132,11 +155,19 @@ public class MeetingController {
             @Parameter(description = "페이지 번호 (0부터 시작)")
             @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "한 페이지당 개수")
-            @RequestParam(defaultValue = "10") int size) {
-
+            @RequestParam(defaultValue = "10") int size
+    ) {
         Pageable pageable = PageRequest.of(page, size);
+
         PageResponse<MeetingListResponse> response =
-                meetingService.getMeetingList(projectId, userId, title, attendeeName, pageable);
+                meetingService.getMeetingList(
+                        projectId,
+                        userId,
+                        title,
+                        attendeeName,
+                        pageable
+                );
+
         return ResponseEntity.ok(response);
     }
 
@@ -196,8 +227,12 @@ public class MeetingController {
     public ResponseEntity<MeetingDetailResponse> getMeetingDetail(
             @PathVariable Long projectId,
             @PathVariable Long meetingId,
-            @Parameter(hidden = true) @AuthenticationPrincipal Long userId) {
-        MeetingDetailResponse response = meetingService.getMeetingDetail(projectId, meetingId, userId);
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal Long userId
+    ) {
+        MeetingDetailResponse response =
+                meetingService.getMeetingDetail(projectId, meetingId, userId);
+
         return ResponseEntity.ok(response);
     }
 
@@ -263,9 +298,17 @@ public class MeetingController {
     public ResponseEntity<MeetingDetailResponse> updateMeeting(
             @PathVariable Long projectId,
             @PathVariable Long meetingId,
-            @Parameter(hidden = true) @AuthenticationPrincipal Long userId,
-            @Valid @RequestBody MeetingUpdateRequest request) {
-        MeetingDetailResponse response = meetingService.updateMeeting(projectId, meetingId, userId, request);
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal Long userId,
+            @RequestBody MeetingUpdateRequest request
+    ) {
+        MeetingDetailResponse response = meetingService.updateMeeting(
+                projectId,
+                meetingId,
+                userId,
+                request
+        );
+
         return ResponseEntity.ok(response);
     }
 
@@ -297,8 +340,12 @@ public class MeetingController {
     public ResponseEntity<MeetingDeleteResponse> deleteMeeting(
             @PathVariable Long projectId,
             @PathVariable Long meetingId,
-            @Parameter(hidden = true) @AuthenticationPrincipal Long userId) {
-        MeetingDeleteResponse response = meetingService.deleteMeeting(projectId, meetingId, userId);
+            @Parameter(hidden = true)
+            @AuthenticationPrincipal Long userId
+    ) {
+        MeetingDeleteResponse response =
+                meetingService.deleteMeeting(projectId, meetingId, userId);
+
         return ResponseEntity.ok(response);
     }
 }

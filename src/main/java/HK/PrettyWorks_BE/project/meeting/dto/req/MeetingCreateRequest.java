@@ -28,16 +28,19 @@ public record MeetingCreateRequest(
 
         @Schema(example = "[2, 3, 4]", description = "참석자 id 목록")
         @NotEmpty(message = "참석자는 최소 1명 이상이어야 합니다.")
-        List<Long> attendeeIds,
+        @Size(max = 100, message = "참석자는 최대 100명까지 지정할 수 있습니다.")
+        List<@NotNull(message = "참석자 id는 null일 수 없습니다.") Long> attendeeIds,
 
         @Schema(example = "프로젝트 진행 방향 논의", description = "회의 목적")
         @Size(max = 500, message = "회의 목적은 500자 이하여야 합니다.")
         String purpose,
 
         @Schema(example = "일정 및 역할 분담 논의", description = "주요 내용")
+        @Size(max = 20_000, message = "주요 내용은 20,000자 이하여야 합니다.")
         String content,
 
         @Schema(example = "API 명세 작성 후 공유", description = "후속 조치")
+        @Size(max = 10_000, message = "후속 조치는 10,000자 이하여야 합니다.")
         String followUp,
 
         @Schema(example = "voice1.mp3", description = "녹취 파일명")
