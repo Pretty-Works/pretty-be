@@ -60,6 +60,12 @@ public class UserEntity extends BaseTimeEntity {
     @Column(name = "hire_date", nullable = false)
     private LocalDate hireDate;
 
+    // 마지막으로 알림함(종 아이콘)을 연 시점의 최신 알림 id. 이보다 큰 알림이 있으면 뱃지가 켜진다.
+    // 알림 행마다 "봤음"을 남기지 않는 이유: 뱃지는 사용자당 한 값이면 충분한데, 행마다 기록하면
+    // 드롭다운을 열 때마다 쌓인 건수만큼 UPDATE가 나간다. 한 번도 연 적이 없으면 null이다.
+    @Column(name = "last_seen_notification_id")
+    private Long lastSeenNotificationId;
+
     @Builder
     public UserEntity(String employeeNo, String passwordHash, String name, String email,
                       String phoneNumber, LocalDate birthDate, GenderType gender,
@@ -75,6 +81,17 @@ public class UserEntity extends BaseTimeEntity {
         this.position = position;
         this.status = status;
         this.hireDate = hireDate;
+    }
+
+    // 알림함을 연 시점 갱신. 뒤로 물러나지 않게 큰 값일 때만 올린다 —
+    // 두 탭에서 거의 동시에 열면 나중 요청이 오래된 id를 들고 올 수 있고, 그러면 이미 끈 뱃지가 다시 켜진다.
+    public void markNotificationsSeen(Long latestNotificationId) {
+        if (latestNotificationId == null) {
+            return;
+        }
+        if (lastSeenNotificationId == null || latestNotificationId > lastSeenNotificationId) {
+            this.lastSeenNotificationId = latestNotificationId;
+        }
     }
 
 }

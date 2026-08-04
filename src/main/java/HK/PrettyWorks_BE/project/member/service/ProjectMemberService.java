@@ -65,6 +65,21 @@ public class ProjectMemberService {
                 .findByProjectIdAndUserIdAndStatus(projectId, userId, ProjectMemberStatus.ACTIVE);
     }
 
+    // 알림 수신자 후보. 탈퇴 멤버(LEFT)는 여기서 빠지고, 행위자·퇴사자 제외는 NotificationPublisher가 한다.
+    @Transactional(readOnly = true)
+    public List<Long> getActiveMemberIds(Long projectId) {
+        return projectMemberRepository
+                .findByProjectIdAndStatusOrderByIdAsc(projectId, ProjectMemberStatus.ACTIVE).stream()
+                .map(ProjectMemberEntity::getUserId)
+                .toList();
+    }
+
+    // 오너의 userId. 오너 행은 항상 존재하지만, 없을 때의 처리는 호출자가 정하도록 Optional로 넘긴다.
+    @Transactional(readOnly = true)
+    public Optional<Long> getOwnerId(Long projectId) {
+        return projectMemberRepository.findOwner(projectId).map(ProjectMemberEntity::getUserId);
+    }
+
     // 회의록·할 일 등 프로젝트 하위 기능에서 사용할 참여중 재직자 이름 자동완성.
     @Transactional(readOnly = true)
     public List<ProjectMemberSearchResponse> searchMembers(Long projectId, Long requesterId,

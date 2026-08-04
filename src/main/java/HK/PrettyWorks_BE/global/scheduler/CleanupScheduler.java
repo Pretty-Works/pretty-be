@@ -5,6 +5,7 @@ import HK.PrettyWorks_BE.agent.repository.AgentEventRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentRunRepository;
 import HK.PrettyWorks_BE.auth.repository.RefreshTokenRepository;
 import HK.PrettyWorks_BE.idempotency.repository.IdempotencyKeyRepository;
+import HK.PrettyWorks_BE.notification.repository.NotificationRepository;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
@@ -29,6 +30,7 @@ public class CleanupScheduler {
     private final RefreshTokenRepository refreshTokenRepository;
     private final AgentRunRepository agentRunRepository;
     private final AgentEventRepository agentEventRepository;
+    private final NotificationRepository notificationRepository;
 
     @Value("${idempotency.retention-hours}")
     private long idempotencyRetentionHours;
@@ -36,12 +38,18 @@ public class CleanupScheduler {
     @Value("${agent.events.retention-hours}")
     private long agentEventRetentionHours;
 
+    // 다른 보관 기간과 달리 기본값을 둡니다. application.yml 은 gitignore 대상이라
+    // 키가 없는 동료의 머신에서 부팅이 깨지기 때문입니다(비밀값이 아니라 정책 상수입니다).
+    @Value("${notification.retention-days:90}")
+    private long notificationRetentionDays;
+
     @Scheduled(cron = "${cleanup.cron}")
     @Transactional
     public void cleanup() {
         deleteExpiredIdempotencyKeys();
         deleteExpiredRefreshTokens();
         deleteExpiredAgentEvents();
+        deleteExpiredNotifications();
     }
 
     // 보관 기간이 지난 멱등 키. 키가 사라진 뒤 같은 키로 요청하면 새로 생성되므로,
@@ -66,6 +74,18 @@ public class CleanupScheduler {
 
         if (deleted > 0) {
             log.info("[세션 정리] 만료된 refresh token {}건 삭제", deleted);
+        }
+    }
+
+    // 오래된 알림. 드롭다운은 최근 것만 보므로 무한히 쌓아둘 이유가 없습니다.
+    // 안 읽은 알림도 함께 지웁니다 — 90일이 지나도록 확인하지 않았다면 이미 지난 소식입니다.
+    private void deleteExpiredNotifications() {
+        LocalDateTime threshold = LocalDateTime.now().minusDays(notificationRetentionDays);
+
+        int deleted = notificationRepository.deleteCreatedBefore(threshold);
+
+        if (deleted > 0) {
+            log.info("[알림 정리] {} 이전 생성분 {}건 삭제", threshold, deleted);
         }
     }
 
