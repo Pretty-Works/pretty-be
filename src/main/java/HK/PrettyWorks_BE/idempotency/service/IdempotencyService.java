@@ -18,6 +18,9 @@ import java.util.function.Supplier;
 @Service
 public class IdempotencyService {
 
+    // idempotency_key 가 VARCHAR(64). 컨트롤러마다 @Size로 두면 복사본이 늘고 빠뜨리기 쉬워 여기서 지킨다.
+    private static final int MAX_KEY_LENGTH = 64;
+
     private final IdempotencyKeyRepository repository;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate txTemplate;
@@ -47,6 +50,9 @@ public class IdempotencyService {
         // 멱등 키 없으면 그냥 트랜잭션 실행
         if (key == null || key.isBlank()) {
             return txTemplate.execute(status -> creator.get());
+        }
+        if (key.length() > MAX_KEY_LENGTH) {
+            throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
         }
 
         String requestHash = Sha256.hash(fingerprint);

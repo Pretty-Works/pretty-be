@@ -1,5 +1,8 @@
 package HK.PrettyWorks_BE.global.scheduler;
 
+import HK.PrettyWorks_BE.agent.constant.AgentRunStatus;
+import HK.PrettyWorks_BE.agent.repository.AgentEventRepository;
+import HK.PrettyWorks_BE.agent.repository.AgentRunRepository;
 import HK.PrettyWorks_BE.auth.repository.RefreshTokenRepository;
 import HK.PrettyWorks_BE.idempotency.repository.IdempotencyKeyRepository;
 import lombok.RequiredArgsConstructor;
@@ -8,8 +11,10 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.data.domain.PageRequest;
 
 import java.time.LocalDateTime;
+import java.util.List;
 
 // 수명이 다한 운영 데이터를 주기적으로 지웁니다.
 // 도메인마다 스케줄러를 흩어놓으면 "언제 무엇이 지워지는지"를 한눈에 볼 수 없어 한 곳에 모았습니다.
@@ -18,18 +23,25 @@ import java.time.LocalDateTime;
 @Component
 @RequiredArgsConstructor
 public class CleanupScheduler {
+    private static final int AGENT_EVENT_DELETE_BATCH_SIZE = 100;
 
     private final IdempotencyKeyRepository idempotencyKeyRepository;
     private final RefreshTokenRepository refreshTokenRepository;
+    private final AgentRunRepository agentRunRepository;
+    private final AgentEventRepository agentEventRepository;
 
     @Value("${idempotency.retention-hours}")
     private long idempotencyRetentionHours;
+
+    @Value("${agent.events.retention-hours}")
+    private long agentEventRetentionHours;
 
     @Scheduled(cron = "${cleanup.cron}")
     @Transactional
     public void cleanup() {
         deleteExpiredIdempotencyKeys();
         deleteExpiredRefreshTokens();
+        deleteExpiredAgentEvents();
     }
 
     // 보관 기간이 지난 멱등 키. 키가 사라진 뒤 같은 키로 요청하면 새로 생성되므로,
@@ -54,6 +66,24 @@ public class CleanupScheduler {
 
         if (deleted > 0) {
             log.info("[세션 정리] 만료된 refresh token {}건 삭제", deleted);
+        }
+    }
+
+    // 종료 이벤트는 Last-Event-ID 재접속을 위해 1시간 보존한 뒤에만 정리한다.
+    private void deleteExpiredAgentEvents() {
+        LocalDateTime threshold = LocalDateTime.now().minusHours(agentEventRetentionHours);
+        int deletedTotal = 0;
+        while (true) {
+            List<Long> runIds = agentRunRepository.findTerminalIdsFinishedBefore(
+                    AgentRunStatus.terminalStatuses(), threshold,
+                    PageRequest.of(0, AGENT_EVENT_DELETE_BATCH_SIZE));
+            if (runIds.isEmpty()) {
+                break;
+            }
+            deletedTotal += agentEventRepository.deleteByRunIds(runIds);
+        }
+        if (deletedTotal > 0) {
+            log.info("[에이전트 이벤트 정리] {} 이전 종료 실행의 이벤트 {}건 삭제", threshold, deletedTotal);
         }
     }
 }

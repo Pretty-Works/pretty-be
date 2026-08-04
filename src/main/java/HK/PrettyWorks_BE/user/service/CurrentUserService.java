@@ -48,4 +48,16 @@ public class CurrentUserService {
         }
         return user;
     }
+
+    // 에이전트 Run 생성은 사용자별 동시 실행 수를 같은 트랜잭션에서 직렬화해야 한다.
+    // 검증 규칙은 getEmployedUser와 같되, 조회 시점부터 사용자 행을 잠가 이후 count 검사가 경쟁하지 않게 한다.
+    @Transactional
+    public UserEntity getEmployedUserForUpdate(Long userId) {
+        UserEntity user = userRepository.findByIdForUpdate(userId)
+                .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED));
+        if (!UserPolicy.isEmployed(user)) {
+            throw BaseException.type(UserErrorCode.RESIGNED_USER);
+        }
+        return user;
+    }
 }

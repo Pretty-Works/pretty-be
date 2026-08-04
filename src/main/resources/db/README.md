@@ -25,7 +25,7 @@ docker exec -i <name> sh -c "mysql -uroot -p1234 -e 'DROP DATABASE IF EXISTS pre
 <details><summary>DB는 유지하고 테이블만 지우려면 (대안)</summary>
 
 ```powershell
-docker exec -i <name> sh -c "mysql -uroot -p1234 prettyworks_test -e 'SET FOREIGN_KEY_CHECKS=0; DROP TABLE IF EXISTS idempotency_keys, expenses, schedule_participants, schedule_leaves, schedules, meeting_attendees, meetings, project_posts, tasks, milestones, project_members, refresh_tokens, leave_balances, projects, users; SET FOREIGN_KEY_CHECKS=1;'"
+docker exec -i <name> sh -c "mysql -uroot -p1234 prettyworks_test -e 'SET FOREIGN_KEY_CHECKS=0; DROP TABLE IF EXISTS agent_interactions, agent_events, agent_runs, agent_message_steps, agent_messages, agent_conversations, idempotency_keys, expenses, schedule_participants, schedule_leaves, schedules, meeting_attendees, meetings, project_posts, tasks, milestones, project_members, refresh_tokens, leave_balances, projects, users; SET FOREIGN_KEY_CHECKS=1;'"
 ```
 FK 때문에 `SET FOREIGN_KEY_CHECKS=0` 없이는 부모 테이블을 못 지웁니다.
 

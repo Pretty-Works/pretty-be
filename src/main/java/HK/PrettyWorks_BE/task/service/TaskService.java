@@ -1,6 +1,7 @@
 package HK.PrettyWorks_BE.task.service;
 
 import HK.PrettyWorks_BE.global.exception.BaseException;
+import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.global.util.Percent;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
@@ -70,6 +71,50 @@ public class TaskService {
         return TaskResponse.builder()
                 .taskId(task.getId())
                 .build();
+    }
+
+    /**
+     * Creates one approved agent batch atomically. Every item is validated before the first
+     * INSERT, so an invalid item cannot leave a partially-created batch behind.
+     */
+    @Transactional
+    public List<TaskResponse> createBatch(Long userId, List<TaskRequest> requests) {
+        if (requests == null || requests.isEmpty()
+                || requests.size() > TaskPolicy.MAX_CREATE_BATCH_SIZE) {
+            throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
+        }
+
+        // Keep the domain entry point safe even when it is called without the internal filter.
+        currentUserService.getEmployedUser(userId);
+
+        // A meeting often yields several action items for one project. Authorize that project
+        // once, but still check every individual due date against the project period.
+        Map<Long, ProjectEntity> projects = new LinkedHashMap<>();
+        for (TaskRequest request : requests) {
+            Long projectId = request.projectId();
+            if (projectId == null) {
+                continue;
+            }
+            ProjectEntity project = projects.computeIfAbsent(projectId,
+                    id -> validatedWritableProject(id, userId));
+            if (!ProjectPolicy.isWithinPeriod(project, request.dueDate())) {
+                throw BaseException.type(TaskErrorCode.DUE_DATE_OUT_OF_RANGE);
+            }
+        }
+
+        List<TaskEntity> tasks = requests.stream()
+                .map(request -> TaskEntity.builder()
+                        .projectId(request.projectId())
+                        .assigneeId(userId)
+                        .content(request.content())
+                        .dueDate(request.dueDate())
+                        .build())
+                .toList();
+        taskRepository.saveAll(tasks);
+
+        return tasks.stream()
+                .map(task -> TaskResponse.builder().taskId(task.getId()).build())
+                .toList();
     }
 
     @Transactional
@@ -259,15 +304,20 @@ public class TaskService {
         if (projectId == null) {
             return;
         }
+        ProjectEntity project = validatedWritableProject(projectId, userId);
+        if (!ProjectPolicy.isWithinPeriod(project, dueDate)) {
+            throw BaseException.type(TaskErrorCode.DUE_DATE_OUT_OF_RANGE);
+        }
+    }
+
+    private ProjectEntity validatedWritableProject(Long projectId, Long userId) {
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
         projectMemberService.validateActiveMember(projectId, userId);
         if (!ProjectPolicy.isOpenForContent(project)) {
             throw BaseException.type(ProjectErrorCode.PROJECT_CLOSED);
         }
-        if (!ProjectPolicy.isWithinPeriod(project, dueDate)) {
-            throw BaseException.type(TaskErrorCode.DUE_DATE_OUT_OF_RANGE);
-        }
+        return project;
     }
 
     // 읽기(조회)용: projectId가 있으면 프로젝트 존재(PROJECT_004)·작성자 멤버(MEMBER_001)만 검증. null이면 개인 할 일이라 통과.
