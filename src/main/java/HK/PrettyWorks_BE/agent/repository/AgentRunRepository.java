@@ -1,0 +1,50 @@
+package HK.PrettyWorks_BE.agent.repository;
+
+import HK.PrettyWorks_BE.agent.constant.AgentRunStatus;
+import HK.PrettyWorks_BE.agent.domain.AgentRunEntity;
+import jakarta.persistence.LockModeType;
+import org.springframework.data.jpa.repository.*;
+import org.springframework.data.repository.query.Param;
+import org.springframework.data.domain.Pageable;
+
+import java.time.LocalDateTime;
+import java.util.Collection;
+import java.util.List;
+import java.util.Optional;
+
+public interface AgentRunRepository extends JpaRepository<AgentRunEntity, Long> {
+    Optional<AgentRunEntity> findByRunId(String runId);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select r from AgentRunEntity r where r.id = :id")
+    Optional<AgentRunEntity> findByIdForUpdate(@Param("id") Long id);
+
+    boolean existsByConversationIdAndStatusIn(Long conversationId, Collection<AgentRunStatus> statuses);
+    long countByUserIdAndStatusIn(Long userId, Collection<AgentRunStatus> statuses);
+    List<AgentRunEntity> findByConversationIdInAndStatusIn(
+            Collection<Long> conversationIds, Collection<AgentRunStatus> statuses);
+    List<AgentRunEntity> findByConversationIdAndStatusIn(
+            Long conversationId, Collection<AgentRunStatus> statuses);
+
+    @Modifying(clearAutomatically = true, flushAutomatically = true)
+    @Query("""
+            update AgentRunEntity r set r.status = :next, r.errorCode = :errorCode,
+                   r.lastActiveAt = :now, r.finishedAt = :finishedAt, r.modifiedAt = :now
+             where r.id = :id and r.status in :expected
+            """)
+    int transition(@Param("id") Long id, @Param("expected") Collection<AgentRunStatus> expected,
+                   @Param("next") AgentRunStatus next, @Param("errorCode") String errorCode,
+                   @Param("now") LocalDateTime now, @Param("finishedAt") LocalDateTime finishedAt);
+
+    @Query("select distinct r.id from AgentRunEntity r, AgentEventEntity e "
+            + "where e.runId = r.id and r.status in :statuses and r.finishedAt < :threshold "
+            + "order by r.id")
+    List<Long> findTerminalIdsFinishedBefore(@Param("statuses") Collection<AgentRunStatus> statuses,
+                                             @Param("threshold") LocalDateTime threshold,
+                                             Pageable pageable);
+
+    @Query("select r.id from AgentRunEntity r "
+            + "where r.status = :status and r.startedAt <= :threshold order by r.id")
+    List<Long> findTimedOutIds(@Param("status") AgentRunStatus status,
+                               @Param("threshold") LocalDateTime threshold, Pageable pageable);
+}

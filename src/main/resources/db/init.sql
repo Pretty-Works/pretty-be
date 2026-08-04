@@ -1,8 +1,10 @@
 -- PrettyWorks MVP — 초기 DDL 스크립트
 -- 새 MySQL 데이터베이스(prettyworks_test)에서 한 번 실행하면 모든 테이블이 만들어집니다.
 -- ddl-auto: validate 정책이므로 엔티티가 바뀌면 이 파일도 같이 갱신해야 합니다.
--- Local 실행: mysql -uroot -p prettyworks_test < src/main/resources/db/init.sql
--- Docker 실행 : Get-Content src\main\resources\db\init.sql | docker compose exec -T mysql mysql -uroot -p1234 prettyworks_test
+-- 로드(한글 안전, 자세한 절차는 같은 폴더 README.md):
+--   docker cp src\main\resources\db\init.sql <컨테이너>:/tmp/init.sql
+--   docker exec -i <컨테이너> sh -c "mysql -uroot -p1234 --default-character-set=utf8mb4 prettyworks_test < /tmp/init.sql"
+-- ※ Get-Content ... | docker ... (PowerShell 파이프)와 docker compose cp 는 한글 깨짐/파일 누락으로 금지.
 
 
 -- =============================================================================
@@ -33,20 +35,36 @@ CREATE TABLE IF NOT EXISTS users (
 
 
 -- =============================================================================
--- refresh_tokens : 사용자별 refresh 토큰 1:1 테이블 (RTR 정책)
---   - user_id가 PK 겸 FK
---   - 로그아웃 / 회원탈퇴 시 ON DELETE CASCADE로 자동 정리
+-- refresh_tokens : 로그인 세션별 refresh 토큰 (RTR + family 방식)
+--   - 유저당 여러 행 = 기기별 동시 로그인. user_id는 PK가 아니라 인덱스만 갖는다.
+--   - session_id(family): 한 번의 로그인을 식별한다. 토큰이 회전해도 유지되며 access token의 sid claim과 같다.
+--   - 회전 시 이전 행을 지우지 않고 revoked_at만 남긴다. 그래야 "폐기된 토큰의 재사용 = 도난"을 탐지할 수 있다.
+--       · 재사용이 감지되면 그 session_id의 행 전체를 무효화한다.
+--   - token_hash: 원문을 저장하지 않는다. DB가 유출돼도 그대로 쓸 수 없어야 한다.
+--   - 만료·폐기된 행은 정리 배치가 삭제한다(expires_at 인덱스 사용).
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS refresh_tokens (
-    user_id     BIGINT       NOT NULL,
-    token       VARCHAR(512) NOT NULL,
-    expires_at  DATETIME(6)  NOT NULL,
-    created_at  DATETIME(6)  NULL,
-    modified_at DATETIME(6)  NULL,
-    PRIMARY KEY (user_id),
+    id           BIGINT       NOT NULL AUTO_INCREMENT,
+    session_id   CHAR(36)     NOT NULL           COMMENT '세션(family) 식별자 — access token의 sid claim',
+    user_id      BIGINT       NOT NULL           COMMENT '사용자 FK',
+    token_hash   CHAR(64)     NOT NULL           COMMENT 'refresh token의 SHA-256 (원문 저장 금지)',
+    expires_at   DATETIME(6)  NOT NULL           COMMENT '만료 시각 (정리 배치 기준)',
+    revoked_at   DATETIME(6)  NULL               COMMENT '폐기 시각 (회전/로그아웃/도난 무효화). NULL이면 유효',
+    revoke_reason VARCHAR(20) NULL               COMMENT '폐기 사유 (ROTATED/LOGOUT/THEFT/SESSION_LIMIT/NOT_EMPLOYED) — 재사용 시 도난 판정 기준',
+    user_agent   VARCHAR(255) NULL               COMMENT '로그인 기기 정보 (로그인 기기 목록 표시용)',
+    last_used_at DATETIME(6)  NULL               COMMENT '마지막 재발급 시각',
+    created_at   DATETIME(6)  NULL               COMMENT '생성(로그인) 시각',
+    modified_at  DATETIME(6)  NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_refresh_tokens_hash (token_hash),
+    KEY idx_refresh_tokens_session (session_id),
+    -- 로그인마다 "이 사용자의 살아 있는 세션"을 찾습니다. 회전 때문에 폐기된 행이 계속 쌓이므로
+    -- user_id만으로는 스캔량이 커집니다. revoked_at을 붙여 활성 행만 바로 걸러냅니다.
+    KEY idx_refresh_tokens_user_active (user_id, revoked_at),
+    KEY idx_refresh_tokens_expires (expires_at),
     CONSTRAINT fk_refresh_tokens_user
     FOREIGN KEY (user_id) REFERENCES users (id) ON DELETE CASCADE
-    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci;
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '로그인 세션(refresh token)';
 
 
 -- =============================================================================
@@ -60,8 +78,9 @@ CREATE TABLE IF NOT EXISTS projects (
     status        VARCHAR(20)   NOT NULL          COMMENT '상태 (ONGOING / HOLDING / DROPPED / COMPLETED / ARCHIVED)',
     start_date    DATE          NOT NULL          COMMENT '시작일',
     target_date   DATE          NOT NULL          COMMENT '목표일',
-    target_budget DECIMAL(15,2) NOT NULL          COMMENT '목표 예산 (0 = 제한 없음)',
+    target_budget BIGINT NOT NULL                 COMMENT '목표 예산 원 단위 (0 = 제한 없음). expenses.amount와 동일 타입',
     description   VARCHAR(500)  NULL              COMMENT '설명',
+    version       BIGINT        NOT NULL DEFAULT 0 COMMENT '낙관적 락 버전 (동시 수정 시 나중 요청 차단)',
     created_at    DATETIME(6)   NULL              COMMENT '생성 시각',
     modified_at   DATETIME(6)   NULL              COMMENT '수정 시각',
     PRIMARY KEY (id)
@@ -95,14 +114,17 @@ CREATE TABLE IF NOT EXISTS project_members (
 -- milestones : 프로젝트 마일스톤 (시기별 목표)
 --   - target_date 는 프로젝트 기간(projects.start_date ~ target_date) 내여야 함 (앱 레벨 검증)
 --   - 목록은 target_date 오름차순 조회
+--   - completed_at 은 목표일과 무관하다. 목표일이 지나도 자동 완료되지 않으며, 사람이 체크해야 채워진다.
+--     날짜로 완료를 파생하면 지연된 마일스톤이 완료로 잡혀 완료율이 실제 진척을 왜곡한다.
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS milestones (
-    id          BIGINT       NOT NULL AUTO_INCREMENT,
-    project_id  BIGINT       NOT NULL          COMMENT '프로젝트 FK',
-    target_date DATE         NOT NULL          COMMENT '목표일',
-    goal        VARCHAR(200) NOT NULL          COMMENT '목표 내용',
-    created_at  DATETIME(6)  NULL              COMMENT '생성 시각',
-    modified_at DATETIME(6)  NULL              COMMENT '수정 시각',
+    id           BIGINT       NOT NULL AUTO_INCREMENT,
+    project_id   BIGINT       NOT NULL          COMMENT '프로젝트 FK',
+    target_date  DATE         NOT NULL          COMMENT '목표일',
+    goal         VARCHAR(200) NOT NULL          COMMENT '목표 내용',
+    completed_at DATETIME(6)  NULL              COMMENT '완료 시각. NULL이면 미완료(대기)',
+    created_at   DATETIME(6)  NULL              COMMENT '생성 시각',
+    modified_at  DATETIME(6)  NULL              COMMENT '수정 시각',
     PRIMARY KEY (id),
     KEY idx_milestones_project_target (project_id, target_date),
     CONSTRAINT fk_milestones_project FOREIGN KEY (project_id) REFERENCES projects (id)
@@ -121,7 +143,7 @@ CREATE TABLE IF NOT EXISTS tasks (
     project_id  BIGINT       NULL                   COMMENT '프로젝트 FK (개인 할 일이면 NULL)',
     assignee_id BIGINT       NOT NULL               COMMENT '담당자 (users FK, 현재는 작성자 본인)',
     content     VARCHAR(100) NOT NULL               COMMENT '할 일 내용 (한 줄)',
-    done        BOOLEAN      NOT NULL DEFAULT FALSE  COMMENT '완료 여부',
+    completed_at DATETIME(6) NULL                   COMMENT '완료 시각 (null이면 미완료)',
     due_date    DATE         NOT NULL               COMMENT '마감일',
     created_at  DATETIME(6)  NULL                   COMMENT '생성 시각',
     modified_at DATETIME(6)  NULL                   COMMENT '수정 시각',
@@ -144,6 +166,7 @@ CREATE TABLE IF NOT EXISTS project_posts (
     content     TEXT         NOT NULL          COMMENT '내용',
     created_at  DATETIME(6)  NULL              COMMENT '작성 시각',
     modified_at DATETIME(6)  NULL              COMMENT '수정 시각',
+    deleted_at    DATETIME(6)  NULL            COMMENT '삭제 시각',
     PRIMARY KEY (id),
     KEY idx_project_posts_project_created (project_id, created_at),
     CONSTRAINT fk_project_posts_project FOREIGN KEY (project_id) REFERENCES projects (id),
@@ -167,7 +190,7 @@ CREATE TABLE IF NOT EXISTS meetings (
     purpose       VARCHAR(500) NULL              COMMENT '회의 목적',
     content       TEXT         NULL              COMMENT '주요 내용',
     follow_up     TEXT         NULL              COMMENT '후속 조치',
-    recording VARCHAR(500) NULL              COMMENT '녹취 파일 URL (GCS)',
+    recording     VARCHAR(500) NULL              COMMENT '녹취 파일 URL (GCS)',
     created_at    DATETIME(6)  NULL              COMMENT '생성 시각',
     modified_at   DATETIME(6)  NULL              COMMENT '수정 시각',
     deleted_at    DATETIME(6)  NULL              COMMENT '삭제 시각',
@@ -194,117 +217,10 @@ CREATE TABLE IF NOT EXISTS meeting_attendees (
     modified_at         DATETIME(6) NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
     UNIQUE KEY uk_meeting_attendees_user_meeting (user_id, meeting_id),
+    KEY idx_meeting_attendees_name (attendee_name, meeting_id),
     CONSTRAINT fk_meeting_attendees_meeting FOREIGN KEY (meeting_id) REFERENCES meetings (id),
     CONSTRAINT fk_meeting_attendees_user    FOREIGN KEY (user_id)    REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '회의록 참석자';
-
-
-/* 결재라인 수정 예정!!
--- =============================================================================
--- approvals : 결재 문서 (척추)
---   - status(PENDING/APPROVED/REJECTED)는 라인의 롤업 캐시, 정본은 approval_lines
---   - version : 낙관적 락 (@Version)
--- =============================================================================
-CREATE TABLE IF NOT EXISTS approvals (
-    id                 BIGINT       NOT NULL AUTO_INCREMENT,
-    document_no        VARCHAR(30)  NOT NULL          COMMENT '문서번호',
-    title              VARCHAR(200) NOT NULL          COMMENT '제목',
-    doc_type           VARCHAR(20)  NOT NULL          COMMENT '문서종류 (DRAFT 품의 / LEAVE 휴가 / ...)',
-    drafted_at         DATE         NOT NULL          COMMENT '기안일',
-    status             VARCHAR(20)  NOT NULL          COMMENT '상태 (PENDING / APPROVED / REJECTED)',
-    drafter_id         BIGINT       NOT NULL          COMMENT '상신자 (users FK)',
-    drafter_name       VARCHAR(20)  NOT NULL          COMMENT '상신자 이름 (기안 시점 스냅샷)',
-    drafter_department VARCHAR(30)  NOT NULL          COMMENT '상신자 부서 (스냅샷)',
-    drafter_position   VARCHAR(30)  NOT NULL          COMMENT '상신자 직책 (스냅샷)',
-    version            BIGINT       NOT NULL DEFAULT 0 COMMENT '낙관적 락 버전',
-    created_at         DATETIME(6)  NULL              COMMENT '생성 시각',
-    modified_at        DATETIME(6)  NULL              COMMENT '수정 시각',
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_approvals_document_no (document_no),
-    CONSTRAINT fk_approvals_drafter FOREIGN KEY (drafter_id) REFERENCES users (id)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '결재 문서';
-
-
--- =============================================================================
--- approval_details : 결재 기본 상세 (품의 등) — approval 과 1:1
--- =============================================================================
-CREATE TABLE IF NOT EXISTS approval_details (
-    id          BIGINT NOT NULL AUTO_INCREMENT,
-    approval_id BIGINT NOT NULL              COMMENT '결재 FK (1:1)',
-    project_id  BIGINT NULL                  COMMENT '프로젝트 FK (없을 수 있음)',
-    content     TEXT   NULL                  COMMENT '내용',
-    created_at  DATETIME(6) NULL             COMMENT '생성 시각',
-    modified_at DATETIME(6) NULL             COMMENT '수정 시각',
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_approval_details_approval (approval_id),
-    CONSTRAINT fk_approval_details_approval FOREIGN KEY (approval_id) REFERENCES approvals (id),
-    CONSTRAINT fk_approval_details_project  FOREIGN KEY (project_id)  REFERENCES projects (id)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '결재 기본 상세';
-
-
--- =============================================================================
--- approval_leaves : 결재 휴가 상세 — approval 과 1:1
---   - days : 잔여 연차 계산용 (승인된 것만 합산)
---   - 생일 휴가(생일 ±7일) 제약은 앱 레벨 검증
--- =============================================================================
-CREATE TABLE IF NOT EXISTS approval_leaves (
-    id          BIGINT      NOT NULL AUTO_INCREMENT,
-    approval_id BIGINT      NOT NULL          COMMENT '결재 FK (1:1)',
-    start_date  DATE        NOT NULL          COMMENT '시작일',
-    end_date    DATE        NOT NULL          COMMENT '마감일',
-    reason      VARCHAR(255) NULL             COMMENT '사유',
-    leave_type  VARCHAR(20) NOT NULL          COMMENT '휴가종류 (ANNUAL 연차 / BIRTHDAY 생일 / ...)',
-    days        INT         NOT NULL          COMMENT '일수 (잔여 계산용)',
-    created_at  DATETIME(6) NULL              COMMENT '생성 시각',
-    modified_at DATETIME(6) NULL              COMMENT '수정 시각',
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_approval_leaves_approval (approval_id),
-    CONSTRAINT fk_approval_leaves_approval FOREIGN KEY (approval_id) REFERENCES approvals (id)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '결재 휴가 상세';
-
-
--- =============================================================================
--- approval_lines : 결재선 (결재자만, 상신자 제외)
---   - UNIQUE(approval_id, step)    : 순서 중복 방지
---   - UNIQUE(approval_id, user_id) : 같은 사람 중복 방지
---   - 현재 차례 = 미승인(status<>APPROVED) 중 step 최소인 사람
--- =============================================================================
-CREATE TABLE IF NOT EXISTS approval_lines (
-    id                  BIGINT      NOT NULL AUTO_INCREMENT,
-    approval_id         BIGINT      NOT NULL          COMMENT '결재 FK',
-    user_id             BIGINT      NOT NULL          COMMENT '결재자 (users FK)',
-    step                INT         NOT NULL          COMMENT '결재순서',
-    status              VARCHAR(20) NOT NULL          COMMENT '승인상태 (PENDING / APPROVED / REJECTED)',
-    approver_name       VARCHAR(20) NOT NULL          COMMENT '결재자 이름 (스냅샷)',
-    approver_department VARCHAR(30) NOT NULL          COMMENT '결재자 부서 (스냅샷)',
-    approver_position   VARCHAR(30) NOT NULL          COMMENT '결재자 직책 (스냅샷)',
-    reject_reason       VARCHAR(255) NULL             COMMENT '반려 사유 (반려 시)',
-    processed_at        DATETIME(6) NULL              COMMENT '처리일시 (미처리면 NULL)',
-    created_at          DATETIME(6) NULL              COMMENT '생성 시각',
-    modified_at         DATETIME(6) NULL              COMMENT '수정 시각',
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_approval_lines_step (approval_id, step),
-    UNIQUE KEY uk_approval_lines_user (approval_id, user_id),
-    CONSTRAINT fk_approval_lines_approval FOREIGN KEY (approval_id) REFERENCES approvals (id),
-    CONSTRAINT fk_approval_lines_user     FOREIGN KEY (user_id)     REFERENCES users (id)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '결재선';
-
-
--- =============================================================================
--- approval_references : 결재 참조자
--- =============================================================================
-CREATE TABLE IF NOT EXISTS approval_references (
-    id          BIGINT      NOT NULL AUTO_INCREMENT,
-    approval_id BIGINT      NOT NULL          COMMENT '결재 FK',
-    user_id     BIGINT      NOT NULL          COMMENT '참조자 (users FK)',
-    created_at  DATETIME(6) NULL              COMMENT '생성 시각',
-    modified_at DATETIME(6) NULL              COMMENT '수정 시각',
-    PRIMARY KEY (id),
-    UNIQUE KEY uk_approval_references_user (approval_id, user_id),
-    CONSTRAINT fk_approval_references_approval FOREIGN KEY (approval_id) REFERENCES approvals (id),
-    CONSTRAINT fk_approval_references_user     FOREIGN KEY (user_id)     REFERENCES users (id)
-) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '결재 참조';
- */
 
 
 -- =============================================================================
@@ -324,6 +240,9 @@ CREATE TABLE IF NOT EXISTS schedules (
     created_at  DATETIME(6)  NULL               COMMENT '생성 시각',
     modified_at DATETIME(6)  NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
+    -- 겹침 조회 최적화: start_at <= :toEnd AND end_at >= :fromStart, ORDER BY start_at ASC
+    -- start_at 범위+정렬을 인덱스로 처리, end_at 은 인덱스 조건 푸시다운(ICP) 필터로 활용
+    KEY idx_schedules_start_end (start_at, end_at),
     CONSTRAINT fk_schedules_user FOREIGN KEY (user_id) REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '일정';
 
@@ -337,7 +256,7 @@ CREATE TABLE IF NOT EXISTS schedules (
 CREATE TABLE IF NOT EXISTS schedule_leaves (
     id          BIGINT       NOT NULL AUTO_INCREMENT,
     schedule_id BIGINT       NOT NULL          COMMENT '일정 FK (1:1)',
-    leave_type  VARCHAR(20)  NOT NULL          COMMENT '휴가 유형 (ANNUAL 연차 / SICK 병가)',
+    leave_type  VARCHAR(20)  NOT NULL          COMMENT '휴가 유형 (ANNUAL 연차 / EXCUSED 공가)',
     reason      VARCHAR(255) NULL              COMMENT '사유',
     days        INT          NOT NULL          COMMENT '일수 (연차 사용/잔여 계산용)',
     created_at  DATETIME(6)  NULL              COMMENT '생성 시각',
@@ -359,6 +278,7 @@ CREATE TABLE IF NOT EXISTS schedule_participants (
     schedule_id BIGINT      NOT NULL           COMMENT '일정 FK',
     user_id     BIGINT      NOT NULL           COMMENT '참가자 (users FK)',
     is_writer   BOOLEAN     NOT NULL           COMMENT '작성자 여부 (1: WRITER 작성자 / 0: PARTICIPANT 참가자)',
+    left_at     DATETIME(6) NULL               COMMENT '나간 시각 (참여중이면 NULL = 활성). 나가기 = soft delete',
     created_at  DATETIME(6) NULL               COMMENT '생성 시각',
     modified_at DATETIME(6) NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
@@ -384,3 +304,297 @@ CREATE TABLE IF NOT EXISTS leave_balances (
     UNIQUE KEY uk_leave_balances_user_year (user_id, year),
     CONSTRAINT fk_leave_balances_user FOREIGN KEY (user_id) REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '연차 현황';
+
+
+-- =============================================================================
+-- expenses : 프로젝트 지출 (재무 - 지출 내역)
+--   - spender_id 는 토큰 userId (대리 등록 없음). 목록 '사용자' 컬럼 · 부서별 집계 근거라 NOT NULL
+--   - status(사용/사용예정)·집행률·잔여는 저장하지 않고 조회 시점 계산(파생)
+--   - 소프트 삭제: 모든 조회 · 집계는 deleted_at IS NULL 을 기본 조건으로 포함
+--   - 집계 쿼리가 (project_id, deleted_at, expense_date)를 함께 타므로 복합 인덱스
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS expenses (
+    id           BIGINT       NOT NULL AUTO_INCREMENT,
+    project_id   BIGINT       NOT NULL           COMMENT '프로젝트 FK (Path Variable)',
+    spender_id   BIGINT       NOT NULL           COMMENT '사용자 FK (토큰 userId) — 사용자 컬럼·부서별 집계 근거',
+    expense_date DATE         NOT NULL           COMMENT '사용일',
+    category     VARCHAR(20)  NOT NULL           COMMENT '지출 유형 (ExpenseCategory, STRING)',
+    merchant     VARCHAR(100) NOT NULL           COMMENT '사용처',
+    purpose      VARCHAR(255) NOT NULL           COMMENT '사용 목적',
+    amount       BIGINT       NOT NULL           COMMENT '금액(원, 1 이상)',
+    deleted_at   DATETIME(6)  NULL               COMMENT '소프트 삭제 시각 (조회·집계에서 IS NULL 제외)',
+    deleted_by   BIGINT       NULL               COMMENT '삭제 실행자 (본인만 삭제 → spender_id와 동일)',
+    created_at   DATETIME(6)  NULL               COMMENT '생성 시각',
+    modified_at  DATETIME(6)  NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    KEY idx_expenses_project_deleted_date (project_id, deleted_at, expense_date),
+    KEY idx_expenses_merchant (merchant),
+    KEY idx_expenses_purpose (purpose),
+    CONSTRAINT fk_expenses_project    FOREIGN KEY (project_id) REFERENCES projects (id),
+    CONSTRAINT fk_expenses_spender    FOREIGN KEY (spender_id) REFERENCES users (id),
+    CONSTRAINT fk_expenses_deleted_by FOREIGN KEY (deleted_by) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 지출';
+
+
+-- =============================================================================
+-- idempotency_keys : 멱등 키 (생성 API 중복 요청 방어 — 버튼 연타/재시도)
+--   - idempotency_key UNIQUE 인덱스가 보장의 핵심. 본 리소스 INSERT와 같은 트랜잭션에서 기록.
+--   - request_hash: 메서드+실제경로(projectId 포함)+본문 SHA-256 → 같은 키 다른 내용(409) 판별.
+--   - resource_id: 생성된 리소스 ID. 재시도 시 첫 응답을 재생.
+--   - 24시간 보관 후 정리 배치로 삭제(별도). INSERT 성격 생성 API에만 적용.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS idempotency_keys (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    idempotency_key VARCHAR(64)  NOT NULL           COMMENT '클라이언트 발급 UUID — 이 UNIQUE가 멱등 보장의 핵심',
+    endpoint        VARCHAR(200) NOT NULL           COMMENT '대상 엔드포인트 (예: POST /api/v1/projects/{projectId}/expenses)',
+    user_id         BIGINT       NOT NULL           COMMENT '요청자 (users FK)',
+    request_hash    VARCHAR(64)  NOT NULL           COMMENT '요청 지문 SHA-256 (메서드+실제경로+본문)',
+    resource_id     BIGINT       NOT NULL           COMMENT '생성된 리소스 ID (예: expenseId) — 재시도 시 재생',
+    created_at      DATETIME(6)  NULL               COMMENT '생성 시각 (정리 배치 기준)',
+    modified_at     DATETIME(6)  NULL               COMMENT '수정 시각 (불변이라 미사용, 컨벤션 일관)',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_idempotency_key (idempotency_key),
+    -- 정리 배치가 created_at 기준으로 지웁니다. 없으면 매번 풀스캔합니다.
+    KEY idx_idempotency_created (created_at),
+    CONSTRAINT fk_idempotency_user FOREIGN KEY (user_id) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '멱등 키';
+
+
+-- =============================================================================
+-- agent_conversations : AI 에이전트 대화 스레드
+--   - last_message_at 을 따로 둡니다. 메시지 추가는 agent_messages INSERT라 이 행이 바뀌지 않아
+--     modified_at 으로는 목록 정렬이 되지 않습니다.
+--   - 제목은 사용자가 붙이지 않고 LLM 요약(실패 시 첫 질문 앞부분)을 저장합니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_conversations (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    user_id         BIGINT       NOT NULL           COMMENT '대화 소유자 (users FK)',
+    title           VARCHAR(100) NOT NULL           COMMENT '스레드 제목 (LLM 요약 또는 첫 질문 앞부분)',
+    last_message_at DATETIME(6)  NOT NULL           COMMENT '마지막 메시지 시각 — 대화 목록 정렬 기준',
+    -- 켜면 쓰기 승인 카드를 띄우지 않고 BE가 사용자 대신 즉시 토큰을 발급합니다(규격 v2 §5-1).
+    -- 승인 게이트를 없애는 게 아니라 "버튼을 누르는 주체"만 바뀌므로 params_hash 결합은 그대로입니다.
+    -- 기본값이 FALSE인 것이 중요합니다 — 안전한 쪽이 기본이어야 합니다.
+    auto_approve    BOOLEAN      NOT NULL DEFAULT FALSE COMMENT '자동 승인 모드 (대화 단위)',
+    created_at      DATETIME(6)  NULL               COMMENT '생성 시각',
+    modified_at     DATETIME(6)  NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 내 스레드를 최신순으로 조회합니다(패널 최근 3건 · 전체보기가 같은 쿼리).
+    KEY idx_agent_conversations_user_recent (user_id, last_message_at),
+    CONSTRAINT fk_agent_conversations_user FOREIGN KEY (user_id) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 대화 스레드';
+
+
+-- =============================================================================
+-- agent_messages : 에이전트 대화 메시지 (말풍선 1건)
+--   - success: USER 행은 NULL(해당 없음). FastAPI 호출 실패 시 false이며, 그 행은 다음 턴 맥락에서 제외합니다.
+--   - action_type 은 enum이 아니라 문자열입니다. LLM팀이 타입을 추가해도 BE 배포가 필요 없게 하기 위함입니다.
+--   - raw_json 은 LONGTEXT라 목록 조회에 끌고 오면 무겁습니다 — 조회는 DTO 프로젝션으로 필요한 컬럼만 읽습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_messages (
+    id              BIGINT      NOT NULL AUTO_INCREMENT,
+    conversation_id BIGINT      NOT NULL           COMMENT '소속 스레드 FK',
+    -- 한 대화에 실행(Run)이 여러 개 쌓이므로, 타임라인에 구분선을 그으려면 소속 실행을 알아야 합니다.
+    -- v1 시절 메시지는 실행 개념이 없어 NULL입니다. 실행 이력을 지워도 대화 기록은 남겨야 하므로
+    -- 물리 FK를 두지 않는 nullable soft reference입니다.
+    run_id          BIGINT      NULL               COMMENT '소속 실행 ID (nullable soft reference)',
+    role            VARCHAR(10) NOT NULL           COMMENT '작성 주체 (AgentRole, STRING)',
+    content         LONGTEXT    NOT NULL           COMMENT '말풍선 본문',
+    success         BOOLEAN     NULL               COMMENT '에이전트 처리 성공 여부. USER 행은 NULL',
+    action_type     VARCHAR(30) NULL               COMMENT '액션 종류 (FILL_FORM/NAVIGATE/CHOICE 등, 문자열 저장)',
+    action_json     LONGTEXT    NULL               COMMENT '액션 원문 — 서버는 열어보지 않고 그대로 저장·반환',
+    raw_json        LONGTEXT    NULL               COMMENT 'FastAPI 응답 원본 (연동 디버깅용)',
+    created_at      DATETIME(6) NULL               COMMENT '생성 시각',
+    modified_at     DATETIME(6) NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 스레드 상세(id 오름차순)와 맥락 조회(id 내림차순)가 함께 사용합니다.
+    KEY idx_agent_messages_conversation (conversation_id, id),
+    CONSTRAINT fk_agent_messages_conversation
+    FOREIGN KEY (conversation_id) REFERENCES agent_conversations (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 대화 메시지';
+
+
+-- =============================================================================
+-- notifications : 인앱 알림 (상단바 종 아이콘)
+--   - 수신자 1명당 1행. 읽음 여부가 사람마다 달라 이벤트를 공유할 수 없다.
+--   - title은 발생 시점 문구를 그대로 저장한다. 프로젝트명이 나중에 바뀌어도 그때의 기록이 남고,
+--     조회할 때마다 원본을 조인하지 않아도 된다.
+--   - target_type/target_id 는 클릭 시 이동할 대상. URL은 화면 구조가 소유하므로 서버는 조립하지 않는다.
+--   - 목록은 id 기준 커서 페이지네이션. 계속 쌓이는 목록이라 offset은 경계가 밀린다.
+--   - 외부 발송(이메일·푸시)이 생기면 delivered_at 컬럼을 추가해 이 테이블을 그대로 아웃박스로 쓴다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS notifications (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    user_id     BIGINT       NOT NULL          COMMENT '수신자 (users FK)',
+    type        VARCHAR(40)  NOT NULL          COMMENT '알림 종류 (NotificationType, STRING) — 화면 아이콘 분기',
+    title       VARCHAR(200) NOT NULL          COMMENT '발생 시점에 완성한 문구',
+    actor_id    BIGINT       NULL              COMMENT '행위자. 시간이 원인인 알림(마감 임박 등)은 NULL',
+    target_type VARCHAR(20)  NULL              COMMENT '이동 대상 종류 (NotificationTargetType, STRING)',
+    target_id   BIGINT       NULL              COMMENT '이동 대상 ID',
+    read_at     DATETIME(6)  NULL              COMMENT '읽은 시각. NULL이면 안 읽음',
+    created_at  DATETIME(6)  NULL              COMMENT '생성 시각',
+    modified_at DATETIME(6)  NULL              COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 목록 조회: WHERE user_id = ? AND id < ? ORDER BY id DESC
+    KEY idx_notifications_user_id (user_id, id),
+    -- 뱃지 카운트: WHERE user_id = ? AND read_at IS NULL. 30초마다 호출되므로 전용 인덱스를 둔다.
+    KEY idx_notifications_user_unread (user_id, read_at),
+    CONSTRAINT fk_notifications_user  FOREIGN KEY (user_id)  REFERENCES users (id),
+    CONSTRAINT fk_notifications_actor FOREIGN KEY (actor_id) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '인앱 알림';
+
+
+-- =============================================================================
+-- agent_message_steps : 메시지에 영구 보관할 근거 step
+--   - agent_events는 SSE 재생용이라 종료 1시간 뒤 삭제됩니다.
+--   - 단발 응답과 v2 모두 한 행씩 보관해 전체 JSON을 JVM에서 합치지 않습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_message_steps (
+    id         BIGINT      NOT NULL AUTO_INCREMENT,
+    message_id BIGINT      NOT NULL COMMENT '표시할 AGENT 메시지 FK',
+    seq        BIGINT      NOT NULL COMMENT '원래 Run 이벤트 순서',
+    payload    TEXT        NOT NULL COMMENT 'step 이벤트 JSON 원문. 수신 시 최대 4KB',
+    created_at DATETIME(6) NULL     COMMENT '원래 step 생성 시각',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_agent_message_steps_message_seq (message_id, seq),
+    CONSTRAINT fk_agent_message_steps_message
+        FOREIGN KEY (message_id) REFERENCES agent_messages (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 메시지 근거 step';
+
+
+-- =============================================================================
+-- agent_runs : 에이전트 실행 (요청 하나를 처리하는 단위)
+--   - 상태를 갖는 건 대화가 아니라 이쪽입니다. 대화 1 : 실행 N (규격 v2 §3).
+--     done 은 그 요청이 끝난 것일 뿐이라, 사용자는 같은 대화에 계속 이어 말할 수 있습니다.
+--   - run_id 를 id 와 따로 두는 이유: 이 값은 FE 응답 헤더와 FastAPI 헤더로 외부에 나갑니다.
+--     연번을 노출하면 남의 실행 번호를 추측할 수 있으므로 난수 문자열을 씁니다.
+--   - user_id 는 내부 도구 API가 X-Run-Id 로 역산하는 값입니다. 이 한 칼럼이 에이전트 권한의 뿌리입니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    run_id          VARCHAR(40)  NOT NULL           COMMENT '외부 노출용 실행 ID (BE 발급). FastAPI 체크포인트 키이자 X-Run-Id 값',
+    conversation_id BIGINT       NOT NULL           COMMENT '소속 대화 FK',
+    user_id         BIGINT       NOT NULL           COMMENT '실행 소유자 (users FK). 내부 도구가 X-Run-Id로 역산하는 값',
+    -- JWT의 sid. v1에서는 저장만 하고 검증에 쓰지 않습니다(규격 v2 §3).
+    -- 도난 세션 무효화 시 진행 중 실행을 끊는 연동은 다음 버전 과제입니다.
+    session_id      VARCHAR(64)  NULL               COMMENT '실행을 시작한 로그인 세션 (감사·추적용)',
+    status          VARCHAR(20)  NOT NULL           COMMENT 'RUNNING/WAITING_APPROVAL/WAITING_INPUT/COMPLETED/FAILED/EXPIRED',
+    goal            TEXT         NOT NULL           COMMENT '이 실행을 시작시킨 사용자 입력',
+    screen_context  TEXT         NULL               COMMENT 'FE가 보낸 화면 정보 원본 (직렬화 32KB 이하). 서버는 해석하지 않음',
+    -- 재접속 시 Last-Event-ID 이후만 다시 흘려보내기 위한 채번기입니다.
+    last_event_seq  BIGINT       NOT NULL DEFAULT 0 COMMENT '마지막으로 발행한 이벤트 번호',
+    -- 폭주 차단용 카운터. 사람이 끼지 않는 자동 승인 모드에서 특히 중요합니다.
+    question_count  INT          NOT NULL DEFAULT 0 COMMENT '되물은 횟수. 5회 초과 시 AGENT_022',
+    tool_call_count INT          NOT NULL DEFAULT 0 COMMENT '도구 호출 횟수. 20회 상한',
+    error_code      VARCHAR(20)  NULL               COMMENT '실패 시 남기는 에러코드 (AGENT_0XX)',
+    started_at      DATETIME(6)  NOT NULL           COMMENT '실행 시작 시각 — 총 상한 15분 판정 기준',
+    -- 대기 만료(30분)와 BE 재시작 후 유령 RUNNING 정리가 모두 이 값을 봅니다.
+    last_active_at  DATETIME(6)  NOT NULL           COMMENT '마지막 진행 시각',
+    finished_at     DATETIME(6)  NULL               COMMENT '종료 시각 (COMPLETED/FAILED/EXPIRED)',
+    created_at      DATETIME(6)  NULL               COMMENT '생성 시각',
+    modified_at     DATETIME(6)  NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 내부 도구 호출마다 이 인덱스로 조회합니다. 에이전트 경로에서 가장 뜨거운 조회입니다.
+    UNIQUE KEY uk_agent_runs_run_id (run_id),
+    -- 대화 상세에서 실행 이력을 순서대로 읽습니다.
+    KEY idx_agent_runs_conversation (conversation_id, id),
+    -- "이 대화에 진행 중인 Run이 있나"(AGENT_004)와 동시 실행 3건 제한(AGENT_018) 검사.
+    KEY idx_agent_runs_user_status (user_id, status),
+    -- 만료 정리 배치와 기동 시 유령 실행 정리가 함께 사용합니다.
+    KEY idx_agent_runs_sweep (status, started_at),
+    -- 종료 후 1시간이 지난 SSE 이벤트 정리 대상 실행을 찾습니다.
+    KEY idx_agent_runs_terminal (status, finished_at),
+    CONSTRAINT fk_agent_runs_conversation
+    FOREIGN KEY (conversation_id) REFERENCES agent_conversations (id) ON DELETE CASCADE,
+    CONSTRAINT fk_agent_runs_user FOREIGN KEY (user_id) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 실행';
+
+
+-- =============================================================================
+-- agent_events : SSE 이벤트 적재 (재접속 리플레이 전용)
+--   - 브라우저가 끊겨도 서버는 계속 진행하므로, 다시 붙었을 때 놓친 구간을 돌려줘야 합니다.
+--   - done·error 뒤에도 1시간 보존합니다. 종료 직전 연결이 끊긴 브라우저가 Last-Event-ID로
+--     재접속해 마지막 종료 이벤트까지 받을 수 있게 한 뒤 CleanupScheduler가 정리합니다.
+--   - append-only 라 modified_at 이 없습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_events (
+    id         BIGINT      NOT NULL AUTO_INCREMENT,
+    run_id     BIGINT      NOT NULL            COMMENT '소속 실행 FK (agent_runs.id)',
+    seq        BIGINT      NOT NULL            COMMENT '실행 내 이벤트 번호. SSE 의 id: 값이며 Last-Event-ID 기준',
+    event_type VARCHAR(20) NOT NULL            COMMENT 'step / approval_request / question / done / error',
+    payload    LONGTEXT    NOT NULL            COMMENT 'data: 한 줄에 실릴 JSON 원문',
+    created_at DATETIME(6) NULL                COMMENT '생성 시각',
+    PRIMARY KEY (id),
+    -- 재접속은 WHERE run_id = ? AND seq > ? 로 읽습니다. 채번 중복도 이 제약이 막습니다.
+    UNIQUE KEY uk_agent_events_run_seq (run_id, seq),
+    KEY idx_agent_events_run_type_seq (run_id, event_type, seq),
+    CONSTRAINT fk_agent_events_run FOREIGN KEY (run_id) REFERENCES agent_runs (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 SSE 이벤트';
+
+
+-- =============================================================================
+-- agent_interactions : 사용자 응답을 기다리는 것 (승인 + 질문)
+--   - 둘을 한 테이블에 둔 이유: 홈 「확인이 필요한 요청」이 둘을 함께 보여주고, 30분 만료·중복 처리
+--     차단 로직이 동일합니다. 나누면 목록이 UNION이 되고 만료 배치가 둘로 늘어납니다.
+--   - kind 로 갈리며, 반대쪽 칼럼은 NULL입니다.
+--   - 승인 토큰은 원문을 저장하지 않습니다. 해시만 두면 DB 덤프나 로그가 새도 복원할 수 없습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_interactions (
+    id               BIGINT       NOT NULL AUTO_INCREMENT,
+    run_id           BIGINT       NOT NULL         COMMENT '소속 실행 FK (agent_runs.id)',
+    kind             VARCHAR(20)  NOT NULL         COMMENT 'APPROVAL 또는 QUESTION',
+    status           VARCHAR(20)  NOT NULL         COMMENT 'PENDING/APPROVED/REJECTED/ALTERNATIVE/ANSWERED/EXPIRED',
+    -- 홈 카드에 뜨는 한 줄. 승인은 summary, 질문은 label 이 여기 들어갑니다.
+    -- 대화 제목이 아니라 "지금 묻는 것"을 가리켜야 합니다(규격 v2 §4-4).
+    label            VARCHAR(60)  NOT NULL         COMMENT '한 줄 제목 (홈 카드 표시용)',
+    -- FE에 그대로 내려보낼 원문. 승인이면 alternatives, 질문이면 options·multiple·allowFreeText.
+    -- BE가 해석하지 않으므로 통째로 보관합니다.
+    payload_json     LONGTEXT     NULL             COMMENT 'FE 렌더용 원문 (BE 미해석)',
+
+    -- ── APPROVAL 전용 ──────────────────────────────────────────────
+    tool_call_id     VARCHAR(64)  NULL             COMMENT 'LLM이 발급한 도구 호출 식별자. resume 로 되돌려준다',
+    tool             VARCHAR(50)  NULL             COMMENT '도구 이름 (예: task.create)',
+    access           VARCHAR(10)  NULL             COMMENT 'READ 또는 WRITE. BE가 해석하는 유일한 필드',
+    -- LLM이 보낸 previewText 는 무시하고 BE가 params 에서 렌더한 값을 저장합니다.
+    -- 둘 다 LLM이 만들면 "보여준 것과 저장되는 것"이 달라도 검증을 통과합니다(규격 v2 §5).
+    preview_text     LONGTEXT     NULL             COMMENT '승인 카드 본문 — BE가 params에서 렌더',
+    -- path/query/body로 변환될 ID까지 포함한 전체 논리 인자입니다. FastAPI는 URL 생성에 쓴 값을 제거하지 않고
+    -- 이 문자열 전체를 내부 WRITE 요청 바디로 되돌려줍니다. 양쪽이 각자 재직렬화하면 해시가 깨집니다.
+    params_canonical LONGTEXT     NULL             COMMENT '전체 논리 인자를 정규화한 문자열. resume 및 내부 WRITE 바디로 그대로 전달',
+    params_hash      CHAR(64)     NULL             COMMENT 'SHA-256(params_canonical). 저장 요청 바디와 대조 (AGENT_015)',
+    auto_approved    BOOLEAN      NOT NULL DEFAULT FALSE COMMENT 'BE가 자동 승인 모드로 즉시 승인한 건',
+    token_hash       CHAR(64)     NULL             COMMENT 'SHA-256(승인 토큰). 원문은 저장하지 않음',
+    token_expires_at DATETIME(6)  NULL             COMMENT '토큰 만료 시각 (발급 +10분)',
+    token_used_at    DATETIME(6)  NULL             COMMENT '토큰 소진 시각. 성공 결과가 있으면 재실행 대신 결과 재생',
+    token_revoked_at DATETIME(6)  NULL             COMMENT '업무 4xx로 폐기한 시각. 파라미터 수정 후 새 승인을 받아야 함',
+
+    -- 성공 응답을 잃은 FastAPI가 같은 호출을 재시도하면 서비스를 다시 실행하지 않고 이 결과를 재생합니다.
+    -- null 응답도 구분할 수 있도록 executed_at을 별도로 둡니다.
+    executed_at      DATETIME(6)  NULL             COMMENT '내부 쓰기 도구 실행 성공 시각',
+    result_json      LONGTEXT     NULL             COMMENT '성공한 내부 도구의 result JSON. 멱등 재생용',
+
+    -- ── QUESTION 전용 ──────────────────────────────────────────────
+    question_text    VARCHAR(200) NULL             COMMENT '채팅 패널에 보일 질문 문장. label 과 별개',
+
+    -- ── 사용자 응답 ────────────────────────────────────────────────
+    decision         VARCHAR(20)  NULL             COMMENT 'APPROVED / REJECTED / ALTERNATIVE',
+    alternative_id   VARCHAR(40)  NULL             COMMENT '고른 선택지 id. ALWAYS 는 BE가 소비하므로 저장되지 않음',
+    response_json    LONGTEXT     NULL             COMMENT '질문 답변 원문 (selectedIds + text)',
+    reason           VARCHAR(200) NULL             COMMENT '거절 사유. resume 로 에이전트에 전달',
+
+    expires_at       DATETIME(6)  NOT NULL         COMMENT '대기 만료 시각 (생성 +30분). 초과 시 AGENT_019',
+    resolved_at      DATETIME(6)  NULL             COMMENT '응답 처리 시각',
+    created_at       DATETIME(6)  NULL             COMMENT '생성 시각',
+    modified_at      DATETIME(6)  NULL             COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- LLM이 같은 WRITE 승인 체크포인트를 중복 전송해도 승인 행은 하나만 생깁니다.
+    UNIQUE KEY uk_agent_interactions_run_tool_call (run_id, tool_call_id),
+    -- 토큰 원문을 해시한 뒤 이 인덱스로 승인 행을 찾습니다. NULL은 질문과 미발급 승인에 여러 건 허용됩니다.
+    UNIQUE KEY uk_agent_interactions_token_hash (token_hash),
+    -- 대화 상세에서 타임라인에 섞어 그리기 위해 실행별로 읽습니다.
+    KEY idx_agent_interactions_run (run_id, id),
+    -- 한 실행의 현재 대기 건 조회와 조건부 상태 변경에 사용합니다.
+    KEY idx_agent_interactions_run_status (run_id, status),
+    -- 홈 「확인이 필요한 요청」 조회와 만료 정리 배치가 함께 사용합니다.
+    KEY idx_agent_interactions_pending (status, expires_at),
+    CONSTRAINT fk_agent_interactions_run FOREIGN KEY (run_id) REFERENCES agent_runs (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 승인·질문';

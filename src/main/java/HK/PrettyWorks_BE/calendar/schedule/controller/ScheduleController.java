@@ -6,7 +6,6 @@ import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleCreateResponse;
 import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleListResponse;
 import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleUpdateResponse;
 import HK.PrettyWorks_BE.calendar.schedule.service.ScheduleService;
-import io.swagger.v3.oas.annotations.Operation;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.format.annotation.DateTimeFormat;
@@ -19,32 +18,33 @@ import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
+import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
 import java.time.LocalDate;
 import java.util.List;
 
+// Swagger 문서는 ScheduleApi 인터페이스에 있다. 여기는 매핑·바인딩·로직만.
 @RestController
 @RequiredArgsConstructor
-public class ScheduleController {
+public class ScheduleController implements ScheduleApi {
 
     private final ScheduleService scheduleService;
 
-    // 로그인 사용자가 작성자(WRITER)가 되어 일정을 생성합니다. participantUserIds는 PARTICIPANT로 등록됩니다.
-    @Operation(summary = "일정 추가", description = "회의/외근/개인 일정 생성. 작성자 자동 참가, 참가자 지정 가능")
+    @Override
     @PostMapping("/api/v1/calendar/schedules")
     public ResponseEntity<ScheduleCreateResponse> create(
             @AuthenticationPrincipal Long writerId,
+            @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody ScheduleCreateRequest request
     ) {
-        ScheduleCreateResponse response = scheduleService.create(writerId, request);
+        ScheduleCreateResponse response = scheduleService.create(writerId, idempotencyKey, request);
 
         return ResponseEntity.status(HttpStatus.CREATED).body(response);
     }
 
-    // 본인 + userIds가 참가자인 일정을 기간(겹침)으로 조회합니다. userIds 미전달 시 본인 일정만.
-    @Operation(summary = "일정 목록 조회", description = "본인·userIds가 참가자인 일정을 from~to 기간 겹침으로 조회(startAt 오름차순)")
+    @Override
     @GetMapping("/api/v1/calendar/schedules")
     public ResponseEntity<ScheduleListResponse> list(
             @AuthenticationPrincipal Long userId,
@@ -57,8 +57,7 @@ public class ScheduleController {
         return ResponseEntity.ok(response);
     }
 
-    // 본인이 작성한 일정만 하드 삭제합니다. 참가자·휴가 상세는 FK CASCADE로 함께 정리됩니다.
-    @Operation(summary = "일정 삭제", description = "본인 작성 일정만 삭제. 참가자·휴가 상세는 CASCADE 정리")
+    @Override
     @DeleteMapping("/api/v1/calendar/schedules/{scheduleId}")
     public Void delete(
             @AuthenticationPrincipal Long userId,
@@ -70,8 +69,18 @@ public class ScheduleController {
         return null;
     }
 
-    // 본인이 작성한 일정만 부분 수정합니다. 전달된 필드만 반영하고, participantUserIds 전달 시 참가자를 교체합니다.
-    @Operation(summary = "일정 수정", description = "본인 작성 일정만 부분 수정. 전달된 필드만 반영, 참가자 교체 가능")
+    @Override
+    @DeleteMapping("/api/v1/calendar/schedules/{scheduleId}/me")
+    public Void leave(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long scheduleId
+    ) {
+        scheduleService.leave(userId, scheduleId);
+
+        return null;
+    }
+
+    @Override
     @PatchMapping("/api/v1/calendar/schedules/{scheduleId}")
     public ResponseEntity<ScheduleUpdateResponse> update(
             @AuthenticationPrincipal Long userId,

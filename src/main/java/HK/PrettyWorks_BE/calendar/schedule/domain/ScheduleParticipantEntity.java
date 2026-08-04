@@ -9,6 +9,8 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDateTime;
+
 @Entity
 @Table(name = "schedule_participants")
 @Getter
@@ -31,11 +33,30 @@ public class ScheduleParticipantEntity extends BaseTimeEntity {
     @Column(name = "is_writer", nullable = false)
     private ParticipantRole role;
 
+    // 나간 시각(soft delete). NULL이면 활성 참가자. 나가기 시 세팅된다.
+    @Column(name = "left_at")
+    private LocalDateTime leftAt;
+
     @Builder
     public ScheduleParticipantEntity(Long scheduleId, Long userId, ParticipantRole role) {
         this.scheduleId = scheduleId;
         this.userId = userId;
         this.role = role;
+    }
+
+    // 활성 참가자 여부. left_at이 NULL이면 활성(안 나감).
+    public boolean isActive() {
+        return leftAt == null;
+    }
+
+    // 나가기(soft delete). 영속 상태라 커밋 시 더티 체킹으로 UPDATE가 나간다.
+    public void leave() {
+        this.leftAt = LocalDateTime.now();
+    }
+
+    // 재활성화 — 나갔던 참가자를 다시 참여로(소유자가 참가자 목록에 재포함할 때). left_at을 NULL로 되돌린다.
+    public void reactivate() {
+        this.leftAt = null;
     }
 
 }

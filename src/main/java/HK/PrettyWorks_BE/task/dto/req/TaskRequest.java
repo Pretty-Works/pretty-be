@@ -2,6 +2,7 @@ package HK.PrettyWorks_BE.task.dto.req;
 
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
+import jakarta.validation.constraints.Size;
 import lombok.Builder;
 
 import java.time.LocalDate;
@@ -10,6 +11,7 @@ import java.time.LocalDate;
 @Builder
 public record TaskRequest(
         @NotBlank(message = "할 일 이름을 입력해 주세요.")
+        @Size(max = 100)
         String content,
 
         // 개인 할 일이면 null. 있으면 그 프로젝트의 할 일(작성자가 멤버여야 함).

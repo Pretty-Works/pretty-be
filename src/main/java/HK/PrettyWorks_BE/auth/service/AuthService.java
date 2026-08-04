@@ -1,40 +1,42 @@
 package HK.PrettyWorks_BE.auth.service;
 
 import HK.PrettyWorks_BE.auth.constant.AuthConstant;
-import HK.PrettyWorks_BE.auth.domain.RefreshTokenEntity;
+import HK.PrettyWorks_BE.auth.constant.RevokeReason;
 import HK.PrettyWorks_BE.auth.dto.req.LoginRequest;
-import HK.PrettyWorks_BE.auth.dto.req.ReissueRequest;
 import HK.PrettyWorks_BE.auth.dto.req.SignupRequest;
-import HK.PrettyWorks_BE.auth.dto.res.JwtTokenResponse;
 import HK.PrettyWorks_BE.auth.dto.res.SignupResponse;
 import HK.PrettyWorks_BE.auth.jwt.JwtUtil;
-import HK.PrettyWorks_BE.auth.repository.RefreshTokenRepository;
+import HK.PrettyWorks_BE.auth.jwt.TokenPair;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.constant.StatusType;
+import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import io.jsonwebtoken.Claims;
 import lombok.RequiredArgsConstructor;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.security.crypto.password.PasswordEncoder;
 import org.springframework.stereotype.Service;
 import HK.PrettyWorks_BE.auth.exception.AuthErrorCode;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.LocalDateTime;
-import java.time.temporal.ChronoUnit;
-
 @Service
 @RequiredArgsConstructor
 public class AuthService {
 
+    // users 테이블의 unique 인덱스 이름(init.sql). 어느 컬럼이 겹쳤는지 판별하는 데 씁니다.
+    private static final String UK_USERS_EMPLOYEE_NO = "uk_users_employee_no";
+    private static final String UK_USERS_EMAIL = "uk_users_email";
+
     private final UserRepository userRepository;
-    private final RefreshTokenRepository refreshTokenRepository;
+    private final RefreshTokenService
+            refreshTokenService;
     private final PasswordEncoder passwordEncoder;
     private final JwtUtil jwtUtil;
 
     @Transactional
-    public JwtTokenResponse login(LoginRequest request) {
+    public TokenPair login(LoginRequest request, String userAgent) {
         // 사번 미존재와 비밀번호 불일치 모두 동일한 에러로 응답하여 계정 존재 여부 노출을 막습니다.
         UserEntity user = userRepository.findByEmployeeNo(request.employeeNo())
                 .orElseThrow(() -> BaseException.type(AuthErrorCode.INVALID_CREDENTIALS));
@@ -43,63 +45,65 @@ public class AuthService {
             throw BaseException.type(AuthErrorCode.INVALID_CREDENTIALS);
         }
 
-        return issueTokensAndPersist(user.getId());
+        // 퇴사자는 로그인 자체를 막습니다(휴직자는 복귀 준비·조회를 위해 허용).
+        // 계정 상태가 노출되지 않도록 자격 증명 실패와 동일한 에러로 응답합니다.
+        if (!UserPolicy.isEmployed(user)) {
+            throw BaseException.type(AuthErrorCode.INVALID_CREDENTIALS);
+        }
 
-    }
-
-    // 로그인/재발급 양쪽에서 동일한 방식으로 토큰을 발급하고 RTR 정책에 따라 DB를 upsert합니다.
-    private JwtTokenResponse issueTokensAndPersist(Long userId) {
-        JwtTokenResponse tokens = jwtUtil.generateTokens(userId);
-
-        LocalDateTime expiresAt = LocalDateTime.now()
-                .plus(jwtUtil.getRefreshTokenExpirePeriod(), ChronoUnit.MILLIS);
-
-        RefreshTokenEntity refreshToken = refreshTokenRepository.findById(userId)
-                .map(existing -> {
-                    existing.update(tokens.refreshToken(), expiresAt);
-                    return existing;
-                })
-                .orElseGet(() -> RefreshTokenEntity.builder()
-                        .userId(userId)
-                        .token(tokens.refreshToken())
-                        .expiresAt(expiresAt)
-                        .build());
-        refreshTokenRepository.save(refreshToken);
+        // 기기별 세션을 새로 만들고, 그 세션 식별자(sid)를 토큰에 심습니다.
+        String sessionId = refreshTokenService.createSession(user.getId());
+        TokenPair tokens = jwtUtil.generateTokens(user.getId(), sessionId);
+        refreshTokenService.save(sessionId, user.getId(), tokens.refreshToken(), userAgent);
 
         return tokens;
     }
 
-    // 도난 의심 분기에서 deleteById를 커밋해야 하므로 BaseException은 롤백 대상에서 제외합니다.
+    // 도난 탐지·퇴사 차단 분기에서 세션 폐기를 커밋해야 하므로 BaseException은 롤백 대상에서 제외합니다.
     @Transactional(noRollbackFor = BaseException.class)
-    public JwtTokenResponse reissue(ReissueRequest request) {
-        // 서명/만료/타입 검증을 먼저 통과한 토큰만 DB와 비교합니다.
-        Claims claims = jwtUtil.getTokenBody(request.refreshToken());
+    public TokenPair reissue(String refreshToken, String userAgent) {
+        // 서명/만료/타입 검증을 먼저 통과한 토큰만 DB와 대조합니다.
+        Claims claims = jwtUtil.getTokenBody(refreshToken);
 
         String tokenType = claims.get(AuthConstant.TOKEN_TYPE_CLAIM_NAME, String.class);
         if (!AuthConstant.REFRESH_TOKEN_TYPE.equals(tokenType)) {
             throw BaseException.type(GlobalErrorCode.INVALID_TOKEN_TYPE);
         }
 
-        Long userId = claims.get(AuthConstant.USER_ID_CLAIM_NAME, Long.class);
-        if (userId == null) {
-            throw BaseException.type(GlobalErrorCode.INVALID_JWT);
+        Long userId = JwtUtil.getUserId(claims);
+
+        // 재발급 시점의 재직 상태를 다시 확인합니다. 로그인만 막으면 이미 발급된 refresh token으로
+        // 계속 갱신할 수 있어 퇴사자 차단이 우회됩니다. 규칙은 로그인과 동일(휴직 허용, 퇴사 차단).
+        // 회전보다 먼저 확인해, 어차피 끊을 요청에 새 토큰을 만들지 않습니다.
+        UserEntity user = userRepository.findById(userId)
+                .orElseThrow(() -> BaseException.type(GlobalErrorCode.UNAUTHORIZED));
+        if (!UserPolicy.isEmployed(user)) {
+            refreshTokenService.revokeSession(JwtUtil.getSessionId(claims), RevokeReason.NOT_EMPLOYED);
+            throw BaseException.type(GlobalErrorCode.UNAUTHORIZED);
         }
 
-        RefreshTokenEntity stored = refreshTokenRepository.findById(userId)
-                .orElseThrow(() -> BaseException.type(GlobalErrorCode.REFRESH_TOKEN_NOT_FOUND));
+        // 제시된 토큰을 폐기하고 이어서 쓸 세션을 받습니다.
+        // 이미 폐기된 토큰이면(=누군가 옛 토큰을 들고 있음) 여기서 세션 전체가 무효화되고 예외가 납니다.
+        String sessionId = refreshTokenService.rotate(refreshToken);
 
-        // DB의 토큰과 다르다면 누군가 이미 재발급을 받은 상황이라 도난 의심으로 보고 강제 로그아웃 처리합니다.
-        if (!stored.getToken().equals(request.refreshToken())) {
-            refreshTokenRepository.deleteById(userId);
-            throw BaseException.type(GlobalErrorCode.REFRESH_TOKEN_MISMATCH);
-        }
+        // 같은 세션으로 새 토큰 쌍을 발급합니다. sid가 유지돼야 세션 추적·무효화가 이어집니다.
+        TokenPair tokens = jwtUtil.generateTokens(userId, sessionId);
+        refreshTokenService.save(sessionId, userId, tokens.refreshToken(), userAgent);
 
-        return issueTokensAndPersist(userId);
+        return tokens;
+    }
+
+    // 로그아웃: 요청한 기기의 세션만 무효화합니다. 이미 끊긴 세션이어도 결과가 같아 멱등합니다.
+    // 사유를 LOGOUT으로 남겨, 이후 옛 토큰이 다시 오더라도 도난 경보를 울리지 않고 거부만 합니다.
+    @Transactional
+    public void logout(String sessionId) {
+        refreshTokenService.revokeSession(sessionId, RevokeReason.LOGOUT);
     }
 
     @Transactional
     public SignupResponse signup(SignupRequest request) {
         // 사번/이메일은 unique 제약이라 저장 전에 중복을 먼저 걸러 명확한 에러로 응답합니다.
+        // 이 검사와 저장 사이에 다른 요청이 끼어들 수 있어, 최종 보증은 아래 unique 위반 처리가 맡습니다.
         if (userRepository.existsByEmployeeNo(request.employeeNo())) {
             throw BaseException.type(AuthErrorCode.EMPLOYEE_NO_DUPLICATED);
         }
@@ -122,7 +126,23 @@ public class AuthService {
                 .hireDate(request.hireDate())
                 .build();
 
-        UserEntity saved = userRepository.save(user);
+        // 사전 검사를 통과해도 동시 요청이면 여기서 겹칠 수 있어, DB unique 제약이 최종 방어선입니다.
+        // saveAndFlush로 INSERT를 이 자리에서 실행해, 위반을 커밋 시점이 아닌 아래 catch에서 잡습니다.
+        UserEntity saved;
+        try {
+            saved = userRepository.saveAndFlush(user);
+        } catch (DataIntegrityViolationException e) {
+            // 걸린 unique 인덱스 이름으로 어느 컬럼이 겹쳤는지 판별합니다.
+            // 제약 위반 후에는 영속성 컨텍스트가 오염돼 재조회가 불가능하므로 예외 메시지만 사용합니다.
+            String cause = String.valueOf(e.getMostSpecificCause().getMessage()).toLowerCase();
+            if (cause.contains(UK_USERS_EMPLOYEE_NO)) {
+                throw BaseException.type(AuthErrorCode.EMPLOYEE_NO_DUPLICATED);
+            }
+            if (cause.contains(UK_USERS_EMAIL)) {
+                throw BaseException.type(AuthErrorCode.EMAIL_DUPLICATED);
+            }
+            throw e; // 중복이 아닌 무결성 오류는 그대로 전파합니다.
+        }
 
         return SignupResponse.builder()
                 .userId(saved.getId())

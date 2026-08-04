@@ -7,7 +7,6 @@ import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
 import lombok.Builder;
 
-import java.math.BigDecimal;
 import java.time.LocalDate;
 import java.util.List;
 
@@ -25,8 +24,9 @@ public record ProjectRequest(
         LocalDate endDate,
 
         // 예산은 선택 입력. 미입력(null/빈칸)이거나 0이면 '예산 제한 없음'을 의미하며, 서버에서 null은 0으로 저장합니다.
+        // 원 단위 정수 — 소수점이 붙어 오면 Jackson이 400으로 거른다.
         @PositiveOrZero(message = "예산은 0 이상이어야 합니다.")
-        BigDecimal budget,
+        Long budget,
 
         @Size(max = 500, message = "설명은 최대 500자까지 입력 가능합니다.")
         String description,
@@ -35,10 +35,13 @@ public record ProjectRequest(
         @Size(max = 20, message = "역할은 최대 20자까지 입력 가능합니다.")
         String ownerRole,
 
+        // 크기 상한은 대량 요청으로 조회·저장이 폭주하는 것을 막기 위한 방어값입니다.
         @Valid
+        @Size(max = 100, message = "참여자는 최대 100명까지 등록할 수 있습니다.")
         List<MemberRequest> members,
 
         @Valid
+        @Size(max = 50, message = "마일스톤은 최대 50개까지 등록할 수 있습니다.")
         List<MilestoneRequest> milestones
 ) {
 
@@ -55,7 +58,11 @@ public record ProjectRequest(
 
     @Builder
     public record MilestoneRequest(
-            // targetDate·goal 둘 다 있어야 함(한쪽만 입력 차단). 이 검증은 서비스에서 PROJECT_016으로 처리합니다.
+            // 기존 마일스톤이면 상세 조회에서 받은 값을 그대로 넣고, 신규면 비웁니다.
+            // id를 실어 보내야 목표일·내용을 고쳐도 완료 상태가 보존됩니다. 생성 API에서는 무시됩니다.
+            Long milestoneId,
+
+            // targetDate·goal 둘 다 있어야 함(한쪽만 입력 차단). 판정은 ProjectPolicy가 갖고 PROJECT_016으로 거부합니다.
             LocalDate targetDate,
 
             @Size(max = 200, message = "마일스톤 목표 내용은 최대 200자까지 입력 가능합니다.")

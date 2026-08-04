@@ -27,6 +27,7 @@ out/
 !**/src/test/**/out/
 compose.yaml
 src/main/resources/application.yml
+logs/
 
 ### NetBeans ###
 /nbproject/private/
@@ -37,4 +38,9 @@ src/main/resources/application.yml
 
 ### VS Code ###
 .vscode/
+
+### AI ###
+docs/
+CLAUDE.md
+AGENTS.md
 

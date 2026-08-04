@@ -4,8 +4,6 @@ import lombok.Builder;
 
 @Builder
 public record JwtTokenResponse(
-        String accessToken,
-
-        String refreshToken
+        String accessToken
 ) {
 }

@@ -96,4 +96,9 @@ public class MeetingEntity extends BaseTimeEntity {
         this.recording = recording;
     }
 
+    // 저장 후 발급받은 id로 최종 문서번호를 세팅
+    public void assignDocumentNo(String documentNo) {
+        this.documentNo = documentNo;
+    }
+
 }

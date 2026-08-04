@@ -8,6 +8,7 @@ import jakarta.validation.ConstraintViolationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataIntegrityViolationException;
+import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
 import org.springframework.http.converter.HttpMessageNotReadableException;
 import org.springframework.validation.BindException;
@@ -29,17 +30,17 @@ import java.util.List;
 @RestControllerAdvice
 @RequiredArgsConstructor
 public class GlobalExceptionHandler {
+
+    // 실패한 요청의 경로를 로그에 남기기 위해 주입받습니다. 이 어드바이스는 싱글턴이지만
+    // 스프링이 요청마다 현재 요청으로 위임하는 프록시를 넣어주므로 값은 항상 처리 중인 요청의 것입니다.
+    private final HttpServletRequest request;
+
     /**
      * Custom Exception 전용 ExceptionHandler (@RequestBody)
      */
     @ExceptionHandler(BaseException.class)
     public ResponseEntity<CustomErrorResponse> applicationException(BaseException e) {
-        ErrorCode code = e.getCode();
-        logging(code);
-
-        return ResponseEntity
-                .status(code.getStatus())
-                .body(CustomErrorResponse.from(code));
+        return convert(e.getCode());
     }
 
     /**
@@ -85,7 +86,7 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(MethodArgumentTypeMismatchException.class)
     public ResponseEntity<CustomErrorResponse> handleTypeMismatch(MethodArgumentTypeMismatchException e) {
-        log.warn("[파라미터 타입 불일치] name={}, value={}", e.getName(), e.getValue());
+        // 파라미터 이름·값은 아래 메시지에 담겨 convert에서 함께 로깅됩니다.
         return convert(GlobalErrorCode.VALIDATION_ERROR,
                 String.format("'%s' 파라미터 값이 잘못되었습니다: %s", e.getName(), e.getValue()));
     }
@@ -115,6 +116,18 @@ public class GlobalExceptionHandler {
     }
 
     /**
+     * 낙관적 락 충돌 전용 ExceptionHandler
+     * 동시 수정으로 version이 어긋났거나(OptimisticLockException),
+     * 이미 다른 트랜잭션이 지운 행을 갱신·삭제한 경우(StaleStateException) 모두 여기로 들어온다.
+     * 커밋 시점에 발생하므로 서비스에서는 잡을 수 없어 전역에서 처리한다. (도메인 무관 공통 응답)
+     */
+    @ExceptionHandler(ObjectOptimisticLockingFailureException.class)
+    public ResponseEntity<CustomErrorResponse> handleOptimisticLockFailure(ObjectOptimisticLockingFailureException e) {
+        log.warn("[동시 수정 충돌] {}", e.getMessage());
+        return convert(GlobalErrorCode.CONCURRENT_MODIFICATION);
+    }
+
+    /**
      * 데이터베이스 제약 조건에 위배된 경우 (@Column)
      */
     @ExceptionHandler(DataIntegrityViolationException.class)
@@ -128,7 +141,8 @@ public class GlobalExceptionHandler {
      */
     @ExceptionHandler(MissingRequestHeaderException.class)
     public ResponseEntity<CustomErrorResponse> handleMissingRequestHeader(MissingRequestHeaderException e) {
-        log.error("[필수 헤더 누락] {}", e.getMessage());
+        // 400(클라이언트 오류)이므로 warn. ERROR는 서버가 조치해야 하는 문제에만 씁니다.
+        log.warn("[필수 헤더 누락] {}", e.getMessage());
         return convert(GlobalErrorCode.MISSING_REQUEST_HEADER);
     }
 
@@ -155,8 +169,9 @@ public class GlobalExceptionHandler {
      * 내부 서버 오류 전용 ExceptionHandler
      */
     @ExceptionHandler(RuntimeException.class)
-    public ResponseEntity<CustomErrorResponse> handleAnyException(RuntimeException e, HttpServletRequest request) {
-        log.error("[내부 서버 오류] {} {}", request.getMethod(), request.getRequestURI(), e);
+    public ResponseEntity<CustomErrorResponse> handleAnyException(RuntimeException e) {
+        // 경로는 convert가 남기므로 여기서는 원인 추적에 필요한 스택트레이스만 ERROR로 남깁니다.
+        log.error("[내부 서버 오류]", e);
         return convert(GlobalErrorCode.INTERNAL_SERVER_ERROR);
     }
 
@@ -189,20 +204,34 @@ public class GlobalExceptionHandler {
         return convert(GlobalErrorCode.INVALID_JWT);
     }
 
+    // 응답 생성과 로깅을 한 곳에 묶습니다. 핸들러마다 따로 로그를 남기게 두면
+    // 실제로 여러 핸들러가 아무 흔적도 남기지 않아, 400·401·404가 왜 났는지 추적할 수 없었습니다.
     private ResponseEntity<CustomErrorResponse> convert(ErrorCode code) {
-        return ResponseEntity
-                .status(code.getStatus())
-                .body(CustomErrorResponse.from(code));
+        return convert(code, code.getMessage());
     }
 
     private ResponseEntity<CustomErrorResponse> convert(ErrorCode code, String message) {
+        logging(code, message);
+
         return ResponseEntity
                 .status(code.getStatus())
                 .body(CustomErrorResponse.of(code, message));
     }
 
-    private void logging(ErrorCode code) {
-        log.warn("{} | {} | {}", code.getStatus(), code.getErrorCode(), code.getMessage());
+    // traceId는 로그 패턴(%X{traceId})이 MdcFilter가 넣은 값을 자동으로 붙여줍니다.
+    //
+    // 레벨을 상태코드로 가릅니다. 4xx는 클라이언트가 고칠 문제라 warn,
+    // 5xx는 서버가 조치해야 하는 문제라 error입니다. 전부 warn으로 남기면
+    // "error만 모아 알림"을 붙였을 때 진짜 장애가 걸러지지 않습니다.
+    private void logging(ErrorCode code, String message) {
+        String format = "{} | {} | {} {} | {}";
+        if (code.getStatus().is5xxServerError()) {
+            log.error(format, code.getStatus(), code.getErrorCode(),
+                    request.getMethod(), request.getRequestURI(), message);
+            return;
+        }
+        log.warn(format, code.getStatus(), code.getErrorCode(),
+                request.getMethod(), request.getRequestURI(), message);
     }
 }
 

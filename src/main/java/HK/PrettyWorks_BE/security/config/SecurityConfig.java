@@ -1,17 +1,32 @@
 package HK.PrettyWorks_BE.security.config;
 
+import HK.PrettyWorks_BE.agent.internal.InternalAgentFilter;
+import HK.PrettyWorks_BE.agent.repository.AgentRunRepository;
+import HK.PrettyWorks_BE.agent.service.AgentRunEventService;
+import HK.PrettyWorks_BE.agent.service.ApprovalTokenService;
 import HK.PrettyWorks_BE.auth.constant.AuthConstant;
+import HK.PrettyWorks_BE.global.exception.ErrorResponseWriter;
 import HK.PrettyWorks_BE.security.filter.JwtAuthenticationFilter;
 import HK.PrettyWorks_BE.security.filter.JwtExceptionFilter;
 import HK.PrettyWorks_BE.security.handler.JwtAuthenticationEntryPoint;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
+import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
+import org.springframework.core.annotation.Order;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
+import org.springframework.security.config.Customizer;
+import org.springframework.web.cors.CorsConfiguration;
+import org.springframework.web.cors.CorsConfigurationSource;
+import org.springframework.web.cors.UrlBasedCorsConfigurationSource;
+
+import java.util.List;
 
 @Configuration
 @RequiredArgsConstructor
@@ -27,10 +42,53 @@ public class SecurityConfig {
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
     @Bean
+    public InternalAgentFilter internalAgentFilter(
+            @Value("${agent.internal.api-key}") String internalApiKey,
+            AgentRunRepository runRepository,
+            CurrentUserService currentUserService,
+            AgentRunEventService runEventService,
+            ApprovalTokenService approvalTokenService,
+            ErrorResponseWriter errorResponseWriter
+    ) {
+        return new InternalAgentFilter(internalApiKey, runRepository, currentUserService,
+                runEventService, approvalTokenService, errorResponseWriter);
+    }
+
+    // SecurityFilterChain 안에서만 실행하고 서블릿 필터로 중복 등록되지는 않게 한다.
+    @Bean
+    public FilterRegistrationBean<InternalAgentFilter> internalAgentFilterRegistration(
+            InternalAgentFilter internalAgentFilter) {
+        FilterRegistrationBean<InternalAgentFilter> registration =
+                new FilterRegistrationBean<>(internalAgentFilter);
+        registration.setEnabled(false);
+        return registration;
+    }
+
+    @Bean
+    @Order(1)
+    public SecurityFilterChain internalAgentSecurityFilterChain(
+            HttpSecurity http, InternalAgentFilter internalAgentFilter) throws Exception {
+        return http
+                .securityMatcher("/api/internal/**")
+                .csrf(AbstractHttpConfigurer::disable)
+                .cors(AbstractHttpConfigurer::disable)
+                .httpBasic(AbstractHttpConfigurer::disable)
+                .formLogin(AbstractHttpConfigurer::disable)
+                .sessionManagement(session ->
+                        session.sessionCreationPolicy(SessionCreationPolicy.STATELESS))
+                .authorizeHttpRequests(auth -> auth.anyRequest().permitAll())
+                .addFilterBefore(internalAgentFilter, UsernamePasswordAuthenticationFilter.class)
+                .build();
+    }
+
+    @Bean
+    @Order(2)
     public SecurityFilterChain securityFilterChain(HttpSecurity http) throws Exception {
         return http
                 // JWT 기반 API 서버에서는 브라우저 세션 CSRF 방어가 필요하지 않으므로 비활성화합니다.
                 .csrf(AbstractHttpConfigurer::disable)
+                // CORS 요청을 허용하기 위해 CORS 설정을 적용합니다.
+                .cors(Customizer.withDefaults())
                 // Authorization: Basic 방식의 기본 인증 창을 사용하지 않습니다.
                 .httpBasic(AbstractHttpConfigurer::disable)
                 // 서버 렌더링 로그인 폼 대신 별도 로그인 API와 JWT를 사용합니다.
@@ -53,5 +111,27 @@ public class SecurityConfig {
                 // 예외 필터 다음에 JWT 인증 필터를 실행해 SecurityContext에 사용자 ID를 저장합니다.
                 .addFilterAfter(jwtAuthenticationFilter, JwtExceptionFilter.class)
                 .build();
+    }
+
+    @Bean
+    // 프론트엔드(localhost:3000)에서 오는 브라우저 요청을 허용하기 위한 CORS 설정입니다.
+    public CorsConfigurationSource corsConfigurationSource() {
+        CorsConfiguration configuration = new CorsConfiguration();
+
+        // 허용할 Origin을 지정합니다.
+        configuration.setAllowedOrigins(List.of("http://localhost:3000"));
+        // 허용할 HTTP 메서드를 지정합니다.
+        configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
+        // 요청 헤더를 모두 허용합니다. (Authorization 포함)
+        configuration.setAllowedHeaders(List.of("*"));
+        // 브라우저는 기본적으로 소수의 표준 헤더만 JS에 노출하므로, 추적 ID를 읽으려면 명시해야 합니다.
+        configuration.setExposedHeaders(List.of("X-Trace-Id", "X-Run-Id"));
+        // 쿠키, Authorization 헤더 등 인증 정보를 포함한 요청을 허용합니다.
+        configuration.setAllowCredentials(true);
+        UrlBasedCorsConfigurationSource source = new UrlBasedCorsConfigurationSource();
+        // 모든 경로에 대해 위 CORS 정책을 적용합니다.
+        source.registerCorsConfiguration("/**", configuration);
+
+        return source;
     }
 }
