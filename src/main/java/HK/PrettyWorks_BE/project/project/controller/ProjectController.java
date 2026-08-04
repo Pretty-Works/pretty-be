@@ -2,6 +2,9 @@ package HK.PrettyWorks_BE.project.project.controller;
 
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectStatusRequest;
+import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberSearchResponse;
+import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
+import HK.PrettyWorks_BE.global.base.PageRequests;
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectDetailResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectListResponse;
@@ -10,14 +13,9 @@ import HK.PrettyWorks_BE.project.project.dto.res.ProjectStatusResponse;
 import HK.PrettyWorks_BE.project.project.service.ProjectService;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
-import jakarta.validation.constraints.Max;
-import jakarta.validation.constraints.Min;
-import jakarta.validation.constraints.Size;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.annotation.AuthenticationPrincipal;
-import org.springframework.validation.annotation.Validated;
 import org.springframework.web.bind.annotation.GetMapping;
 import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
@@ -28,24 +26,27 @@ import org.springframework.web.bind.annotation.RequestHeader;
 import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.RestController;
 
-// @Validated: @RequestHeader 등 메서드 파라미터의 제약(@Size)을 검증하려면 필요합니다. (없으면 조용히 무시됨)
+import java.util.List;
+
 // Swagger 문서는 ProjectApi 인터페이스에 있습니다.
+// 파라미터 제약(@Min·@Size)을 붙이지 않습니다 — @Validated가 필요해지는데, 그러면 인터페이스에 없는 제약을
+// 구현체가 재정의한 셈이라 HV000151로 이 컨트롤러의 모든 API가 500이 됩니다.
+// 범위는 PageRequests, 멱등 키 길이는 IdempotencyService가 봅니다. (@Valid @RequestBody는 @Validated 없이 동작)
 @RestController
 @RequiredArgsConstructor
-@Validated
 public class ProjectController implements ProjectApi {
 
     private final ProjectService projectService;
+    private final ProjectMemberService projectMemberService;
 
     // 호출자(로그인 사용자)가 오너가 되어 프로젝트를 생성합니다.
     @Override
     @PostMapping("/api/v1/projects")
     public ResponseEntity<ProjectResponse> create(
             @AuthenticationPrincipal Long ownerId,
-            @Parameter(description = "중복 생성 방지용 멱등 키(선택). 폼이 열릴 때 UUID v4를 발급해 두고, "
+            @Parameter(description = "중복 생성 방지용 멱등 키(선택, 64자 이하). 폼이 열릴 때 UUID v4를 발급해 두고, "
                     + "연타·재시도 시 같은 키를 재사용하면 첫 응답이 그대로 반환됩니다.",
                     example = "3fa85f64-5717-4562-b3fc-2c963f66afa6")
-            @Size(max = 64, message = "Idempotency-Key는 64자 이하여야 합니다.")
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @Valid @RequestBody ProjectRequest request
     ) {
@@ -65,14 +66,12 @@ public class ProjectController implements ProjectApi {
             @Parameter(description = "프로젝트명 부분 일치 검색어", example = "그룹웨어")
             @RequestParam(required = false) String keyword,
             @Parameter(description = "페이지 번호 (0부터)")
-            @RequestParam(defaultValue = "0") @Min(value = 0, message = "페이지 번호는 0 이상이어야 합니다.") int page,
+            @RequestParam(defaultValue = "0") int page,
             @Parameter(description = "한 페이지당 개수 (1~100)")
-            @RequestParam(defaultValue = "20")
-            @Min(value = 1, message = "페이지 크기는 1 이상이어야 합니다.")
-            @Max(value = 100, message = "페이지 크기는 100 이하여야 합니다.") int size
+            @RequestParam(defaultValue = "20") int size
     ) {
         PageResponse<ProjectListResponse> response =
-                projectService.getMyProjects(userId, status, keyword, PageRequest.of(page, size));
+                projectService.getMyProjects(userId, status, keyword, PageRequests.of(page, size));
 
         return ResponseEntity.ok(response);
     }
@@ -85,6 +84,20 @@ public class ProjectController implements ProjectApi {
             @PathVariable Long projectId
     ) {
         ProjectDetailResponse response = projectService.getDetail(userId, projectId);
+
+        return ResponseEntity.ok(response);
+    }
+
+    @Override
+    @GetMapping("/api/v1/projects/{projectId}/members/search")
+    public ResponseEntity<List<ProjectMemberSearchResponse>> searchMembers(
+            @AuthenticationPrincipal Long requesterId,
+            @PathVariable Long projectId,
+            @RequestParam(required = false) String keyword,
+            @RequestParam(defaultValue = "10") int limit
+    ) {
+        List<ProjectMemberSearchResponse> response =
+                projectMemberService.searchMembers(projectId, requesterId, keyword, limit);
 
         return ResponseEntity.ok(response);
     }

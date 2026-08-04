@@ -67,6 +67,11 @@ public class ProjectService {
     // 프로젝트 생성. 멱등 키가 있으면 중복 생성을 방어한다(같은 키·같은 요청은 첫 응답 재생, 다른 내용은 409).
     // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않는다.
     public ProjectResponse create(Long ownerId, String idempotencyKey, ProjectRequest request) {
+        // 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단.
+        // 멱등 처리 '바깥'에 둔다. 안에 두면 어차피 거부할 요청이 멱등 키로 기록돼,
+        // 복직 등으로 상태가 풀린 뒤 같은 키로 재시도해도 첫 실패가 그대로 재생된다.
+        currentUserService.getEmployedUser(ownerId);
+
         // 도메인 조각만 준비: 무엇을 저장할지(creator) + 무엇으로 중복 판정할지(fingerprint).
         Supplier<Long> creator = () -> doCreate(ownerId, request);
         String endpoint = "POST /api/v1/projects";
@@ -161,6 +166,10 @@ public class ProjectService {
         if (!ProjectPolicy.canUpdate(caller)) {
             throw BaseException.type(ProjectErrorCode.NO_EDIT_PERMISSION);
         }
+
+        // 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단.
+        // 권한 검증 다음에 둬서, 남의 프로젝트를 건드리는 요청은 403이 먼저 나가게 한다.
+        currentUserService.getEmployedUser(userId);
 
         // 3) 종료된 프로젝트는 수정 불가 (PROJECT_020). 보관(ARCHIVED)은 소프트 삭제라 내용이 바뀌면 안 되고,
         //    완료(COMPLETED)도 확정된 기록으로 본다. 버전 검사보다 먼저 해야 원인이 명확한 에러가 나간다.
@@ -361,6 +370,9 @@ public class ProjectService {
         if (!ProjectPolicy.canChangeStatus(caller)) {
             throw BaseException.type(ProjectErrorCode.NO_STATUS_CHANGE_PERMISSION);
         }
+
+        // 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단
+        currentUserService.getEmployedUser(userId);
 
         // 3) 상태 값 파싱 (PROJECT_018)
         ProjectStatus target = parseStatus(statusStr);

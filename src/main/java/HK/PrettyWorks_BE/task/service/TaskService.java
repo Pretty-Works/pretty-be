@@ -55,6 +55,10 @@ public class TaskService {
         // 프로젝트 할 일이면 존재·멤버·상태·마감일 검증, 개인 할 일(null)이면 통과
         validateProjectForWrite(projectId, userId, request.dueDate());
 
+        // 작성자 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단.
+        // validateProjectForWrite 밖에 두어야 개인 할 일(projectId=null)도 함께 걸린다.
+        currentUserService.getEmployedUser(userId);
+
         // 담당자 = 작성자 본인(userId), 완료는 미완료(completedAt=null)로 시작, projectId는 nullable
         TaskEntity task = TaskEntity.builder()
                 .projectId(projectId)
@@ -124,11 +128,14 @@ public class TaskService {
             throw BaseException.type(TaskErrorCode.NO_EDIT_PERMISSION);
         }
 
-        // 3) projectId 있으면 존재·멤버·상태·마감일 재검증, null이면 개인 할 일로 전환
+        // 3) 호출자 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단
+        currentUserService.getEmployedUser(userId);
+
+        // 4) projectId 있으면 존재·멤버·상태·마감일 재검증, null이면 개인 할 일로 전환
         Long projectId = request.projectId();
         validateProjectForWrite(projectId, userId, request.dueDate());
 
-        // 4) 갱신 (dirty checking으로 바뀐 컬럼만 UPDATE)
+        // 5) 갱신 (dirty checking으로 바뀐 컬럼만 UPDATE)
         task.update(request.content(), projectId, request.dueDate());
 
         return TaskResponse.builder()
@@ -147,7 +154,10 @@ public class TaskService {
             throw BaseException.type(TaskErrorCode.NO_DELETE_PERMISSION);
         }
 
-        // 3) hard delete (참조 자식 테이블 없어 안전)
+        // 3) 호출자 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단
+        currentUserService.getEmployedUser(userId);
+
+        // 4) hard delete (참조 자식 테이블 없어 안전)
         taskRepository.delete(task);
 
         return TaskResponse.builder()
@@ -166,7 +176,10 @@ public class TaskService {
             throw BaseException.type(TaskErrorCode.NO_EDIT_PERMISSION);
         }
 
-        // 3) 완료 토글 (미완료→완료일 때만 시각 기록 = 멱등), dirty checking으로 UPDATE
+        // 3) 호출자 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단
+        currentUserService.getEmployedUser(userId);
+
+        // 4) 완료 토글 (미완료→완료일 때만 시각 기록 = 멱등), dirty checking으로 UPDATE
         task.toggleDone(request.done(), LocalDateTime.now());
     }
 

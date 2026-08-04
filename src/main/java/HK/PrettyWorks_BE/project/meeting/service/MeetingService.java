@@ -25,6 +25,7 @@ import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.exception.UserErrorCode;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import org.springframework.data.domain.Page;
 import org.springframework.transaction.annotation.Transactional;
 import lombok.RequiredArgsConstructor;
@@ -45,11 +46,16 @@ public class MeetingService {
     private final ProjectRepository projectRepository;
     private final ProjectMemberService projectMemberService;
     private final IdempotencyService idempotencyService;
+    private final CurrentUserService currentUserService;
 
     // 멱등 처리 진입점
     // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않음
     public MeetingCreateResponse createMeeting(
             Long projectId, Long authorId, String idempotencyKey, MeetingCreateRequest request) {
+
+        // 작성자 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단.
+        // 멱등 처리 '바깥'에 둔다. 안에 두면 어차피 거부할 요청이 멱등 키로 기록돼 재시도까지 막힌다.
+        currentUserService.getEmployedUser(authorId);
 
         String path = "/api/v1/projects/" + projectId + "/meetings";
 
@@ -206,6 +212,10 @@ public class MeetingService {
 
         // 작성자 또는 참석자만 수정 가능
         boolean isParticipant = meetingAttendeeRepository.existsByMeetingIdAndUserId(meetingId, userId);
+        // 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단.
+        // 권한 판정 다음에 둬서, 남의 회의록을 건드리는 요청은 권한 에러가 먼저 나가게 한다.
+        currentUserService.getEmployedUser(userId);
+
         if (!MeetingPolicy.canEdit(meeting, userId, isParticipant)) {
             throw BaseException.type(MeetingErrorCode.NO_PERMISSION);
         }
@@ -262,6 +272,9 @@ public class MeetingService {
         if (!MeetingPolicy.canDelete(meeting, userId)) {
             throw BaseException.type(MeetingErrorCode.NO_PERMISSION);
         }
+
+        // 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단
+        currentUserService.getEmployedUser(userId);
 
         // soft delete
         meetingRepository.delete(meeting);
