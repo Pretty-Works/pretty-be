@@ -47,7 +47,8 @@
       "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_FE\\\\src\" -Recurse -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Replace\\(\"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_FE\\\\src\\\\\",\"\"\\) } | Sort-Object)",
       "PowerShell(git -C \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\" branch --show-current)",
       "PowerShell(git -C \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\" status --short)",
-      "PowerShell(git -C \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\" log --oneline -12)"
+      "PowerShell(git -C \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\" log --oneline -12)",
+      "Bash(cd /c/Users/tnals/Desktop/PrettyWorks_BE/src/main/java/HK/PrettyWorks_BE *)"
     ]
   }
 }
