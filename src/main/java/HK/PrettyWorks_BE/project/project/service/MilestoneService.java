@@ -2,6 +2,9 @@ package HK.PrettyWorks_BE.project.project.service;
 
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.util.Percent;
+import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationType;
+import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.domain.MilestoneEntity;
@@ -30,6 +33,7 @@ public class MilestoneService {
     private final ProjectRepository projectRepository;
     private final ProjectMemberService projectMemberService;
     private final CurrentUserService currentUserService;
+    private final NotificationPublisher notificationPublisher;
 
     // 마일스톤 목록 + 완료 집계. 개요 화면의 '마일스톤 완료율' 카드를 채운다.
     // 페이지네이션을 두지 않는다 — 프로젝트당 최대 50개이고 화면이 타임라인으로 전부 보여준다.
@@ -100,6 +104,14 @@ public class MilestoneService {
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.MILESTONE_NOT_FOUND));
 
         // 5) 토글 (dirty checking으로 UPDATE). 이미 완료면 최초 완료 시각을 유지한다.
+        boolean wasDone = milestone.isDone();
         milestone.toggleDone(done, LocalDateTime.now());
+
+        // 6) 완료로 넘어갈 때만 알린다. 체크 해제와 이미 완료된 것의 재체크는 알릴 내용이 없다.
+        if (done && !wasDone) {
+            notificationPublisher.publish(NotificationType.MILESTONE_COMPLETED,
+                    projectMemberService.getActiveMemberIds(projectId), userId,
+                    NotificationTargetType.PROJECT, projectId, milestone.getGoal());
+        }
     }
 }

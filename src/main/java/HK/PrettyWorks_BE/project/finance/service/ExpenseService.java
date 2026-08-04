@@ -4,6 +4,9 @@ import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.util.Percent;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
+import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationType;
+import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.finance.constant.ExpenseStatus;
 import HK.PrettyWorks_BE.project.finance.domain.ExpenseEntity;
 import HK.PrettyWorks_BE.project.finance.dto.req.ExpenseRequest;
@@ -32,6 +35,7 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -51,6 +55,7 @@ public class ExpenseService {
     private final IdempotencyService idempotencyService;
     private final CurrentUserService currentUserService;
     private final UserService userService;
+    private final NotificationPublisher notificationPublisher;
 
     // 지출 등록. 멱등 키가 있으면 중복 요청을 방어한다(같은 키·같은 요청은 첫 응답 재생, 다른 내용은 409).
     // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않는다.
@@ -96,6 +101,15 @@ public class ExpenseService {
                 .amount(request.amount())
                 .build();
         expenseRepository.save(expense);
+
+        // 6) 오너에게만 알린다. 예산을 책임지는 사람이라 남의 지출이 붙는 걸 알아야 한다 —
+        //    멤버 전원에게 보내면 지출이 등록될 때마다 모두의 드롭다운이 채워진다.
+        //    발행을 create가 아니라 여기 두는 이유: 멱등 재시도는 저장을 건너뛰고 첫 응답을 재생하므로,
+        //    바깥에 두면 같은 지출로 알림만 여러 번 나간다.
+        projectMemberService.getOwnerId(projectId).ifPresent(ownerId ->
+                notificationPublisher.publish(NotificationType.EXPENSE_CREATED,
+                        List.of(ownerId), spenderId, NotificationTargetType.PROJECT, projectId,
+                        project.getName(), String.format("%,d", request.amount())));
 
         return expense.getId();
     }
