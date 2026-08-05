@@ -8,7 +8,6 @@ import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingDeleteResponse;
 import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingDetailResponse;
 import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingListResponse;
 import HK.PrettyWorks_BE.project.meeting.service.MeetingService;
-import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.data.domain.Pageable;
@@ -30,7 +29,7 @@ public class MeetingController implements MeetingApi {
             @PathVariable Long projectId,
             @AuthenticationPrincipal Long authorId,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
-            @Valid @RequestBody MeetingCreateRequest request) {
+            @RequestBody MeetingCreateRequest request) {
 
         return ResponseEntity.status(HttpStatus.CREATED)
                 .body(meetingService.createMeeting(projectId, authorId, idempotencyKey, request));
@@ -77,7 +76,7 @@ public class MeetingController implements MeetingApi {
             @PathVariable Long projectId,
             @PathVariable Long meetingId,
             @AuthenticationPrincipal Long userId,
-            @Valid @RequestBody MeetingUpdateRequest request) {
+            @RequestBody MeetingUpdateRequest request) {
 
         return ResponseEntity.ok(
                 meetingService.updateMeeting(projectId, meetingId, userId, request)
