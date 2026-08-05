@@ -6,6 +6,7 @@ import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
 import HK.PrettyWorks_BE.task.dto.req.TaskRequest;
+import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.task.exception.TaskErrorCode;
 import HK.PrettyWorks_BE.task.repository.TaskRepository;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
@@ -30,15 +31,17 @@ class TaskServiceBatchTest {
     private final ProjectRepository projectRepository = mock(ProjectRepository.class);
     private final ProjectMemberService projectMemberService = mock(ProjectMemberService.class);
     private final CurrentUserService currentUserService = mock(CurrentUserService.class);
+    private final NotificationPublisher notificationPublisher = mock(NotificationPublisher.class);
     private final TaskService service = new TaskService(
-            taskRepository, projectRepository, projectMemberService, currentUserService);
+            taskRepository, projectRepository, projectMemberService, currentUserService,
+            notificationPublisher);
 
     @Test
     void validatesSharedProjectOnceAndPersistsTheBatchOnce() {
         when(projectRepository.findById(7L)).thenReturn(Optional.of(project()));
         List<TaskRequest> requests = List.of(
-                new TaskRequest("첫 번째", 7L, LocalDate.of(2026, 8, 10)),
-                new TaskRequest("두 번째", 7L, LocalDate.of(2026, 8, 11)));
+                new TaskRequest("첫 번째", 7L, null, LocalDate.of(2026, 8, 10)),
+                new TaskRequest("두 번째", 7L, null, LocalDate.of(2026, 8, 11)));
 
         var result = service.createBatch(3L, requests);
 
@@ -52,8 +55,8 @@ class TaskServiceBatchTest {
     void invalidItemStopsBeforeAnyTaskIsPersisted() {
         when(projectRepository.findById(7L)).thenReturn(Optional.of(project()));
         List<TaskRequest> requests = List.of(
-                new TaskRequest("정상", 7L, LocalDate.of(2026, 8, 10)),
-                new TaskRequest("기간 밖", 7L, LocalDate.of(2027, 1, 1)));
+                new TaskRequest("정상", 7L, null, LocalDate.of(2026, 8, 10)),
+                new TaskRequest("기간 밖", 7L, null, LocalDate.of(2027, 1, 1)));
 
         assertThatThrownBy(() -> service.createBatch(3L, requests))
                 .isInstanceOfSatisfying(BaseException.class,

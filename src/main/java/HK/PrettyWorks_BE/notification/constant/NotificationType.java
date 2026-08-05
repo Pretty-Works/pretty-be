@@ -8,7 +8,12 @@ public enum NotificationType {
     PROJECT_STATUS_CHANGED("'%s' 프로젝트가 %s 상태로 변경되었습니다"),
     PROJECT_PERIOD_CHANGED("'%s' 프로젝트 기간이 %s ~ %s 로 변경되었습니다"),
     MILESTONE_COMPLETED("'%s' 마일스톤이 완료되었습니다"),
-    EXPENSE_CREATED("'%s' 프로젝트에 %s원 지출이 등록되었습니다");
+    EXPENSE_CREATED("'%s' 프로젝트에 %s원 지출이 등록되었습니다"),
+
+    // 담당자와 작성자가 다를 때만 발행된다. 본인 할 일은 NotificationPublisher가 행위자를 걸러낸다.
+    TASK_ASSIGNED("'%s' 할 일이 배정되었습니다 (마감 %s)"),
+    TASK_DELETED("배정된 '%s' 할 일이 삭제되었습니다"),
+    TASK_DUE_DATE_CHANGED("'%s' 할 일의 마감일이 %s 로 변경되었습니다");
 
     private final String titleFormat;
 

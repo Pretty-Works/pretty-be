@@ -4,6 +4,10 @@ import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.global.util.Percent;
 import HK.PrettyWorks_BE.global.util.WeekRange;
+import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationType;
+import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
+import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
@@ -41,6 +45,7 @@ import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.stream.IntStream;
 
 @Service
 @RequiredArgsConstructor
@@ -50,6 +55,7 @@ public class TaskService {
     private final ProjectRepository projectRepository;
     private final ProjectMemberService projectMemberService;
     private final CurrentUserService currentUserService;
+    private final NotificationPublisher notificationPublisher;
 
     @Transactional
     public TaskResponse create(Long userId, TaskRequest request) {
@@ -62,14 +68,20 @@ public class TaskService {
         // validateProjectForWrite 밖에 두어야 개인 할 일(projectId=null)도 함께 걸린다.
         currentUserService.getEmployedUser(userId);
 
-        // 담당자 = 작성자 본인(userId), 완료는 미완료(completedAt=null)로 시작, projectId는 nullable
+        // 담당자 결정 — 비우면 본인, 남을 지정하면 배정 권한과 대상 멤버십을 검증한다.
+        Long assigneeId = resolveAssignee(projectId, userId, request.assigneeId());
+
+        // 완료는 미완료(completedAt=null)로 시작, projectId는 nullable
         TaskEntity task = TaskEntity.builder()
                 .projectId(projectId)
-                .assigneeId(userId)
+                .assigneeId(assigneeId)
+                .creatorId(userId)
                 .content(request.content())
                 .dueDate(request.dueDate())
                 .build();
         taskRepository.save(task);
+
+        publishAssigned(task);
 
         return TaskResponse.builder()
                 .taskId(task.getId())
@@ -105,15 +117,23 @@ public class TaskService {
             }
         }
 
-        List<TaskEntity> tasks = requests.stream()
-                .map(request -> TaskEntity.builder()
-                        .projectId(request.projectId())
-                        .assigneeId(userId)
-                        .content(request.content())
-                        .dueDate(request.dueDate())
+        // 담당자도 INSERT 전에 전부 확정한다. 뒤늦게 거부되면 이미 저장된 항목이 남는다.
+        List<Long> assignees = requests.stream()
+                .map(request -> resolveAssignee(request.projectId(), userId, request.assigneeId()))
+                .toList();
+
+        List<TaskEntity> tasks = IntStream.range(0, requests.size())
+                .mapToObj(i -> TaskEntity.builder()
+                        .projectId(requests.get(i).projectId())
+                        .assigneeId(assignees.get(i))
+                        .creatorId(userId)
+                        .content(requests.get(i).content())
+                        .dueDate(requests.get(i).dueDate())
                         .build())
                 .toList();
         taskRepository.saveAll(tasks);
+
+        tasks.forEach(this::publishAssigned);
 
         return tasks.stream()
                 .map(task -> TaskResponse.builder().taskId(task.getId()).build())
@@ -126,7 +146,7 @@ public class TaskService {
         TaskEntity task = taskRepository.findById(taskId)
                 .orElseThrow(() -> BaseException.type(TaskErrorCode.TASK_NOT_FOUND));
 
-        // 2) 작성자 본인만 수정 (TASK_004)
+        // 2) 담당자 또는 작성자만 수정 (TASK_004)
         if (!TaskPolicy.canModify(task, userId)) {
             throw BaseException.type(TaskErrorCode.NO_EDIT_PERMISSION);
         }
@@ -138,8 +158,25 @@ public class TaskService {
         Long projectId = request.projectId();
         validateProjectForWrite(projectId, userId, request.dueDate());
 
-        // 5) 갱신 (dirty checking으로 바뀐 컬럼만 UPDATE)
+        // 5) 개인 할 일로 전환하려면 담당자가 본인이어야 한다 (TASK_010).
+        //    담당자가 남인 채로 프로젝트를 떼면 권한 판정 근거(멤버십)도 알림 대상도 사라진다.
+        //    재배정을 지원하지 않으므로 이 경우 사용자는 삭제 후 다시 만들어야 한다.
+        if (projectId == null && !task.isSelfAssigned()) {
+            throw BaseException.type(TaskErrorCode.PERSONAL_TASK_NOT_ASSIGNABLE);
+        }
+
+        // 6) 갱신 (dirty checking으로 바뀐 컬럼만 UPDATE). 담당자는 이 API로 바꾸지 않는다.
+        LocalDate previousDueDate = task.getDueDate();
         task.update(request.content(), projectId, request.dueDate());
+
+        // 7) 마감일이 실제로 바뀐 경우만 담당자에게 알린다. 내용 오타 수정에도 알림이 가면 시끄럽다.
+        //    본인이 자기 할 일을 고친 경우는 발행기가 행위자를 걸러 자동으로 빠진다.
+        if (!previousDueDate.equals(task.getDueDate()) && task.getProjectId() != null) {
+            notificationPublisher.publish(NotificationType.TASK_DUE_DATE_CHANGED,
+                    List.of(task.getAssigneeId()), userId,
+                    NotificationTargetType.PROJECT, task.getProjectId(),
+                    task.getContent(), task.getDueDate());
+        }
 
         return TaskResponse.builder()
                 .taskId(task.getId())
@@ -152,15 +189,23 @@ public class TaskService {
         TaskEntity task = taskRepository.findById(taskId)
                 .orElseThrow(() -> BaseException.type(TaskErrorCode.TASK_NOT_FOUND));
 
-        // 2) 작성자 본인만 삭제 (TASK_005)
-        if (!TaskPolicy.canModify(task, userId)) {
+        // 2) 작성자만 삭제 (TASK_005). 담당자에게 열어 주면 "하기 싫으면 삭제"가 된다.
+        if (!TaskPolicy.canDelete(task, userId)) {
             throw BaseException.type(TaskErrorCode.NO_DELETE_PERMISSION);
         }
 
         // 3) 호출자 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단
         currentUserService.getEmployedUser(userId);
 
-        // 4) hard delete (참조 자식 테이블 없어 안전)
+        // 4) 담당자에게 알린다. 삭제 뒤에는 엔티티 값을 읽을 수 없으니 미리 발행한다
+        //    (같은 트랜잭션이라 커밋은 함께 이뤄진다). 본인 것을 지운 경우는 발행기가 걸러낸다.
+        if (task.getProjectId() != null) {
+            notificationPublisher.publish(NotificationType.TASK_DELETED,
+                    List.of(task.getAssigneeId()), userId,
+                    NotificationTargetType.PROJECT, task.getProjectId(), task.getContent());
+        }
+
+        // 5) hard delete (참조 자식 테이블 없어 안전)
         taskRepository.delete(task);
 
         return TaskResponse.builder()
@@ -174,8 +219,8 @@ public class TaskService {
         TaskEntity task = taskRepository.findById(taskId)
                 .orElseThrow(() -> BaseException.type(TaskErrorCode.TASK_NOT_FOUND));
 
-        // 2) 작성자 본인만 (TASK_004) — 완료 토글도 수정과 동일 권한
-        if (!TaskPolicy.canModify(task, userId)) {
+        // 2) 담당자만 (TASK_004). 작성자가 남의 일을 완료 처리하면 완료율이 실제 진척과 어긋난다.
+        if (!TaskPolicy.canToggle(task, userId)) {
             throw BaseException.type(TaskErrorCode.NO_EDIT_PERMISSION);
         }
 
@@ -219,17 +264,17 @@ public class TaskService {
                 personal = e.getValue();
                 continue;
             }
-            groups.add(toGroup(e.getKey(), e.getValue(), today));
+            groups.add(toGroup(e.getKey(), e.getValue(), today, userId));
         }
         if (personal != null) {
-            groups.add(toGroup(null, personal, today));
+            groups.add(toGroup(null, personal, today, userId));
         }
 
         return new TaskHomeResponse(groups);
     }
 
     // TaskHomeRow 묶음을 한 그룹으로 변환. done(completedAt≠null)·dDay(오늘~마감)는 여기서 파생.
-    private TaskGroup toGroup(Long projectId, List<TaskHomeRow> rows, LocalDate today) {
+    private TaskGroup toGroup(Long projectId, List<TaskHomeRow> rows, LocalDate today, Long userId) {
         String projectName = rows.get(0).projectName();   // 그룹 내 동일 (개인은 null)
         List<TaskItem> items = rows.stream()
                 .map(r -> new TaskItem(
@@ -237,7 +282,9 @@ public class TaskService {
                         r.content(),
                         r.completedAt() != null,
                         r.dueDate(),
-                        ChronoUnit.DAYS.between(today, r.dueDate())
+                        ChronoUnit.DAYS.between(today, r.dueDate()),
+                        // 홈은 내가 담당한 것만 나오므로 수정·토글은 항상 가능하다. 삭제만 작성자 전용이다.
+                        r.creatorId().equals(userId)
                 ))
                 .toList();
         return new TaskGroup(projectId, projectName, items);
@@ -298,7 +345,7 @@ public class TaskService {
             teamRates.add(new TaskProjectResponse.TeamRate(team, teamDone, teamTotal, Percent.floorRate(teamDone, teamTotal)));
 
             List<TaskProjectResponse.TaskItem> items = teamRows.stream()
-                    .map(r -> toItem(r, today))
+                    .map(r -> toItem(r, today, userId))
                     .toList();
             groups.add(new TaskProjectResponse.TeamGroup(team, team == viewerTeam, items));
         }
@@ -314,7 +361,10 @@ public class TaskService {
     }
 
     // TaskProjectRow → TaskItem. done(completedAt≠null)·dDay(오늘~마감, 내림)·overdue(미완료 && 마감<오늘) 파생.
-    private TaskProjectResponse.TaskItem toItem(TaskProjectRow r, LocalDate today) {
+    private TaskProjectResponse.TaskItem toItem(TaskProjectRow r, LocalDate today, Long userId) {
+        boolean isAssignee = r.assigneeId().equals(userId);
+        boolean isCreator = r.creatorId().equals(userId);
+
         return new TaskProjectResponse.TaskItem(
                 r.taskId(),
                 r.content(),
@@ -322,12 +372,55 @@ public class TaskService {
                 r.completedAt() != null,
                 r.dueDate(),
                 ChronoUnit.DAYS.between(today, r.dueDate()),
-                r.completedAt() == null && r.dueDate().isBefore(today)
+                r.completedAt() == null && r.dueDate().isBefore(today),
+                // TaskPolicy와 같은 규칙 — 수정은 둘 다, 토글은 담당자, 삭제는 작성자.
+                isAssignee || isCreator,
+                isAssignee,
+                isCreator
         );
     }
 
     // 쓰기(생성/수정)용: 프로젝트 존재(PROJECT_004)·멤버(MEMBER_001)·상태(완료/보관 불가, PROJECT_020)·마감일 기간(TASK_007) 검증.
     // null이면 개인 할 일이라 통과. 마감일은 프로젝트 기간 양끝(start·target 당일) 포함.
+    // 담당자 확정. 비었거나 본인이면 그대로 본인이고, 남을 지정한 경우만 검증이 붙는다.
+    //
+    // 배정 권한을 TaskPolicy에 두지 않은 이유: 프로젝트 멤버십 조회가 필요한데
+    // TaskPolicy는 DB를 쓰지 않는 순수 판정 클래스다. 프로젝트 권한이므로 ProjectPolicy를 그대로 쓴다.
+    private Long resolveAssignee(Long projectId, Long creatorId, Long requestedAssigneeId) {
+        if (requestedAssigneeId == null || requestedAssigneeId.equals(creatorId)) {
+            return creatorId;
+        }
+        // 개인 할 일은 배정할 상대가 없다. 프로젝트가 없으면 배정 권한을 판정할 근거도 없다.
+        if (projectId == null) {
+            throw BaseException.type(TaskErrorCode.PERSONAL_TASK_NOT_ASSIGNABLE);
+        }
+
+        ProjectMemberEntity caller = projectMemberService.getActiveMembership(projectId, creatorId)
+                .orElseThrow(() -> BaseException.type(TaskErrorCode.NO_ASSIGN_PERMISSION));
+        if (!ProjectPolicy.canUpdate(caller)) {
+            throw BaseException.type(TaskErrorCode.NO_ASSIGN_PERMISSION);
+        }
+        // 참여자가 아닌 사람에게 배정하면 그는 볼 수도 없는 할 일을 받는다.
+        if (projectMemberService.getActiveMembership(projectId, requestedAssigneeId).isEmpty()) {
+            throw BaseException.type(TaskErrorCode.ASSIGNEE_NOT_MEMBER);
+        }
+
+        return requestedAssigneeId;
+    }
+
+    // 남에게 배정한 경우에만 알린다. 본인 할 일은 발행기가 행위자를 걸러 자동으로 빠지지만,
+    // 개인 할 일은 targetId로 쓸 projectId가 없어 여기서 미리 끊는다.
+    private void publishAssigned(TaskEntity task) {
+        if (task.getProjectId() == null || task.isSelfAssigned()) {
+            return;
+        }
+
+        notificationPublisher.publish(NotificationType.TASK_ASSIGNED,
+                List.of(task.getAssigneeId()), task.getCreatorId(),
+                NotificationTargetType.PROJECT, task.getProjectId(),
+                task.getContent(), task.getDueDate());
+    }
+
     private void validateProjectForWrite(Long projectId, Long userId, LocalDate dueDate) {
         if (projectId == null) {
             return;
