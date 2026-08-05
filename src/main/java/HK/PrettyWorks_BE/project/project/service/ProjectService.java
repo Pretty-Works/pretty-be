@@ -395,10 +395,11 @@ public class ProjectService {
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
 
-        // 2) 상태 변경 권한 (PROJECT_017): 호출자의 참여중(ACTIVE) 멤버십이 오너여야 함
+        // 2) 상태 변경 권한 (PROJECT_017): 수정과 같은 기준 — 오너이거나 프로젝트 내 역할이 PM인 참여자.
+        //    에러코드를 PROJECT_005와 나눠 두는 이유는 규칙이 달라서가 아니라 화면 문구가 달라야 하기 때문이다.
         ProjectMemberEntity caller = projectMemberService.getActiveMembership(projectId, userId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.NO_STATUS_CHANGE_PERMISSION));
-        if (!ProjectPolicy.canChangeStatus(caller)) {
+        if (!ProjectPolicy.canUpdate(caller)) {
             throw BaseException.type(ProjectErrorCode.NO_STATUS_CHANGE_PERMISSION);
         }
 

@@ -34,12 +34,9 @@ public final class ProjectPolicy {
                 || ROLE_PM.equals(callerMembership.getRole());
     }
 
-    // 상태 변경 권한: 수정 권한과 동일하게 오너이거나 프로젝트 내 역할이 PM인 참여자만 변경할 수 있습니다.
-    // 오너 단독으로 두면 오너가 퇴사했을 때 아무도 완료·보관 처리를 못 해 프로젝트가 영구히 묶이므로 PM을 대체자로 둡니다.
-    public static boolean canChangeStatus(ProjectMemberEntity callerMembership) {
-        return callerMembership.isOwner()
-                || ROLE_PM.equals(callerMembership.getRole());
-    }
+    // 상태 변경도 canUpdate를 그대로 씁니다. 전용 메서드를 따로 두었더니 본문이 같은데도
+    // 규칙이 다른 것처럼 읽혀, 실제로 "상태 변경은 오너만"이라는 오해가 주석과 문서에 남았습니다.
+    // 오너 단독으로 두지 않는 이유: 오너가 퇴사하면 아무도 완료·보관 처리를 못 해 프로젝트가 영구히 묶입니다.
 
     // 날짜가 프로젝트 기간(startDate ~ targetDate) 안인지 판정합니다. 양끝(시작일·목표일 당일) 포함.
     // 할 일 마감일·회의 일자·지출 사용일 등 "프로젝트 소속 날짜"의 공통 검증 규칙입니다.

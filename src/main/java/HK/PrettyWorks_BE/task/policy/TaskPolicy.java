@@ -10,9 +10,22 @@ public final class TaskPolicy {
     private TaskPolicy() {
     }
 
-    // 수정·삭제·완료 토글 공통: 본인 할 일만 가능.
-    // 현재는 담당자 = 작성자라 assigneeId로 판정한다(추후 타인 배정이 생기면 작성자 기준으로 분리).
+    // 수정: 담당자와 작성자 둘 다 가능.
+    //
+    // 한쪽만 열면 반대쪽이 막힌다 — 담당자만이면 배정한 PM이 자기가 만든 할 일의 오타도 못 고치고,
+    // 작성자만이면 배정받은 사람이 마감일 조정조차 못 한다. 둘 다 이해관계자다.
     public static boolean canModify(TaskEntity task, Long userId) {
+        return task.getAssigneeId().equals(userId) || task.getCreatorId().equals(userId);
+    }
+
+    // 완료 토글: 담당자만. 일을 한 사람이 체크해야 한다 —
+    // 작성자가 남의 일을 완료 처리하면 완료율이 실제 진척과 어긋난다.
+    public static boolean canToggle(TaskEntity task, Long userId) {
         return task.getAssigneeId().equals(userId);
+    }
+
+    // 삭제: 작성자만. 담당자에게 열어 주면 "하기 싫으면 삭제"가 되어 배정이 무의미해진다.
+    public static boolean canDelete(TaskEntity task, Long userId) {
+        return task.getCreatorId().equals(userId);
     }
 }

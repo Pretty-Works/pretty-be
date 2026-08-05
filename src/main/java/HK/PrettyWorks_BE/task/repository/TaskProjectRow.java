@@ -18,6 +18,8 @@ public record TaskProjectRow(
         Long assigneeId,
         String assigneeName,
         DepartmentType team,
-        String projectName
+        String projectName,
+        // 권한 플래그(canEdit·canToggle·canDelete) 판정용.
+        Long creatorId
 ) {
 }
