@@ -12,6 +12,7 @@ import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.project.project.dto.res.MilestoneListResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.MilestoneSummary;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
+import HK.PrettyWorks_BE.project.project.policy.MilestonePolicy;
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.MilestoneRepository;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
@@ -65,9 +66,7 @@ public class MilestoneService {
                 .pendingCount(total - completed)
                 .completionRate(Percent.floorRate(completed, total))
                 .nextMilestone(next)
-                .milestones(milestones.stream()
-                        .map(MilestoneSummary::from)
-                        .toList())
+                .milestones(MilestoneSummary.listFrom(milestones))
                 .build();
     }
 
@@ -99,19 +98,46 @@ public class MilestoneService {
             throw BaseException.type(ProjectErrorCode.PROJECT_CLOSED);
         }
 
-        // 4) 마일스톤 존재 + 프로젝트 소속 (PROJECT_022)
-        MilestoneEntity milestone = milestoneRepository.findByIdAndProjectId(milestoneId, projectId)
-                .orElseThrow(() -> BaseException.type(ProjectErrorCode.MILESTONE_NOT_FOUND));
+        // 4) 마일스톤 존재 + 프로젝트 소속 (PROJECT_022).
+        //    순서 판정에 앞뒤 항목이 필요해 한 건이 아니라 목록을 목표일 순으로 가져온다.
+        //    프로젝트당 상한이 50개라 한 건 조회와 비용 차이가 거의 없다.
+        List<MilestoneEntity> milestones =
+                milestoneRepository.findByProjectIdOrderByTargetDateAscIdAsc(projectId);
+        int index = indexOf(milestones, milestoneId);
+        MilestoneEntity milestone = milestones.get(index);
 
-        // 5) 토글 (dirty checking으로 UPDATE). 이미 완료면 최초 완료 시각을 유지한다.
-        boolean wasDone = milestone.isDone();
+        // 5) 이미 요청한 상태면 아무것도 하지 않는다. 순서 검사보다 앞에 둬야 재요청이 깨지지 않는다 —
+        //    완료된 마일스톤을 다시 완료로 보내면 "미완료 중 첫 번째"가 아니라 거부되기 때문이다.
+        if (milestone.isDone() == done) {
+            return;
+        }
+
+        // 6) 순서 검사 (PROJECT_023 / PROJECT_024)
+        if (done && !MilestonePolicy.canComplete(milestones, index)) {
+            throw BaseException.type(ProjectErrorCode.MILESTONE_ORDER_REQUIRED);
+        }
+        if (!done && !MilestonePolicy.canUndo(milestones, index)) {
+            throw BaseException.type(ProjectErrorCode.MILESTONE_UNDO_ORDER_REQUIRED);
+        }
+
+        // 7) 토글 (dirty checking으로 UPDATE)
         milestone.toggleDone(done, LocalDateTime.now());
 
-        // 6) 완료로 넘어갈 때만 알린다. 체크 해제와 이미 완료된 것의 재체크는 알릴 내용이 없다.
-        if (done && !wasDone) {
+        // 8) 완료로 넘어갈 때만 알린다. 5)에서 무변화를 걸러냈으므로 여기 오면 상태가 실제로 바뀐 것이다.
+        if (done) {
             notificationPublisher.publish(NotificationType.MILESTONE_COMPLETED,
                     projectMemberService.getActiveMemberIds(projectId), userId,
                     NotificationTargetType.PROJECT, projectId, milestone.getGoal());
         }
+    }
+
+    // 목록에서 대상 마일스톤의 위치. 없으면 이 프로젝트의 것이 아니다(PROJECT_022).
+    private int indexOf(List<MilestoneEntity> milestones, Long milestoneId) {
+        for (int i = 0; i < milestones.size(); i++) {
+            if (milestones.get(i).getId().equals(milestoneId)) {
+                return i;
+            }
+        }
+        throw BaseException.type(ProjectErrorCode.MILESTONE_NOT_FOUND);
     }
 }

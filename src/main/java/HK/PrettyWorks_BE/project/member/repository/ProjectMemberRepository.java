@@ -8,6 +8,7 @@ import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 import java.util.Optional;
 
@@ -32,18 +33,19 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMemberEnti
     // 참여 순(id 오름차순) 고정 — 정렬이 없으면 조회할 때마다 순서가 달라져 화면이 흔들린다.
     List<ProjectMemberEntity> findByProjectIdAndStatusOrderByIdAsc(Long projectId, ProjectMemberStatus status);
 
-    // 프로젝트 하위 기능의 참여자 선택 자동완성. 참여중인 재직자만 이름으로 검색한다.
+    // 프로젝트 하위 기능의 참여자 선택 자동완성. 참여중인 재직자(휴직 포함)를 이름으로 검색한다.
     @Query("""
             select u.id as userId,
                    u.name as name,
                    u.department as department,
                    u.position as position,
+                   u.status as status,
                    m.role as role
             from ProjectMemberEntity m
             join UserEntity u on u.id = m.userId
             where m.projectId = :projectId
               and m.status = :memberStatus
-              and u.status = :userStatus
+              and u.status in :employedStatuses
               and u.id <> :requesterId
               and u.name like concat('%', :keyword, '%')
             order by u.name asc, u.id asc
@@ -52,6 +54,6 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMemberEnti
                                                      @Param("requesterId") Long requesterId,
                                                      @Param("keyword") String keyword,
                                                      @Param("memberStatus") ProjectMemberStatus memberStatus,
-                                                     @Param("userStatus") StatusType userStatus,
+                                                     @Param("employedStatuses") Collection<StatusType> employedStatuses,
                                                      Pageable pageable);
 }

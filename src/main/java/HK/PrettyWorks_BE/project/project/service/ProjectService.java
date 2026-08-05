@@ -360,9 +360,7 @@ public class ProjectService {
                         .build())
                 .toList();
 
-        List<MilestoneSummary> milestoneDtos = milestones.stream()
-                .map(MilestoneSummary::from)
-                .toList();
+        List<MilestoneSummary> milestoneDtos = MilestoneSummary.listFrom(milestones);
 
         return ProjectDetailResponse.builder()
                 .projectId(project.getId())

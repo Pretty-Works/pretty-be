@@ -53,7 +53,8 @@
       "Bash(grep -n \"\\\\\\\\\\\\\\\\'\\\\|''\" src/main/resources/db/seed.sql)",
       "Read(//c//**)",
       "Read(//c/Users/resources/db/**)",
-      "Bash(python -)"
+      "Bash(python -)",
+      "WebSearch"
     ]
   }
 }
