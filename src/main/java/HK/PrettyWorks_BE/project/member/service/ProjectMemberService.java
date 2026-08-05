@@ -8,7 +8,7 @@ import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberSearchResponse;
 import HK.PrettyWorks_BE.project.member.repository.ProjectMemberRepository;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
-import HK.PrettyWorks_BE.user.constant.StatusType;
+import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import HK.PrettyWorks_BE.user.service.UserSearchCondition;
 import lombok.RequiredArgsConstructor;
@@ -81,6 +81,7 @@ public class ProjectMemberService {
     }
 
     // 회의록·할 일 등 프로젝트 하위 기능에서 사용할 참여중 재직자 이름 자동완성.
+    // 휴직자도 포함한다 — 프로젝트 참여·회의 참석이 열려 있으므로 사내 임직원 검색과 기준이 같아야 한다.
     @Transactional(readOnly = true)
     public List<ProjectMemberSearchResponse> searchMembers(Long projectId, Long requesterId,
                                                            String keyword, int limit) {
@@ -94,7 +95,7 @@ public class ProjectMemberService {
 
         return projectMemberRepository.searchActiveMembers(
                         projectId, requesterId, condition.keyword(),
-                        ProjectMemberStatus.ACTIVE, StatusType.ACTIVE,
+                        ProjectMemberStatus.ACTIVE, UserPolicy.EMPLOYED_STATUSES,
                         PageRequest.of(0, condition.limit()))
                 .stream()
                 .map(ProjectMemberSearchResponse::from)

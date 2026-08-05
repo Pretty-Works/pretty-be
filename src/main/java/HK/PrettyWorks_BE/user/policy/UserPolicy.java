@@ -3,6 +3,7 @@ package HK.PrettyWorks_BE.user.policy;
 import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 
+import java.util.List;
 import java.util.regex.Pattern;
 
 // 사용자 관련 규칙. 순수 판정(엔티티 받아 boolean 반환, DB·throw 없음).
@@ -26,6 +27,10 @@ public final class UserPolicy {
     public static boolean isEmployed(UserEntity user) {
         return user.getStatus() != StatusType.RESIGNED;
     }
+
+    // isEmployed를 쿼리에서 쓰기 위한 형태. 엔티티를 로드하지 않는 검색은 이 목록을 in 절에 넣는다.
+    public static final List<StatusType> EMPLOYED_STATUSES =
+            List.of(StatusType.ACTIVE, StatusType.ON_LEAVE);
 
     public static boolean isValidName(String name) {
         return name != null && NAME_REGEX.matcher(name).matches();
