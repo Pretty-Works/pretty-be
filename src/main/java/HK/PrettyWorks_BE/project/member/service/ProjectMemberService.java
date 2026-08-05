@@ -9,7 +9,7 @@ import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberDetailResponse;
 import HK.PrettyWorks_BE.project.member.repository.ProjectMemberRepository;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
-import HK.PrettyWorks_BE.user.constant.StatusType;
+import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import HK.PrettyWorks_BE.user.service.UserSearchCondition;
 import lombok.RequiredArgsConstructor;
@@ -67,7 +67,23 @@ public class ProjectMemberService {
                 .findByProjectIdAndUserIdAndStatus(projectId, userId, ProjectMemberStatus.ACTIVE);
     }
 
+    // 알림 수신자 후보. 탈퇴 멤버(LEFT)는 여기서 빠지고, 행위자·퇴사자 제외는 NotificationPublisher가 한다.
+    @Transactional(readOnly = true)
+    public List<Long> getActiveMemberIds(Long projectId) {
+        return projectMemberRepository
+                .findByProjectIdAndStatusOrderByIdAsc(projectId, ProjectMemberStatus.ACTIVE).stream()
+                .map(ProjectMemberEntity::getUserId)
+                .toList();
+    }
+
+    // 오너의 userId. 오너 행은 항상 존재하지만, 없을 때의 처리는 호출자가 정하도록 Optional로 넘긴다.
+    @Transactional(readOnly = true)
+    public Optional<Long> getOwnerId(Long projectId) {
+        return projectMemberRepository.findOwner(projectId).map(ProjectMemberEntity::getUserId);
+    }
+
     // 회의록·할 일 등 프로젝트 하위 기능에서 사용할 참여중 재직자 이름 자동완성.
+    // 휴직자도 포함한다 — 프로젝트 참여·회의 참석이 열려 있으므로 사내 임직원 검색과 기준이 같아야 한다.
     @Transactional(readOnly = true)
     public List<ProjectMemberSearchResponse> searchMembers(Long projectId, Long requesterId,
                                                            String keyword, int limit) {
@@ -81,7 +97,7 @@ public class ProjectMemberService {
 
         return projectMemberRepository.searchActiveMembers(
                         projectId, requesterId, condition.keyword(),
-                        ProjectMemberStatus.ACTIVE, StatusType.ACTIVE,
+                        ProjectMemberStatus.ACTIVE, UserPolicy.EMPLOYED_STATUSES,
                         PageRequest.of(0, condition.limit()))
                 .stream()
                 .map(ProjectMemberSearchResponse::from)

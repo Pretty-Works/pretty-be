@@ -369,3 +369,107 @@ VALUES
     ('33333333-3333-4333-8333-333333333333', 'POST /api/v1/projects/{projectId}/expenses', 8,
      '0000000000000000000000000000000000000000000000000000000000000003', 12,
      DATE_SUB(NOW(6), INTERVAL 3 DAY), DATE_SUB(NOW(6), INTERVAL 3 DAY));
+
+
+-- =============================================================================
+-- 15) notifications  (인앱 알림 — 상단바 종 아이콘)
+--   김피엠(1)에게 26건을 몰아넣어 커서 페이지네이션을 확인할 수 있게 합니다
+--   (size=20이면 1페이지 20건 + nextCursor로 2페이지 6건).
+--   2·3번 사용자에게도 몇 건 넣어 "본인 알림만 조회"가 지켜지는지 볼 수 있습니다.
+--   맨 위 2건은 보관 기간(90일)이 지나 정리 배치의 삭제 대상입니다.
+--   read_at 이 NULL 인 행이 뱃지 숫자(unread-count)에 잡힙니다.
+--
+--   title 은 발생 시점에 완성해 저장한 문구라 NotificationType 의 템플릿과 형태가 같아야 합니다.
+--   문구에 작은따옴표가 들어가므로 문자열을 큰따옴표로 감쌌습니다.
+--   오래된 것부터 넣습니다 — id 오름차순이 곧 시간순이어야 커서(id DESC)가 최신순이 됩니다.
+-- =============================================================================
+INSERT INTO notifications
+    (user_id, type, title, actor_id, target_type, target_id, read_at, created_at, modified_at)
+VALUES
+    -- ── 보관 기간 초과 (정리 배치 삭제 대상) ──────────────────────────────
+    (1, 'PROJECT_MEMBER_ADDED',   "'구 사내포털' 프로젝트에 참여자로 추가되었습니다",           5, 'PROJECT', 5,
+     DATE_SUB(NOW(6), INTERVAL 99 DAY),  DATE_SUB(NOW(6), INTERVAL 100 DAY), DATE_SUB(NOW(6), INTERVAL 99 DAY)),
+    (1, 'PROJECT_STATUS_CHANGED', "'구 사내포털' 프로젝트가 보관 상태로 변경되었습니다",        5, 'PROJECT', 5,
+     DATE_SUB(NOW(6), INTERVAL 94 DAY),  DATE_SUB(NOW(6), INTERVAL 95 DAY),  DATE_SUB(NOW(6), INTERVAL 94 DAY)),
+
+    -- ── 읽은 알림 (목록에는 남되 강조되지 않음) ────────────────────────────
+    (1, 'PROJECT_MEMBER_ADDED',   "'레거시 마이그레이션' 프로젝트에 참여자로 추가되었습니다",   2, 'PROJECT', 4,
+     DATE_SUB(NOW(6), INTERVAL 59 DAY),  DATE_SUB(NOW(6), INTERVAL 60 DAY),  DATE_SUB(NOW(6), INTERVAL 59 DAY)),
+    (1, 'PROJECT_STATUS_CHANGED', "'레거시 마이그레이션' 프로젝트가 완료 상태로 변경되었습니다", 2, 'PROJECT', 4,
+     DATE_SUB(NOW(6), INTERVAL 29 DAY),  DATE_SUB(NOW(6), INTERVAL 30 DAY),  DATE_SUB(NOW(6), INTERVAL 29 DAY)),
+    (1, 'PROJECT_MEMBER_ADDED',   "'데이터 파이프라인 구축' 프로젝트에 참여자로 추가되었습니다", 5, 'PROJECT', 3,
+     DATE_SUB(NOW(6), INTERVAL 24 DAY),  DATE_SUB(NOW(6), INTERVAL 25 DAY),  DATE_SUB(NOW(6), INTERVAL 24 DAY)),
+    (1, 'PROJECT_STATUS_CHANGED', "'데이터 파이프라인 구축' 프로젝트가 보류 상태로 변경되었습니다", 5, 'PROJECT', 3,
+     DATE_SUB(NOW(6), INTERVAL 19 DAY),  DATE_SUB(NOW(6), INTERVAL 20 DAY),  DATE_SUB(NOW(6), INTERVAL 19 DAY)),
+    (1, 'PROJECT_MEMBER_REMOVED', "'구 사내포털' 프로젝트에서 제외되었습니다",                  5, 'PROJECT', 5,
+     DATE_SUB(NOW(6), INTERVAL 17 DAY),  DATE_SUB(NOW(6), INTERVAL 18 DAY),  DATE_SUB(NOW(6), INTERVAL 17 DAY)),
+    (1, 'PROJECT_MEMBER_ADDED',   "'사내 그룹웨어 리뉴얼' 프로젝트에 참여자로 추가되었습니다",  4, 'PROJECT', 2,
+     DATE_SUB(NOW(6), INTERVAL 15 DAY),  DATE_SUB(NOW(6), INTERVAL 16 DAY),  DATE_SUB(NOW(6), INTERVAL 15 DAY)),
+    (1, 'PROJECT_STATUS_CHANGED', "'사내 그룹웨어 리뉴얼' 프로젝트가 진행중 상태로 변경되었습니다", 4, 'PROJECT', 2,
+     DATE_SUB(NOW(6), INTERVAL 14 DAY),  DATE_SUB(NOW(6), INTERVAL 15 DAY),  DATE_SUB(NOW(6), INTERVAL 14 DAY)),
+    (1, 'PROJECT_MEMBER_ADDED',   "'AI 검색 고도화' 프로젝트에 참여자로 추가되었습니다",        2, 'PROJECT', 1,
+     DATE_SUB(NOW(6), INTERVAL 13 DAY),  DATE_SUB(NOW(6), INTERVAL 14 DAY),  DATE_SUB(NOW(6), INTERVAL 13 DAY)),
+    (1, 'PROJECT_MEMBER_REMOVED', "'레거시 마이그레이션' 프로젝트에서 제외되었습니다",          2, 'PROJECT', 4,
+     DATE_SUB(NOW(6), INTERVAL 12 DAY),  DATE_SUB(NOW(6), INTERVAL 13 DAY),  DATE_SUB(NOW(6), INTERVAL 12 DAY)),
+    (1, 'PROJECT_STATUS_CHANGED', "'AI 검색 고도화' 프로젝트가 진행중 상태로 변경되었습니다",   5, 'PROJECT', 1,
+     DATE_SUB(NOW(6), INTERVAL 11 DAY),  DATE_SUB(NOW(6), INTERVAL 12 DAY),  DATE_SUB(NOW(6), INTERVAL 11 DAY)),
+    (1, 'PROJECT_MEMBER_ADDED',   "'데이터 파이프라인 구축' 프로젝트에 참여자로 추가되었습니다", 8, 'PROJECT', 3,
+     DATE_SUB(NOW(6), INTERVAL 10 DAY),  DATE_SUB(NOW(6), INTERVAL 11 DAY),  DATE_SUB(NOW(6), INTERVAL 10 DAY)),
+    (1, 'PROJECT_MEMBER_REMOVED', "'데이터 파이프라인 구축' 프로젝트에서 제외되었습니다",       8, 'PROJECT', 3,
+     DATE_SUB(NOW(6), INTERVAL 9 DAY),   DATE_SUB(NOW(6), INTERVAL 10 DAY),  DATE_SUB(NOW(6), INTERVAL 9 DAY)),
+    (1, 'PROJECT_MEMBER_ADDED',   "'레거시 마이그레이션' 프로젝트에 참여자로 추가되었습니다",   4, 'PROJECT', 4,
+     DATE_SUB(NOW(6), INTERVAL 8 DAY),   DATE_SUB(NOW(6), INTERVAL 9 DAY),   DATE_SUB(NOW(6), INTERVAL 8 DAY)),
+    (1, 'PROJECT_STATUS_CHANGED', "'구 사내포털' 프로젝트가 완료 상태로 변경되었습니다",        2, 'PROJECT', 5,
+     DATE_SUB(NOW(6), INTERVAL 7 DAY),   DATE_SUB(NOW(6), INTERVAL 8 DAY),   DATE_SUB(NOW(6), INTERVAL 7 DAY)),
+    (1, 'PROJECT_MEMBER_ADDED',   "'구 사내포털' 프로젝트에 참여자로 추가되었습니다",           5, 'PROJECT', 5,
+     DATE_SUB(NOW(6), INTERVAL 6 DAY),   DATE_SUB(NOW(6), INTERVAL 7 DAY),   DATE_SUB(NOW(6), INTERVAL 6 DAY)),
+    (1, 'PROJECT_MEMBER_REMOVED', "'사내 그룹웨어 리뉴얼' 프로젝트에서 제외되었습니다",         4, 'PROJECT', 2,
+     DATE_SUB(NOW(6), INTERVAL 5 DAY),   DATE_SUB(NOW(6), INTERVAL 6 DAY),   DATE_SUB(NOW(6), INTERVAL 5 DAY)),
+
+    -- ── 안 읽은 알림 (뱃지 숫자 = 8) ──────────────────────────────────────
+    (1, 'PROJECT_MEMBER_ADDED',   "'사내 그룹웨어 리뉴얼' 프로젝트에 참여자로 추가되었습니다",  4, 'PROJECT', 2,
+     NULL, DATE_SUB(NOW(6), INTERVAL 4 DAY),  DATE_SUB(NOW(6), INTERVAL 4 DAY)),
+    (1, 'PROJECT_STATUS_CHANGED', "'데이터 파이프라인 구축' 프로젝트가 진행중 상태로 변경되었습니다", 5, 'PROJECT', 3,
+     NULL, DATE_SUB(NOW(6), INTERVAL 3 DAY),  DATE_SUB(NOW(6), INTERVAL 3 DAY)),
+    (1, 'PROJECT_MEMBER_ADDED',   "'데이터 파이프라인 구축' 프로젝트에 참여자로 추가되었습니다", 5, 'PROJECT', 3,
+     NULL, DATE_SUB(NOW(6), INTERVAL 2 DAY),  DATE_SUB(NOW(6), INTERVAL 2 DAY)),
+    (1, 'PROJECT_STATUS_CHANGED', "'AI 검색 고도화' 프로젝트가 보류 상태로 변경되었습니다",     2, 'PROJECT', 1,
+     NULL, DATE_SUB(NOW(6), INTERVAL 30 HOUR), DATE_SUB(NOW(6), INTERVAL 30 HOUR)),
+    (1, 'PROJECT_MEMBER_REMOVED', "'AI 검색 고도화' 프로젝트에서 제외되었습니다",               2, 'PROJECT', 1,
+     NULL, DATE_SUB(NOW(6), INTERVAL 20 HOUR), DATE_SUB(NOW(6), INTERVAL 20 HOUR)),
+    (1, 'PROJECT_MEMBER_ADDED',   "'AI 검색 고도화' 프로젝트에 참여자로 추가되었습니다",        8, 'PROJECT', 1,
+     NULL, DATE_SUB(NOW(6), INTERVAL 6 HOUR),  DATE_SUB(NOW(6), INTERVAL 6 HOUR)),
+    (1, 'PROJECT_STATUS_CHANGED', "'레거시 마이그레이션' 프로젝트가 보관 상태로 변경되었습니다", 4, 'PROJECT', 4,
+     NULL, DATE_SUB(NOW(6), INTERVAL 2 HOUR),  DATE_SUB(NOW(6), INTERVAL 2 HOUR)),
+    (1, 'PROJECT_MEMBER_ADDED',   "'사내 그룹웨어 리뉴얼' 프로젝트에 참여자로 추가되었습니다",  5, 'PROJECT', 2,
+     NULL, DATE_SUB(NOW(6), INTERVAL 25 MINUTE), DATE_SUB(NOW(6), INTERVAL 25 MINUTE)),
+
+    -- ── 나머지 3종 (마일스톤·지출·기간). 화면이 6종을 모두 렌더링하는지 확인용 ──
+    (1, 'MILESTONE_COMPLETED',    "'1차 검색 품질 지표 확정' 마일스톤이 완료되었습니다",       5, 'PROJECT', 1,
+     NULL, DATE_SUB(NOW(6), INTERVAL 20 MINUTE), DATE_SUB(NOW(6), INTERVAL 20 MINUTE)),
+    (1, 'EXPENSE_CREATED',        "'AI 검색 고도화' 프로젝트에 1,500,000원 지출이 등록되었습니다", 2, 'PROJECT', 1,
+     NULL, DATE_SUB(NOW(6), INTERVAL 15 MINUTE), DATE_SUB(NOW(6), INTERVAL 15 MINUTE)),
+    (1, 'PROJECT_PERIOD_CHANGED', "'사내 그룹웨어 리뉴얼' 프로젝트 기간이 2026-08-01 ~ 2027-01-31 로 변경되었습니다", 4, 'PROJECT', 2,
+     NULL, DATE_SUB(NOW(6), INTERVAL 10 MINUTE), DATE_SUB(NOW(6), INTERVAL 10 MINUTE)),
+
+    -- ── 다른 사용자 (본인 알림만 조회되는지 확인용) ────────────────────────
+    (2, 'PROJECT_MEMBER_ADDED',   "'AI 검색 고도화' 프로젝트에 참여자로 추가되었습니다",        1, 'PROJECT', 1,
+     DATE_SUB(NOW(6), INTERVAL 9 DAY), DATE_SUB(NOW(6), INTERVAL 10 DAY), DATE_SUB(NOW(6), INTERVAL 9 DAY)),
+    (2, 'PROJECT_STATUS_CHANGED', "'AI 검색 고도화' 프로젝트가 진행중 상태로 변경되었습니다",   1, 'PROJECT', 1,
+     NULL, DATE_SUB(NOW(6), INTERVAL 5 HOUR), DATE_SUB(NOW(6), INTERVAL 5 HOUR)),
+    (2, 'PROJECT_MEMBER_REMOVED', "'구 사내포털' 프로젝트에서 제외되었습니다",                  1, 'PROJECT', 5,
+     NULL, DATE_SUB(NOW(6), INTERVAL 1 HOUR), DATE_SUB(NOW(6), INTERVAL 1 HOUR)),
+    (3, 'PROJECT_MEMBER_ADDED',   "'사내 그룹웨어 리뉴얼' 프로젝트에 참여자로 추가되었습니다",  1, 'PROJECT', 2,
+     NULL, DATE_SUB(NOW(6), INTERVAL 3 HOUR), DATE_SUB(NOW(6), INTERVAL 3 HOUR)),
+    (3, 'PROJECT_STATUS_CHANGED', "'데이터 파이프라인 구축' 프로젝트가 보류 상태로 변경되었습니다", 5, 'PROJECT', 3,
+     DATE_SUB(NOW(6), INTERVAL 1 DAY), DATE_SUB(NOW(6), INTERVAL 2 DAY), DATE_SUB(NOW(6), INTERVAL 1 DAY));
+
+-- 알림함을 마지막으로 연 시점(뱃지 기준점).
+--   김피엠(1)만 설정합니다 — 위에서 넣은 26건 중 최신 8건보다 앞선 id를 기준으로 잡아,
+--   로그인하면 빨간 점이 켜진 상태로 시작합니다. 드롭다운을 열면(PATCH /seen) 꺼지고,
+--   목록의 안 읽은 강조 8건은 그대로 남습니다(읽음과 확인은 다른 개념).
+--   2·3번은 NULL로 둬서 "한 번도 연 적 없는 사용자"도 확인할 수 있게 합니다.
+UPDATE users
+SET last_seen_notification_id =
+        (SELECT id FROM notifications WHERE user_id = 1 ORDER BY id DESC LIMIT 1 OFFSET 8)
+WHERE id = 1;
