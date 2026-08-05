@@ -8,13 +8,17 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.jdbc.Expectation;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "meetings")
-@SQLDelete(sql = "UPDATE meetings SET deleted_at = NOW() WHERE id = ?")   // delete() → UPDATE로 바뀜
+@SQLDelete(
+        sql = "UPDATE meetings SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL",
+        verify = Expectation.RowCount.class
+)
 @SQLRestriction("deleted_at IS NULL")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)
@@ -25,7 +29,7 @@ public class MeetingEntity extends BaseTimeEntity {
     private Long id;
 
     // 프로젝트 ID (projects 테이블의 id)
-    @Column(name = "project_id")
+    @Column(name = "project_id", nullable = false)
     private Long projectId;
 
     // 사용자 ID (작성자) (users 테이블의 id)
@@ -53,7 +57,7 @@ public class MeetingEntity extends BaseTimeEntity {
     private String purpose;
 
     // 주요 내용
-    @Column(name = "content", columnDefinition = "TEXT")
+    @Column(name = "content", nullable = false, columnDefinition = "TEXT")
     private String content;
 
     // 후속 조치
