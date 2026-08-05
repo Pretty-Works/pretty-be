@@ -198,7 +198,6 @@ VALUES
 -- =============================================================================
 INSERT INTO project_posts
     (project_id, author_id, title, priority, content, deleted_at, created_at, modified_at)
-    (project_id, author_id, title, content, created_at, modified_at)
 VALUES
     -- P1 AI 검색 고도화 (활성 12건 + 삭제 1건)
     (1, 1, '킥오프 결과 공유',              'HIGH', '킥오프에서 확정한 범위와 역할 분담, 스프린트 운영 방식을 정리했습니다. 회의록과 함께 확인해 주세요.',       NULL, DATE_SUB(NOW(6), INTERVAL 55 DAY), DATE_SUB(NOW(6), INTERVAL 55 DAY)),
@@ -228,14 +227,6 @@ VALUES
     (3, 6, 'BigQuery 비용 절감 아이디어',   'LOW',  '파티셔닝과 구체화 뷰 적용 시 쿼리 비용을 30% 이상 줄일 수 있을 것으로 보입니다.',                           NULL, DATE_SUB(NOW(6), INTERVAL 44 DAY), DATE_SUB(NOW(6), INTERVAL 44 DAY)),
     -- P4 레거시 마이그레이션 (완료 — 새 글 작성은 차단되지만 기존 글은 조회 가능)
     (4, 1, '이관 완료 회고 정리',           'MID',  '컷오버 과정에서 잘한 점과 아쉬운 점을 회고로 정리했습니다. 다음 이관 프로젝트에 참고해 주세요.',             NULL, DATE_SUB(NOW(6), INTERVAL 35 DAY), DATE_SUB(NOW(6), INTERVAL 35 DAY));
-    (1, 1, '킥오프 회의록 공유',      '검색 고도화 프로젝트 킥오프 내용 정리했습니다. 확인 부탁드려요.', DATE_SUB(NOW(6), INTERVAL 55 DAY), DATE_SUB(NOW(6), INTERVAL 55 DAY)),
-    (1, 2, '인덱싱 개선 논의',        '역색인 구조를 이렇게 바꾸면 어떨지 의견 주세요.',                DATE_SUB(NOW(6), INTERVAL 20 DAY), DATE_SUB(NOW(6), INTERVAL 20 DAY)),
-    (1, 6, '임베딩 모델 비교표',      '후보 모델 3종의 성능·비용 비교표입니다.',                        DATE_SUB(NOW(6), INTERVAL 6 DAY),  DATE_SUB(NOW(6), INTERVAL 6 DAY)),
-    (2, 1, '리뉴얼 범위 공지',        '이번 스프린트 리뉴얼 범위와 우선순위 공유합니다.',              DATE_SUB(NOW(6), INTERVAL 25 DAY), DATE_SUB(NOW(6), INTERVAL 25 DAY)),
-    (2, 8, '배포 파이프라인 안내',    'CI/CD 파이프라인 사용법 문서 링크 첨부합니다.',                 DATE_SUB(NOW(6), INTERVAL 10 DAY), DATE_SUB(NOW(6), INTERVAL 10 DAY)),
-    (2, 4, '디자인 시스템 리뷰 요청', '토큰화한 디자인 시스템 리뷰 부탁드립니다.',                     DATE_SUB(NOW(6), INTERVAL 2 DAY),  DATE_SUB(NOW(6), INTERVAL 2 DAY)),
-    (3, 5, '수집 대상 확정',          '1차 수집 대상 소스 목록 확정했습니다.',                         DATE_SUB(NOW(6), INTERVAL 70 DAY), DATE_SUB(NOW(6), INTERVAL 70 DAY));
-
 
 -- =============================================================================
 -- 7) meetings  (회의록 13건 중 활성 12건, id 1~13)

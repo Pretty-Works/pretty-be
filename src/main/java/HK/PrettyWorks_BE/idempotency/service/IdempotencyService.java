@@ -21,8 +21,6 @@ public class IdempotencyService {
     // idempotency_key 가 VARCHAR(64). 컨트롤러마다 @Size로 두면 복사본이 늘고 빠뜨리기 쉬워 여기서 지킨다.
     private static final int MAX_KEY_LENGTH = 64;
 
-    private static final int MAX_KEY_LENGTH = 64;
-
     private final IdempotencyKeyRepository repository;
     private final ObjectMapper objectMapper;
     private final TransactionTemplate txTemplate;
