@@ -15,7 +15,7 @@ public interface PostRepository extends JpaRepository<PostEntity, Long> {
             SELECT p
             FROM PostEntity p
             WHERE p.projectId = :projectId
-              AND (:title IS NULL OR p.title LIKE CONCAT('%', :title, '%00'))
+              AND (:title IS NULL OR p.title LIKE CONCAT('%', :title, '%'))
               AND (:priority IS NULL OR p.priority = :priority)
             ORDER BY p.createdAt DESC, p.id DESC
             """,
