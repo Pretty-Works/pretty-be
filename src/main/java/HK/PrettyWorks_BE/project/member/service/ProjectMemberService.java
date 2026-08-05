@@ -106,9 +106,8 @@ public class ProjectMemberService {
 
     // 참여중 재직자 전체. 자동완성(searchMembers)과 달리 검색어 없이도 전체를 주고 요청자 본인도 포함한다.
     //
-    // 재직 상태를 ACTIVE로 좁히는 것은 의도적이다. 휴직자는 일정 참가자로는 넣을 수 있지만
-    // 회의록 참석자로는 거부되므로(MeetingService.validateAttendees), 후보에 넣으면
-    // 에이전트가 승인까지 받아 놓고 저장 단계에서 실패한다.
+    // 재직 기준은 자동완성과 같다(퇴사만 제외, 휴직 포함). 두 조회가 다른 명단을 주면
+    // 화면에는 보이는 사람이 에이전트에게는 안 보이는 식으로 갈린다.
     @Transactional(readOnly = true)
     public List<ProjectMemberDetailResponse> getActiveMembers(Long projectId, Long requesterId,
                                                               String keyword, int limit) {
@@ -117,7 +116,7 @@ public class ProjectMemberService {
         String searchKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
         return projectMemberRepository.findActiveMembers(
                         projectId, searchKeyword,
-                        ProjectMemberStatus.ACTIVE, StatusType.ACTIVE,
+                        ProjectMemberStatus.ACTIVE, UserPolicy.EMPLOYED_STATUSES,
                         PageRequest.of(0, limit))
                 .stream()
                 .map(ProjectMemberDetailResponse::from)

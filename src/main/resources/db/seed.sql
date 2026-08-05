@@ -189,54 +189,142 @@ VALUES
 
 
 -- =============================================================================
--- 6) project_posts  (프로젝트 게시판)
+-- 6) project_posts  (프로젝트 게시판, 23건 중 활성 21건)
+--   목록 정렬은 created_at DESC, id DESC — 같은 시각(-1일) 2건으로 id 보조 정렬을 확인합니다.
+--   P1 은 활성 12건이라 기본 size=10 에서 2페이지가 나옵니다(페이징 확인용).
+--   '리뷰' 키워드(제목 부분 검색)와 priority(HIGH/MID/LOW) 필터를 섞어 두었고,
+--   deleted_at 이 채워진 2건은 소프트 삭제 확인용 — @SQLRestriction 으로 목록·상세에서 빠져야 합니다.
+--   작성자는 모두 해당 프로젝트의 ACTIVE 멤버, P4(완료)의 글은 완료 전에 작성된 기록입니다.
 -- =============================================================================
 INSERT INTO project_posts
-    (project_id, author_id, title, content, created_at, modified_at)
+    (project_id, author_id, title, priority, content, deleted_at, created_at, modified_at)
 VALUES
-    (1, 1, '킥오프 회의록 공유',      '검색 고도화 프로젝트 킥오프 내용 정리했습니다. 확인 부탁드려요.', DATE_SUB(NOW(6), INTERVAL 55 DAY), DATE_SUB(NOW(6), INTERVAL 55 DAY)),
-    (1, 2, '인덱싱 개선 논의',        '역색인 구조를 이렇게 바꾸면 어떨지 의견 주세요.',                DATE_SUB(NOW(6), INTERVAL 20 DAY), DATE_SUB(NOW(6), INTERVAL 20 DAY)),
-    (1, 6, '임베딩 모델 비교표',      '후보 모델 3종의 성능·비용 비교표입니다.',                        DATE_SUB(NOW(6), INTERVAL 6 DAY),  DATE_SUB(NOW(6), INTERVAL 6 DAY)),
-    (2, 1, '리뉴얼 범위 공지',        '이번 스프린트 리뉴얼 범위와 우선순위 공유합니다.',              DATE_SUB(NOW(6), INTERVAL 25 DAY), DATE_SUB(NOW(6), INTERVAL 25 DAY)),
-    (2, 8, '배포 파이프라인 안내',    'CI/CD 파이프라인 사용법 문서 링크 첨부합니다.',                 DATE_SUB(NOW(6), INTERVAL 10 DAY), DATE_SUB(NOW(6), INTERVAL 10 DAY)),
-    (2, 4, '디자인 시스템 리뷰 요청', '토큰화한 디자인 시스템 리뷰 부탁드립니다.',                     DATE_SUB(NOW(6), INTERVAL 2 DAY),  DATE_SUB(NOW(6), INTERVAL 2 DAY)),
-    (3, 5, '수집 대상 확정',          '1차 수집 대상 소스 목록 확정했습니다.',                         DATE_SUB(NOW(6), INTERVAL 70 DAY), DATE_SUB(NOW(6), INTERVAL 70 DAY));
-
+    -- P1 AI 검색 고도화 (활성 12건 + 삭제 1건)
+    (1, 1, '킥오프 결과 공유',              'HIGH', '킥오프에서 확정한 범위와 역할 분담, 스프린트 운영 방식을 정리했습니다. 회의록과 함께 확인해 주세요.',       NULL, DATE_SUB(NOW(6), INTERVAL 55 DAY), DATE_SUB(NOW(6), INTERVAL 55 DAY)),
+    (1, 2, '검색 인덱싱 구조 개선 제안',    'MID',  '현재 역색인 구조의 병목을 정리하고 세그먼트 병합 주기 조정안을 제안합니다. 의견 부탁드립니다.',             NULL, DATE_SUB(NOW(6), INTERVAL 46 DAY), DATE_SUB(NOW(6), INTERVAL 40 DAY)),  -- 수정 이력 있는 글
+    (1, 3, '쿼리 파서 리팩터링 계획',       'MID',  '파서 모듈을 토크나이저와 분리하는 리팩터링 계획입니다. 다음 스프린트에 반영 예정입니다.',                   NULL, DATE_SUB(NOW(6), INTERVAL 38 DAY), DATE_SUB(NOW(6), INTERVAL 38 DAY)),
+    (1, 6, '임베딩 모델 후보 비교',         'LOW',  '후보 모델 3종의 정확도·지연시간·비용 비교표입니다. 종합적으로는 B안이 우세합니다.',                         NULL, DATE_SUB(NOW(6), INTERVAL 31 DAY), DATE_SUB(NOW(6), INTERVAL 31 DAY)),
+    (1, 1, '스프린트 운영 규칙 공지',       'HIGH', '데일리 스탠드업은 10시, 스프린트 리뷰는 격주 금요일로 고정합니다. 부재 시 스레드로 공유해 주세요.',         NULL, DATE_SUB(NOW(6), INTERVAL 24 DAY), DATE_SUB(NOW(6), INTERVAL 24 DAY)),
+    (1, 4, '검색 결과 UI 시안 리뷰 요청',   'MID',  '검색 결과 카드형/리스트형 시안 2종입니다. 금요일까지 코멘트 부탁드립니다.',                                 NULL, DATE_SUB(NOW(6), INTERVAL 17 DAY), DATE_SUB(NOW(6), INTERVAL 17 DAY)),
+    (1, 2, '캐시 레이어 도입 검토',         'LOW',  '인기 쿼리 상위 5%가 전체 트래픽의 40%를 차지합니다. 결과 캐시 도입 시 예상 절감 효과를 정리했습니다.',     NULL, DATE_SUB(NOW(6), INTERVAL 11 DAY), DATE_SUB(NOW(6), INTERVAL 11 DAY)),
+    (1, 6, '데이터 라벨링 가이드 공유',     'LOW',  '관련성 라벨링 기준(4단계)과 예시 모음입니다. 라벨러 온보딩에 활용해 주세요.',                               NULL, DATE_SUB(NOW(6), INTERVAL 8 DAY),  DATE_SUB(NOW(6), INTERVAL 8 DAY)),
+    (1, 3, '색인 재구축 스크립트 사용법',   'MID',  '전체 재색인 스크립트 옵션과 주의사항(피크 시간대 실행 금지)을 정리했습니다.',                               NULL, DATE_SUB(NOW(6), INTERVAL 6 DAY),  DATE_SUB(NOW(6), INTERVAL 6 DAY)),
+    (1, 1, '중간 점검 일정 공지',           'HIGH', '다음 주 화요일 14시에 중간 점검을 진행합니다. 파트별 진행 현황을 준비해 주세요.',                           NULL, DATE_SUB(NOW(6), INTERVAL 2 DAY),  DATE_SUB(NOW(6), INTERVAL 2 DAY)),
+    -- 아래 2건은 created_at 이 같아 id DESC 보조 정렬을 확인합니다 (같은 INSERT 문이라 NOW(6)가 동일)
+    (1, 4, '접근성 점검 결과 공유',         'MID',  '스크린리더 호환성 점검 결과 12건의 이슈를 발견했습니다. 심각도별로 정리했습니다.',                          NULL, DATE_SUB(NOW(6), INTERVAL 1 DAY),  DATE_SUB(NOW(6), INTERVAL 1 DAY)),
+    (1, 2, '벤치마크 리포트 초안 리뷰 요청','HIGH', '스프린트 2까지의 성능 개선 수치를 정리한 리포트 초안입니다. 수치 검증 부탁드립니다.',                       NULL, DATE_SUB(NOW(6), INTERVAL 1 DAY),  DATE_SUB(NOW(6), INTERVAL 1 DAY)),
+    (1, 3, '잘못 올린 글',                  'LOW',  '다른 프로젝트에 올릴 글을 잘못 게시해 삭제했습니다.',                                                       DATE_SUB(NOW(6), INTERVAL 29 DAY), DATE_SUB(NOW(6), INTERVAL 30 DAY), DATE_SUB(NOW(6), INTERVAL 30 DAY)),  -- 소프트 삭제
+    -- P2 사내 그룹웨어 리뉴얼 (활성 6건 + 삭제 1건)
+    (2, 1, '리뉴얼 범위 및 우선순위 공지',  'HIGH', '이번 리뉴얼 1차 범위를 메일·결재·게시판으로 확정했습니다. 상세 우선순위는 본문을 참고해 주세요.',           NULL, DATE_SUB(NOW(6), INTERVAL 25 DAY), DATE_SUB(NOW(6), INTERVAL 25 DAY)),
+    (2, 5, '정보구조(IA) 초안 공유',        'MID',  '메뉴 구조와 화면 흐름 초안입니다. 부서별 사용 시나리오 관점에서 검토 부탁드립니다.',                        NULL, DATE_SUB(NOW(6), INTERVAL 18 DAY), DATE_SUB(NOW(6), INTERVAL 18 DAY)),
+    (2, 4, '디자인 토큰 명명 규칙 제안',    'MID',  '컬러·타이포·간격 토큰의 명명 규칙 제안입니다. 확정되면 컴포넌트 작업을 시작합니다.',                        NULL, DATE_SUB(NOW(6), INTERVAL 14 DAY), DATE_SUB(NOW(6), INTERVAL 12 DAY)),  -- 수정 이력 있는 글
+    (2, 8, 'CI 파이프라인 사용 안내',       'LOW',  'PR 생성 시 자동 빌드·테스트가 돌아갑니다. 실패 시 재실행 방법과 캐시 초기화 절차를 정리했습니다.',          NULL, DATE_SUB(NOW(6), INTERVAL 9 DAY),  DATE_SUB(NOW(6), INTERVAL 9 DAY)),
+    (2, 7, '알림 센터 화면 시안 리뷰 요청', 'MID',  '알림 센터 목록/설정 화면 시안입니다. 다크모드 대응안도 포함했습니다.',                                      NULL, DATE_SUB(NOW(6), INTERVAL 4 DAY),  DATE_SUB(NOW(6), INTERVAL 4 DAY)),
+    (2, 1, '주간 진행 현황 공유',           'HIGH', '이번 주 파트별 진행 현황과 다음 주 계획입니다. 지연 항목은 따로 표시했습니다.',                             NULL, DATE_SUB(NOW(6), INTERVAL 1 DAY),  DATE_SUB(NOW(6), INTERVAL 1 DAY)),
+    (2, 4, '중복 작성 글',                  'MID',  '같은 내용이 두 번 게시되어 삭제했습니다.',                                                                  DATE_SUB(NOW(6), INTERVAL 13 DAY), DATE_SUB(NOW(6), INTERVAL 13 DAY), DATE_SUB(NOW(6), INTERVAL 13 DAY)),  -- 소프트 삭제
+    -- P3 데이터 파이프라인 구축 (보류 — 기존 글 조회는 가능)
+    (3, 5, '수집 대상 소스 확정 공지',      'HIGH', '1차 수집 대상 8개 소스를 확정했습니다. 소스별 담당자는 본문 표를 참고해 주세요.',                           NULL, DATE_SUB(NOW(6), INTERVAL 70 DAY), DATE_SUB(NOW(6), INTERVAL 70 DAY)),
+    (3, 6, 'BigQuery 비용 절감 아이디어',   'LOW',  '파티셔닝과 구체화 뷰 적용 시 쿼리 비용을 30% 이상 줄일 수 있을 것으로 보입니다.',                           NULL, DATE_SUB(NOW(6), INTERVAL 44 DAY), DATE_SUB(NOW(6), INTERVAL 44 DAY)),
+    -- P4 레거시 마이그레이션 (완료 — 새 글 작성은 차단되지만 기존 글은 조회 가능)
+    (4, 1, '이관 완료 회고 정리',           'MID',  '컷오버 과정에서 잘한 점과 아쉬운 점을 회고로 정리했습니다. 다음 이관 프로젝트에 참고해 주세요.',             NULL, DATE_SUB(NOW(6), INTERVAL 35 DAY), DATE_SUB(NOW(6), INTERVAL 35 DAY));
 
 -- =============================================================================
--- 7) meetings  (회의록, document_no UNIQUE)
---   MTG-2026-005 는 소프트 삭제 상태 — @SQLRestriction("deleted_at IS NULL") 로 목록·상세에서 빠져야 합니다.
+-- 7) meetings  (회의록 13건 중 활성 12건, id 1~13)
+--   document_no 는 서비스 생성 규칙과 같은 MTG-{회의일자}-{id} 형식으로 만듭니다.
+--   회의 일자가 상대값이라 날짜 부분은 CONCAT 으로 계산하고, id 부분은 "빈 테이블에 순서대로 삽입 → id 1~13" 전제로 고정합니다.
+--   회의 일자는 모두 각 프로젝트 기간(startDate~targetDate) 안 — 생성/수정 API 검증과 같은 조건입니다.
+--   목록 정렬은 meeting_date DESC, id DESC — 같은 날짜(-5일) 2건으로 보조 정렬을 확인합니다.
+--   13번(취소된 중간 점검)은 소프트 삭제 — @SQLRestriction("deleted_at IS NULL") 로 목록·상세에서 빠져야 합니다.
 -- =============================================================================
 INSERT INTO meetings
     (project_id, document_no, title, author_id, meeting_date, location, purpose, content, follow_up, recording, deleted_at, created_at, modified_at)
 VALUES
-    (1,    'MTG-2026-001', '검색 고도화 킥오프',   1, DATE_SUB(CURDATE(), INTERVAL 55 DAY), '본사 3층 회의실 A', '프로젝트 범위·일정 합의', '범위, 역할, 마일스톤 확정',   '주간 스프린트 리뷰 운영', 'recordings/mtg-2026-001.mp4', NULL, NOW(6), NOW(6)),
-    (2,    'MTG-2026-002', '그룹웨어 리뉴얼 착수', 1, DATE_SUB(CURDATE(), INTERVAL 25 DAY), '본사 5층 회의실 B', '리뉴얼 착수 및 요구사항', '요구사항 우선순위 정리',     '디자인 시스템 선행',      NULL,                          NULL, NOW(6), NOW(6)),
-    (NULL, 'MTG-2026-003', '전사 기획 정기회의',   5, DATE_SUB(CURDATE(), INTERVAL 14 DAY), '온라인(Zoom)',      '월간 기획 공유',           '부서별 진행상황 공유',       '차월 목표 수립',          'recordings/mtg-2026-003.mp4', NULL, NOW(6), NOW(6)),
-    (1,    'MTG-2026-004', '검색 스프린트 리뷰',   2, DATE_SUB(CURDATE(), INTERVAL 5 DAY),  '본사 3층 회의실 A', '스프린트 결과 리뷰',       '인덱싱/랭킹 개선 데모',      '벤치마크 리포트 공유',    NULL,                          NULL, NOW(6), NOW(6)),
-    (2,    'MTG-2026-005', '취소된 중간 점검',     1, DATE_SUB(CURDATE(), INTERVAL 20 DAY), '본사 5층 회의실 B', '중간 점검(취소)',         '일정 사유로 취소됨',         '재소집 예정',             NULL,   DATE_SUB(NOW(6), INTERVAL 18 DAY), NOW(6), NOW(6));
+    -- P1 AI 검색 고도화 (id 1~6, 기간 -60 ~ +60)
+    (1, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 55 DAY), '-1'),  '검색 고도화 킥오프',        1, DATE_SUB(CURDATE(), INTERVAL 55 DAY), '본사 3층 회의실 A',   '프로젝트 범위·일정·역할 합의',        '프로젝트 배경과 목표 지표(검색 CTR +15%)를 공유하고, 범위를 1차(랭킹 개선)와 2차(임베딩 도입)로 나눠 확정했다. 스프린트 주기는 2주로 합의.', '스프린트 보드 개설(김피엠), 벤치마크 데이터셋 준비(강지우)', 'recordings/mtg-p1-kickoff.mp4',   NULL, DATE_SUB(NOW(6), INTERVAL 55 DAY), DATE_SUB(NOW(6), INTERVAL 55 DAY)),
+    (1, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 48 DAY), '-2'),  '검색 요구사항 정리 워크숍', 1, DATE_SUB(CURDATE(), INTERVAL 48 DAY), '본사 3층 회의실 A',   '검색 품질 요구사항 수집·우선순위화',  '부서별 검색 불만 사례 32건을 수집해 유형화했다. 동의어 처리와 오타 교정을 1순위, 문서 최신성 반영을 2순위로 결정.',                         '요구사항 명세서 초안 작성(박도윤)',                          NULL,                              NULL, DATE_SUB(NOW(6), INTERVAL 48 DAY), DATE_SUB(NOW(6), INTERVAL 48 DAY)),
+    (1, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 40 DAY), '-3'),  '1차 스프린트 리뷰',         2, DATE_SUB(CURDATE(), INTERVAL 40 DAY), '온라인(Google Meet)', '스프린트 1 결과 공유',                '역색인 파라미터 튜닝으로 검색 지연시간을 평균 340ms에서 180ms로 단축했다. 동의어 사전 1차본을 적용하고 미커버 케이스는 백로그로 이동.',     '동의어 사전 보완(박도윤), 랭킹 A/B 실험 설계(강지우)',       'recordings/mtg-p1-sprint1.mp4',   NULL, DATE_SUB(NOW(6), INTERVAL 40 DAY), DATE_SUB(NOW(6), INTERVAL 40 DAY)),
+    (1, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 20 DAY), '-4'),  '랭킹 알고리즘 개선 회의',   2, DATE_SUB(CURDATE(), INTERVAL 20 DAY), '본사 3층 회의실 A',   '임베딩 기반 랭킹 반영 비율 결정',     'BM25와 임베딩 유사도의 하이브리드 가중치를 실험 결과에 따라 0.7:0.3으로 확정했다. 재색인 주기는 일 1회로 결정.',                            'A/B 테스트 트래픽 10% 적용(강지우)',                         NULL,                              NULL, DATE_SUB(NOW(6), INTERVAL 20 DAY), DATE_SUB(NOW(6), INTERVAL 20 DAY)),
+    (1, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 5 DAY),  '-5'),  '2차 스프린트 리뷰',         2, DATE_SUB(CURDATE(), INTERVAL 5 DAY),  '본사 3층 회의실 A',   '스프린트 2 결과 공유·데모',           '하이브리드 랭킹 A/B 결과 CTR +9.2%를 확인했다. 검색 결과 UI 개선안 데모를 진행하고 피드백을 다음 스프린트에 반영하기로 했다.',              '벤치마크 리포트 전사 공유(이하늘)',                          NULL,                              NULL, DATE_SUB(NOW(6), INTERVAL 5 DAY),  DATE_SUB(NOW(6), INTERVAL 5 DAY)),
+    (1, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 5 DAY),  '-6'),  '임베딩 파이프라인 점검',    6, DATE_SUB(CURDATE(), INTERVAL 5 DAY),  '온라인(Google Meet)', '배치 파이프라인 병목 점검',           '배치 임베딩 처리량이 목표(10만 건/시간) 대비 60% 수준이다. GPU 배치 크기 조정과 전처리 병렬화로 개선하기로 했다.',                          'GPU 인스턴스 증설 품의(강지우)',                             'recordings/mtg-p1-embedding.mp4', NULL, DATE_SUB(NOW(6), INTERVAL 5 DAY),  DATE_SUB(NOW(6), INTERVAL 5 DAY)),
+    -- P2 사내 그룹웨어 리뉴얼 (id 7~9, 기간 -30 ~ +150)
+    (2, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 25 DAY), '-7'),  '그룹웨어 리뉴얼 착수 회의', 1, DATE_SUB(CURDATE(), INTERVAL 25 DAY), '본사 5층 회의실 B',   '리뉴얼 배경 공유·요구사항 우선순위',  '레거시 그룹웨어의 페인포인트(느린 로딩, 모바일 미지원)를 공유하고 1차 범위를 메일·결재·게시판으로 확정했다.',                               '정보구조 초안 작성(정민준), 디자인 시스템 선행 착수(최서아)', 'recordings/mtg-p2-kickoff.mp4',   NULL, DATE_SUB(NOW(6), INTERVAL 25 DAY), DATE_SUB(NOW(6), INTERVAL 25 DAY)),
+    (2, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 12 DAY), '-8'),  '디자인 시스템 리뷰',        4, DATE_SUB(CURDATE(), INTERVAL 12 DAY), '본사 5층 회의실 B',   '토큰·공통 컴포넌트 1차본 리뷰',       '컬러·타이포·간격 토큰 명명 규칙을 확정하고 공통 컴포넌트 12종의 우선 구현 순서를 정했다.',                                                  '토큰 문서화(윤하은), 다크모드 팔레트 검토(최서아)',          NULL,                              NULL, DATE_SUB(NOW(6), INTERVAL 12 DAY), DATE_SUB(NOW(6), INTERVAL 12 DAY)),
+    (2, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 3 DAY),  '-9'),  '인프라 구성 협의',          8, DATE_SUB(CURDATE(), INTERVAL 3 DAY),  '온라인(Zoom)',        '스테이징 환경·배포 파이프라인 협의',  '스테이징을 운영과 동일 스펙으로 구성하기로 하고, 배포는 GitHub Actions 기반 블루/그린 방식으로 결정했다.',                                  '스테이징 IaC 작성(임도현)',                                  NULL,                              NULL, DATE_SUB(NOW(6), INTERVAL 3 DAY),  DATE_SUB(NOW(6), INTERVAL 3 DAY)),
+    -- P3 데이터 파이프라인 구축 (id 10~11, 기간 -90 ~ +30, 보류 — 기존 회의록 조회는 가능)
+    (3, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 70 DAY), '-10'), '수집 요건 정의 회의',       5, DATE_SUB(CURDATE(), INTERVAL 70 DAY), '본사 4층 회의실 C',   '수집 대상 소스·주기 확정',            '1차 수집 대상 8개 소스와 수집 주기(일 배치 6종, 준실시간 2종)를 확정했다. 개인정보 포함 소스는 마스킹 후 적재하기로 했다.',                 '소스별 스키마 정의(강지우), 커넥터 PoC(이하늘)',             NULL,                              NULL, DATE_SUB(NOW(6), INTERVAL 70 DAY), DATE_SUB(NOW(6), INTERVAL 70 DAY)),
+    (3, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 35 DAY), '-11'), '파이프라인 일시 보류 결정', 5, DATE_SUB(CURDATE(), INTERVAL 35 DAY), '온라인(Zoom)',        '전사 우선순위 조정에 따른 보류 협의', '전사 우선순위 조정으로 파이프라인 구축을 일시 보류하기로 했다. 재개 시점은 다음 분기 초로 잠정 합의.',                                      '진행 산출물 위키 정리(강지우)',                              'recordings/mtg-p3-hold.mp4',      NULL, DATE_SUB(NOW(6), INTERVAL 35 DAY), DATE_SUB(NOW(6), INTERVAL 35 DAY)),
+    -- P4 레거시 마이그레이션 (id 12, 기간 -210 ~ -30, 완료 — 새 작성은 차단되지만 기존 회의록 조회는 가능)
+    (4, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 45 DAY), '-12'), '컷오버 최종 점검',          1, DATE_SUB(CURDATE(), INTERVAL 45 DAY), '본사 5층 회의실 B',   '이관 컷오버 체크리스트 점검',         '컷오버 리허설 결과를 검토하고 롤백 기준(오류율 1% 초과)을 확정했다. 당일 비상 연락 체계를 공유했다.',                                       '컷오버 당일 상황실 운영(김피엠)',                            NULL,                              NULL, DATE_SUB(NOW(6), INTERVAL 45 DAY), DATE_SUB(NOW(6), INTERVAL 45 DAY)),
+    -- 소프트 삭제 (id 13)
+    (2, CONCAT('MTG-', DATE_SUB(CURDATE(), INTERVAL 10 DAY), '-13'), '취소된 중간 점검',          1, DATE_SUB(CURDATE(), INTERVAL 10 DAY), '본사 5층 회의실 B',   '중간 점검(작성 후 취소)',             '일정 사유로 회의가 취소되어 회의록을 삭제 처리했다.',                                                                                       '재소집 예정',                                                NULL,                              DATE_SUB(NOW(6), INTERVAL 8 DAY), DATE_SUB(NOW(6), INTERVAL 10 DAY), DATE_SUB(NOW(6), INTERVAL 10 DAY));
 
 
 -- =============================================================================
 -- 8) meeting_attendees  (회의별 WRITER 1명 + ATTENDEE, 이름·부서는 작성 시점 스냅샷)
+--   전원 해당 프로젝트의 ACTIVE 멤버(생성 API의 참석자 검증과 같은 조건)이고, 작성자는 ATTENDEE 로 중복 등록하지 않습니다.
+--   목록의 attendeeName 검색은 정확 일치 — 예: '김피엠' 검색 시 역할과 무관하게 참석한 회의가 모두 나옵니다.
+--   13번(소프트 삭제된 회의)의 행은 남아 있어도 회의 자체가 조회에서 빠지므로 노출되지 않습니다.
 -- =============================================================================
 INSERT INTO meeting_attendees
     (meeting_id, user_id, attendee_name, attendee_department, role, created_at, modified_at)
 VALUES
+    -- M1 검색 고도화 킥오프
     (1, 1, '김피엠', 'PM',       'WRITER',   NOW(6), NOW(6)),
     (1, 2, '이하늘', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
     (1, 4, '최서아', 'FRONTEND', 'ATTENDEE', NOW(6), NOW(6)),
     (1, 6, '강지우', 'DATA',     'ATTENDEE', NOW(6), NOW(6)),
+    -- M2 검색 요구사항 정리 워크숍
     (2, 1, '김피엠', 'PM',       'WRITER',   NOW(6), NOW(6)),
+    (2, 2, '이하늘', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
+    (2, 3, '박도윤', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
     (2, 4, '최서아', 'FRONTEND', 'ATTENDEE', NOW(6), NOW(6)),
-    (2, 5, '정민준', 'PLANNING', 'ATTENDEE', NOW(6), NOW(6)),
-    (2, 8, '임도현', 'DEVOPS',   'ATTENDEE', NOW(6), NOW(6)),
-    (3, 5, '정민준', 'PLANNING', 'WRITER',   NOW(6), NOW(6)),
+    -- M3 1차 스프린트 리뷰
+    (3, 2, '이하늘', 'BACKEND',  'WRITER',   NOW(6), NOW(6)),
     (3, 1, '김피엠', 'PM',       'ATTENDEE', NOW(6), NOW(6)),
+    (3, 3, '박도윤', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
+    (3, 6, '강지우', 'DATA',     'ATTENDEE', NOW(6), NOW(6)),
+    -- M4 랭킹 알고리즘 개선 회의
     (4, 2, '이하늘', 'BACKEND',  'WRITER',   NOW(6), NOW(6)),
     (4, 3, '박도윤', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
-    (4, 1, '김피엠', 'PM',       'ATTENDEE', NOW(6), NOW(6)),
-    (5, 1, '김피엠', 'PM',       'WRITER',   NOW(6), NOW(6));
+    (4, 6, '강지우', 'DATA',     'ATTENDEE', NOW(6), NOW(6)),
+    -- M5 2차 스프린트 리뷰
+    (5, 2, '이하늘', 'BACKEND',  'WRITER',   NOW(6), NOW(6)),
+    (5, 1, '김피엠', 'PM',       'ATTENDEE', NOW(6), NOW(6)),
+    (5, 3, '박도윤', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
+    (5, 4, '최서아', 'FRONTEND', 'ATTENDEE', NOW(6), NOW(6)),
+    (5, 6, '강지우', 'DATA',     'ATTENDEE', NOW(6), NOW(6)),
+    -- M6 임베딩 파이프라인 점검
+    (6, 6, '강지우', 'DATA',     'WRITER',   NOW(6), NOW(6)),
+    (6, 2, '이하늘', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
+    (6, 3, '박도윤', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
+    -- M7 그룹웨어 리뉴얼 착수 회의
+    (7, 1, '김피엠', 'PM',       'WRITER',   NOW(6), NOW(6)),
+    (7, 4, '최서아', 'FRONTEND', 'ATTENDEE', NOW(6), NOW(6)),
+    (7, 5, '정민준', 'PLANNING', 'ATTENDEE', NOW(6), NOW(6)),
+    (7, 7, '윤하은', 'FRONTEND', 'ATTENDEE', NOW(6), NOW(6)),
+    (7, 8, '임도현', 'DEVOPS',   'ATTENDEE', NOW(6), NOW(6)),
+    -- M8 디자인 시스템 리뷰
+    (8, 4, '최서아', 'FRONTEND', 'WRITER',   NOW(6), NOW(6)),
+    (8, 5, '정민준', 'PLANNING', 'ATTENDEE', NOW(6), NOW(6)),
+    (8, 7, '윤하은', 'FRONTEND', 'ATTENDEE', NOW(6), NOW(6)),
+    -- M9 인프라 구성 협의
+    (9, 8, '임도현', 'DEVOPS',   'WRITER',   NOW(6), NOW(6)),
+    (9, 1, '김피엠', 'PM',       'ATTENDEE', NOW(6), NOW(6)),
+    (9, 7, '윤하은', 'FRONTEND', 'ATTENDEE', NOW(6), NOW(6)),
+    -- M10 수집 요건 정의 회의
+    (10, 5, '정민준', 'PLANNING', 'WRITER',   NOW(6), NOW(6)),
+    (10, 2, '이하늘', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
+    (10, 6, '강지우', 'DATA',     'ATTENDEE', NOW(6), NOW(6)),
+    -- M11 파이프라인 일시 보류 결정
+    (11, 5, '정민준', 'PLANNING', 'WRITER',   NOW(6), NOW(6)),
+    (11, 2, '이하늘', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
+    (11, 6, '강지우', 'DATA',     'ATTENDEE', NOW(6), NOW(6)),
+    -- M12 컷오버 최종 점검
+    (12, 1, '김피엠', 'PM',       'WRITER',   NOW(6), NOW(6)),
+    (12, 2, '이하늘', 'BACKEND',  'ATTENDEE', NOW(6), NOW(6)),
+    (12, 4, '최서아', 'FRONTEND', 'ATTENDEE', NOW(6), NOW(6)),
+    -- M13 취소된 중간 점검 (소프트 삭제된 회의 — WRITER 행만 유지)
+    (13, 1, '김피엠', 'PM',       'WRITER',   NOW(6), NOW(6));
 
 
 -- =============================================================================

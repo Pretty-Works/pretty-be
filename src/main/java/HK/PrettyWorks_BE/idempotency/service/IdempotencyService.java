@@ -51,6 +51,10 @@ public class IdempotencyService {
         if (key == null || key.isBlank()) {
             return txTemplate.execute(status -> creator.get());
         }
+        // DB 제약에 맡기면 409/500 계열 무결성 오류로 번역될 수 있으므로 요청 단계에서 400으로 거부한다.
+        if (key.length() > MAX_KEY_LENGTH) {
+            throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
+        }
         if (key.length() > MAX_KEY_LENGTH) {
             throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
         }

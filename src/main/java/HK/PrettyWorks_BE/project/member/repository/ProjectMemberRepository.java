@@ -73,13 +73,13 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMemberEnti
             join UserEntity u on u.id = m.userId
             where m.projectId = :projectId
               and m.status = :memberStatus
-              and u.status = :userStatus
+              and u.status in :employedStatuses
               and (:keyword is null or u.name like concat('%', :keyword, '%'))
             order by m.isOwner desc, u.name asc, u.id asc
             """)
     List<ProjectMemberDetailRow> findActiveMembers(@Param("projectId") Long projectId,
                                                    @Param("keyword") String keyword,
                                                    @Param("memberStatus") ProjectMemberStatus memberStatus,
-                                                   @Param("userStatus") StatusType userStatus,
+                                                   @Param("employedStatuses") Collection<StatusType> employedStatuses,
                                                    Pageable pageable);
 }

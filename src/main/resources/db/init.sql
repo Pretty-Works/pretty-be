@@ -163,20 +163,19 @@ CREATE TABLE IF NOT EXISTS tasks (
 -- project_posts : 프로젝트 게시판 (제목 + 내용만 있는 자유 게시판)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS project_posts (
-    id          BIGINT       NOT NULL AUTO_INCREMENT,
-    project_id  BIGINT       NOT NULL          COMMENT '프로젝트 FK',
-    author_id   BIGINT       NOT NULL          COMMENT '작성자 (users FK)',
-    title       VARCHAR(200) NOT NULL          COMMENT '제목',
+   id          BIGINT       NOT NULL AUTO_INCREMENT,
+   project_id  BIGINT       NOT NULL          COMMENT '프로젝트 FK',
+   author_id   BIGINT       NOT NULL          COMMENT '작성자 (users FK)',
+   title       VARCHAR(200) NOT NULL          COMMENT '제목',
+    priority    ENUM('HIGH', 'MID', 'LOW') NOT NULL COMMENT '우선순위',
     content     TEXT         NOT NULL          COMMENT '내용',
     created_at  DATETIME(6)  NULL              COMMENT '작성 시각',
     modified_at DATETIME(6)  NULL              COMMENT '수정 시각',
-    deleted_at    DATETIME(6)  NULL            COMMENT '삭제 시각',
-    PRIMARY KEY (id),
-    KEY idx_project_posts_project_created (project_id, created_at),
+    deleted_at  DATETIME(6)  NULL              COMMENT '삭제 시각',
+    PRIMARY KEY (id), KEY idx_project_posts_project_created (project_id, created_at),
     CONSTRAINT fk_project_posts_project FOREIGN KEY (project_id) REFERENCES projects (id),
-    CONSTRAINT fk_project_posts_author  FOREIGN KEY (author_id)  REFERENCES users (id)
-    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 게시판';
-
+    CONSTRAINT fk_project_posts_author  FOREIGN KEY (author_id)  REFERENCES users (id)) ENGINE=InnoDB
+    DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='프로젝트 게시판';
 
 -- =============================================================================
 -- meetings : 회의록 (기록 문서)
@@ -185,7 +184,7 @@ CREATE TABLE IF NOT EXISTS project_posts (
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS meetings (
     id            BIGINT       NOT NULL AUTO_INCREMENT,
-    project_id    BIGINT       NULL              COMMENT '프로젝트 FK (없을 수 있음)',
+    project_id    BIGINT       NOT NULL          COMMENT '프로젝트 FK (없을 수 있음)',
     document_no   VARCHAR(30)  NOT NULL          COMMENT '문서번호',
     title         VARCHAR(200) NOT NULL          COMMENT '회의명',
     author_id     BIGINT       NOT NULL          COMMENT '작성자 (users FK)',

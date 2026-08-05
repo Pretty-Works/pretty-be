@@ -27,6 +27,7 @@ public interface MeetingRepository extends JpaRepository<MeetingEntity, Long> {
                     SELECT 1 FROM MeetingAttendeeEntity a
                     WHERE a.meetingId = m.id AND a.attendeeName = :attendeeName
               ))
+            ORDER BY m.meetingDate DESC, m.id DESC
             """,
             countQuery = """
             SELECT COUNT(m)
