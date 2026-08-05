@@ -51,7 +51,13 @@
       "PowerShell(git -C \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\" branch --show-current)",
       "PowerShell(git -C \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\" status --short)",
       "PowerShell(git -C \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\" log --oneline -12)",
-      "Bash(cd /c/Users/tnals/Desktop/PrettyWorks_BE/src/main/java/HK/PrettyWorks_BE *)"
+      "Bash(cd /c/Users/tnals/Desktop/PrettyWorks_BE/src/main/java/HK/PrettyWorks_BE *)",
+      "Bash(cd /c/Users/tnals/Desktop/PrettyWorks_BE *)",
+      "Bash(grep -n \"\\\\\\\\\\\\\\\\'\\\\|''\" src/main/resources/db/seed.sql)",
+      "Read(//c//**)",
+      "Read(//c/Users/resources/db/**)",
+      "Bash(python -)",
+      "WebSearch"
     ]
   }
 }

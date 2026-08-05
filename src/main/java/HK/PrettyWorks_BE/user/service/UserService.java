@@ -1,8 +1,8 @@
 package HK.PrettyWorks_BE.user.service;
 
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
-import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
+import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.user.dto.res.MyProfileResponse;
 import HK.PrettyWorks_BE.user.dto.res.UserSearchResponse;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
@@ -20,9 +20,6 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class UserService {
-
-    private static final List<StatusType> EMPLOYED_STATUSES =
-            List.of(StatusType.ACTIVE, StatusType.ON_LEAVE);
 
     private final UserRepository userRepository;
     private final CurrentUserService currentUserService;
@@ -46,7 +43,7 @@ public class UserService {
         }
 
         return userRepository.searchByName(
-                        requesterId, condition.keyword(), EMPLOYED_STATUSES,
+                        requesterId, condition.keyword(), UserPolicy.EMPLOYED_STATUSES,
                         PageRequest.of(0, condition.limit()))
                 .stream()
                 .map(UserSearchResponse::from)

@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS users (
     position      VARCHAR(30)  NOT NULL              COMMENT '직책',
     status        VARCHAR(20)  NOT NULL              COMMENT '재직 상태',
     hire_date     DATE         NOT NULL              COMMENT '입사일',
+    -- 알림 뱃지 기준점. 이 id보다 큰 알림이 있으면 종 아이콘에 빨간 점이 켜집니다.
+    -- notifications 에 "봤음"을 행마다 남기지 않는 이유는 값이 사용자당 하나면 충분하기 때문입니다.
+    -- 물리 FK를 두지 않습니다 — 정리 배치가 오래된 알림을 지워도 이 값은 남아야 합니다.
+    last_seen_notification_id BIGINT NULL            COMMENT '마지막으로 알림함을 연 시점의 최신 알림 id',
     created_at    DATETIME(6)  NULL                  COMMENT '생성 시각',
     modified_at   DATETIME(6)  NULL                  COMMENT '수정 시각',
     PRIMARY KEY (id),
