@@ -23,6 +23,11 @@ public record BudgetSummaryResponse(
         Long remaining,
         // 집행률(%) 내림. totalBudget이 0이면 나눌 수 없어 0으로 응답한다.
         int executionRate,
+        // 프로젝트 기간 경과율(%) 내림, 0~100. 집행률과 나란히 보면 소진 속도를 읽을 수 있다
+        // (경과 40%인데 집행 62%면 예정보다 빨리 쓰고 있다). 판단은 하지 않고 재료만 준다.
+        int elapsedRate,
+        // 집계에 포함된 지출 건수(소프트 삭제 제외).
+        long expenseCount,
         // 항목별·부서별을 한 번에 내려준다. 화면의 항목별/부서별 토글이 서버 왕복 없이 즉시 전환되어야 하고,
         // group by 두 번의 비용이 왕복 한 번보다 훨씬 작다. 둘 다 '사용' 기준(사용 예정 제외).
         List<CategoryAmount> byCategory,

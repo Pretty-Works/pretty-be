@@ -19,6 +19,7 @@ import HK.PrettyWorks_BE.project.project.dto.res.*;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.MilestoneRepository;
+import HK.PrettyWorks_BE.project.project.repository.MyProjectRow;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.exception.UserErrorCode;
@@ -225,18 +226,21 @@ public class ProjectService {
     @Transactional(readOnly = true)
     public PageResponse<ProjectListResponse> getMyProjects(Long userId, String statusParam,
                                                            String keyword, Pageable pageable) {
-        Page<ProjectEntity> projects = findMyProjects(userId, statusParam, keyword, pageable);
+        Page<MyProjectRow> rows = findMyProjects(userId, statusParam, keyword, pageable);
 
         // 3) 진행률은 조회 시점 날짜로 계산한 파생값 (상세 조회와 동일한 계산)
         LocalDate today = LocalDate.now();
 
-        return PageResponse.from(projects.map(project -> ProjectListResponse.builder()
-                .projectId(project.getId())
-                .name(project.getName())
-                .status(project.getStatus())
-                .targetDate(project.getTargetDate())
-                .progress(project.calculateProgress(today))
-                .build()));
+        return PageResponse.from(rows.map(row -> {
+            ProjectEntity project = row.project();
+            return ProjectListResponse.builder()
+                    .projectId(project.getId())
+                    .name(project.getName())
+                    .status(project.getStatus())
+                    .targetDate(project.getTargetDate())
+                    .progress(project.calculateProgress(today))
+                    .build();
+        }));
     }
 
     // 목록 필터용 상태 해석. 값이 없으면 진행중(홈의 기본 화면), ALL이면 상태 조건을 걸지 않는다.
@@ -249,18 +253,25 @@ public class ProjectService {
     public Page<ProjectSearchResult> searchMyProjects(Long userId, String statusParam,
                                                        String keyword, Pageable pageable) {
         return findMyProjects(userId, statusParam, keyword, pageable)
-                .map(project -> new ProjectSearchResult(
-                        project.getId(),
-                        project.getName(),
-                        project.getStatus(),
-                        project.getStartDate(),
-                        project.getTargetDate(),
-                        project.getTargetBudget(),
-                        ProjectPolicy.isOpenForContent(project)));
+                .map(row -> {
+                    ProjectEntity project = row.project();
+                    return new ProjectSearchResult(
+                            project.getId(),
+                            project.getName(),
+                            project.getStatus(),
+                            project.getStartDate(),
+                            project.getTargetDate(),
+                            project.getTargetBudget(),
+                            ProjectPolicy.isOpenForContent(project),
+                            // 조회 조건이 "내가 참여중"이라 멤버 행은 이미 조인돼 있다.
+                            // 여기서 버리고 나중에 다시 찾으면 프로젝트 수만큼 쿼리가 더 나간다.
+                            row.membership().getRole(),
+                            row.membership().isOwner());
+                });
     }
 
-    private Page<ProjectEntity> findMyProjects(Long userId, String statusParam,
-                                                String keyword, Pageable pageable) {
+    private Page<MyProjectRow> findMyProjects(Long userId, String statusParam,
+                                               String keyword, Pageable pageable) {
         ProjectStatus status = parseFilterStatus(statusParam);
         String searchKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
 

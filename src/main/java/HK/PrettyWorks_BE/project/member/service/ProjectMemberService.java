@@ -5,6 +5,7 @@ import HK.PrettyWorks_BE.project.member.constant.ProjectMemberStatus;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
 import HK.PrettyWorks_BE.project.member.exception.ProjectMemberErrorCode;
 import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberSearchResponse;
+import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberDetailResponse;
 import HK.PrettyWorks_BE.project.member.repository.ProjectMemberRepository;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
@@ -15,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -83,6 +85,26 @@ public class ProjectMemberService {
                         PageRequest.of(0, condition.limit()))
                 .stream()
                 .map(ProjectMemberSearchResponse::from)
+                .toList();
+    }
+
+    // 참여중 재직자 전체. 자동완성(searchMembers)과 달리 검색어 없이도 전체를 주고 요청자 본인도 포함한다.
+    //
+    // 재직 상태를 ACTIVE로 좁히는 것은 의도적이다. 휴직자는 일정 참가자로는 넣을 수 있지만
+    // 회의록 참석자로는 거부되므로(MeetingService.validateAttendees), 후보에 넣으면
+    // 에이전트가 승인까지 받아 놓고 저장 단계에서 실패한다.
+    @Transactional(readOnly = true)
+    public List<ProjectMemberDetailResponse> getActiveMembers(Long projectId, Long requesterId,
+                                                              String keyword, int limit) {
+        validateAccess(projectId, requesterId);
+
+        String searchKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+        return projectMemberRepository.findActiveMembers(
+                        projectId, searchKeyword,
+                        ProjectMemberStatus.ACTIVE, StatusType.ACTIVE,
+                        PageRequest.of(0, limit))
+                .stream()
+                .map(ProjectMemberDetailResponse::from)
                 .toList();
     }
 }

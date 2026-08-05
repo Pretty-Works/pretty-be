@@ -54,4 +54,30 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMemberEnti
                                                      @Param("memberStatus") ProjectMemberStatus memberStatus,
                                                      @Param("userStatus") StatusType userStatus,
                                                      Pageable pageable);
+
+    // 참여중 재직자 전체(요청자 본인 포함). 자동완성과 달리 검색어가 없어도 전체를 돌려주고
+    // 오너 여부를 함께 실어 준다.
+    //
+    // 오너를 맨 앞에 고정한다 — "이 프로젝트 누구 있어?"에 오너부터 답하는 것이 자연스럽고,
+    // 정렬이 흔들리면 같은 질문에 매번 다른 순서가 나온다.
+    @Query("""
+            select u.id as userId,
+                   u.name as name,
+                   u.department as department,
+                   u.position as position,
+                   m.role as role,
+                   m.isOwner as isOwner
+            from ProjectMemberEntity m
+            join UserEntity u on u.id = m.userId
+            where m.projectId = :projectId
+              and m.status = :memberStatus
+              and u.status = :userStatus
+              and (:keyword is null or u.name like concat('%', :keyword, '%'))
+            order by m.isOwner desc, u.name asc, u.id asc
+            """)
+    List<ProjectMemberDetailRow> findActiveMembers(@Param("projectId") Long projectId,
+                                                   @Param("keyword") String keyword,
+                                                   @Param("memberStatus") ProjectMemberStatus memberStatus,
+                                                   @Param("userStatus") StatusType userStatus,
+                                                   Pageable pageable);
 }

@@ -124,10 +124,19 @@ public class MeetingService {
     @Transactional(readOnly = true)
     public PageResponse<MeetingListResponse> getMeetingList
     (Long projectId, Long userId, String title, String attendeeName, Pageable pageable) {
+        return getMeetingList(projectId, userId, title, attendeeName, null, null, pageable);
+    }
+
+    // 회의 일자 구간까지 좁히는 일반형 조회. "지난 달 회의록"처럼 기간으로 묻는 에이전트 도구(meeting.list)가 쓴다.
+    @Transactional(readOnly = true)
+    public PageResponse<MeetingListResponse> getMeetingList
+    (Long projectId, Long userId, String title, String attendeeName,
+     LocalDate from, LocalDate to, Pageable pageable) {
 
         projectMemberService.validateActiveMember(projectId, userId);
 
-        Page<MeetingEntity> meetings = meetingRepository.findMeetingSummaries(projectId, title, attendeeName, pageable);
+        Page<MeetingEntity> meetings =
+                meetingRepository.findMeetingSummaries(projectId, title, attendeeName, from, to, pageable);
 
         // 이 페이지의 회의 id들을 모아서 참석자를 한 번에 조회 후 meetingId로 그룹핑
         List<Long> meetingIds = meetings.getContent().stream()
@@ -158,6 +167,8 @@ public class MeetingService {
                     .authorName(authorName)
                     .attendeeNames(attendeeNames)
                     .meetingDate(meeting.getMeetingDate())
+                    .location(meeting.getLocation())
+                    .purpose(meeting.getPurpose())
                     .build();
         });
 

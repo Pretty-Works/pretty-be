@@ -31,7 +31,8 @@ public interface ProjectRepository extends JpaRepository<ProjectEntity, Long> {
     //      (각 그룹에서 반대편 CASE는 전 행이 null이라 순서에 영향을 주지 않는다)
     //   4) id 보조 정렬 — 없으면 같은 항목이 두 페이지에 나오거나 누락될 수 있다
     @Query(value = """
-            select p from ProjectEntity p
+            select new HK.PrettyWorks_BE.project.project.repository.MyProjectRow(p, m)
+            from ProjectEntity p
             join ProjectMemberEntity m on m.projectId = p.id
             where m.userId = :userId
               and m.status = :memberStatus
@@ -55,7 +56,7 @@ public interface ProjectRepository extends JpaRepository<ProjectEntity, Long> {
               and (:status is null or p.status = :status)
               and (:keyword is null or p.name like concat('%', :keyword, '%'))
             """)
-    Page<ProjectEntity> findMyProjects(@Param("userId") Long userId,
+    Page<MyProjectRow> findMyProjects(@Param("userId") Long userId,
                                        @Param("memberStatus") ProjectMemberStatus memberStatus,
                                        @Param("archived") ProjectStatus archived,
                                        @Param("status") ProjectStatus status,

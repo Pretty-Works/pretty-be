@@ -7,6 +7,7 @@ import HK.PrettyWorks_BE.calendar.leave.dto.req.LeaveCreateRequest;
 import HK.PrettyWorks_BE.calendar.leave.dto.req.LeaveUpdateRequest;
 import HK.PrettyWorks_BE.calendar.leave.dto.res.LeaveBalanceResponse;
 import HK.PrettyWorks_BE.calendar.leave.dto.res.LeaveCreateResponse;
+import HK.PrettyWorks_BE.calendar.leave.dto.res.LeaveListResponse;
 import HK.PrettyWorks_BE.calendar.leave.dto.res.LeaveUpdateResponse;
 import HK.PrettyWorks_BE.calendar.leave.exception.LeaveErrorCode;
 import HK.PrettyWorks_BE.calendar.leave.repository.LeaveBalanceRepository;
@@ -20,17 +21,19 @@ import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleParticipantReposit
 import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleRepository;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
+import HK.PrettyWorks_BE.global.util.InclusiveDays;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.Period;
-import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.function.Supplier;
 
 @Service
@@ -90,7 +93,7 @@ public class LeaveService {
                 .build());
 
         // 5) 휴가 상세(schedule_leaves) 저장. days = 시작~종료 포함 일수.
-        int days = (int) ChronoUnit.DAYS.between(startDate, endDate) + 1;
+        int days = InclusiveDays.between(startDate, endDate);
         ScheduleLeaveEntity leave = ScheduleLeaveEntity.builder()
                 .scheduleId(schedule.getId())
                 .leaveType(request.leaveType())
@@ -137,7 +140,7 @@ public class LeaveService {
         );
 
         // 5) 휴가 상세 갱신. days = 시작~종료 포함 일수로 재계산.
-        int days = (int) ChronoUnit.DAYS.between(newStart, newEnd) + 1;
+        int days = InclusiveDays.between(newStart, newEnd);
         leave.update(newType, newReason, days);
 
         // 6) 재계산된 최종값을 응답에 담아 편집 모달이 바로 반영하게 함.
@@ -159,6 +162,23 @@ public class LeaveService {
 
         // 2) 연결된 일정을 하드 삭제. schedule_leaves·schedule_participants는 FK ON DELETE CASCADE로 DB가 함께 정리한다.
         scheduleRepository.delete(schedule);
+    }
+
+    // 휴가 목록 조회: 기간과 겹치는 대상자들의 휴가. 상한은 호출자가 pageable로 정한다.
+    //
+    // 사내 캘린더 성격이라 남의 휴가도 보인다(팀 결정). 사유를 누구에게 보여줄지는 호출자가 정한다 —
+    // 화면은 전원 공개, 에이전트는 본인 것만 남긴다.
+    @Transactional(readOnly = true)
+    public List<LeaveListResponse> getLeaves(LocalDate from, LocalDate to, List<Long> userIds,
+                                             LeaveType leaveType, Pageable pageable) {
+        if (userIds == null || userIds.isEmpty()) {
+            return List.of();
+        }
+        return scheduleLeaveRepository.findLeaves(
+                        from.atStartOfDay(), to.atTime(23, 59, 59), userIds, leaveType, pageable)
+                .stream()
+                .map(LeaveListResponse::from)
+                .toList();
     }
 
     // 연차 현황 조회: 로그인 사용자의 연도별 부여·사용·잔여 + 근속연수. 캘린더/휴가 페이지 카드 공용. 읽기 전용.

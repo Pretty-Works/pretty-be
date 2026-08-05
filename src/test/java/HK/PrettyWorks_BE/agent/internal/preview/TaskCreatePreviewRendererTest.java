@@ -15,10 +15,10 @@ class TaskCreatePreviewRendererTest {
     @Test
     void rendersEveryTaskInOneApprovalPreview() {
         var params = objectMapper.readTree("""
-                [
+                {"tasks": [
                   {"content":"API 명세 정리","projectId":7,"dueDate":"2026-08-07"},
                   {"content":"회고 작성","projectId":null,"dueDate":"2026-08-08"}
-                ]
+                ]}
                 """);
 
         String preview = renderer.render(params);
@@ -31,7 +31,17 @@ class TaskCreatePreviewRendererTest {
 
     @Test
     void rejectsAnEmptyBatchBeforeShowingApproval() {
-        assertThatThrownBy(() -> renderer.render(objectMapper.readTree("[]")))
+        assertThatThrownBy(() -> renderer.render(objectMapper.readTree("{\"tasks\":[]}")))
+                .isInstanceOf(BaseException.class);
+    }
+
+    @Test
+    void rejectsABareArrayLeftOverFromTheOldSchema() {
+        // 예전 스키마(최상위 배열)로 승인 카드를 그리려 하면 실패해야 한다.
+        // 조용히 통과하면 사용자가 빈 카드를 승인하게 된다.
+        assertThatThrownBy(() -> renderer.render(objectMapper.readTree("""
+                [{"content":"API 명세 정리","projectId":7,"dueDate":"2026-08-07"}]
+                """)))
                 .isInstanceOf(BaseException.class);
     }
 }
