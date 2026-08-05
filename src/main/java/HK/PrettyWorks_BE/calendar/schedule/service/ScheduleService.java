@@ -27,6 +27,7 @@ import HK.PrettyWorks_BE.user.repository.UserRepository;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import HK.PrettyWorks_BE.user.service.UserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -67,15 +68,12 @@ public class ScheduleService {
                 idempotencyService.run(idempotencyKey, endpoint, writerId, fingerprint, creator));
     }
 
+    // 화면(캘린더)용 — 본인 일정을 항상 포함하고, 유형 필터·건수 상한 없이 기간 내 전부.
+    // 달력은 그 기간에 있는 일정을 빠짐없이 그려야 한다.
     @Transactional(readOnly = true)
     public ScheduleListResponse list(Long userId, LocalDate from, LocalDate to, List<Long> userIds) {
-        // 1) 기간 검증(SCHEDULE_004): 조회 시작일이 종료일보다 늦으면 차단
-        if (from.isAfter(to)) {
-            throw BaseException.type(ScheduleErrorCode.INVALID_SEARCH_PERIOD);
-        }
-
-        // 2) 대상 사용자 = 본인 ∪ userIds. 본인은 항상 포함, null·중복 제거.
-        //    존재하지 않는 id는 참가자 테이블에 없어 자연히 무시된다(명세: 존재하지 않는 userIds 무시).
+        // 대상 사용자 = 본인 ∪ userIds. 본인은 항상 포함, null·중복 제거.
+        // 존재하지 않는 id는 참가자 테이블에 없어 자연히 무시된다(명세: 존재하지 않는 userIds 무시).
         Set<Long> targetUserIds = new LinkedHashSet<>();
         targetUserIds.add(userId);
         if (userIds != null) {
@@ -85,14 +83,32 @@ public class ScheduleService {
                 }
             }
         }
+        return list(from, to, new ArrayList<>(targetUserIds), null, Pageable.unpaged());
+    }
 
-        // 3) 날짜를 일시 범위로 변환: from 00:00:00 ~ to 23:59:59
+    // 조회 대상·유형 필터·건수 상한을 호출자가 직접 정하는 일반형.
+    //
+    // 화면과 달리 본인을 자동으로 끼워 넣지 않는다 — "김서준님 목요일 비어?"처럼 남의 일정만
+    // 물어보는 호출자(에이전트 도구)는 내 일정이 섞이면 답이 틀어진다.
+    // 상한도 DB에 맡긴다. 전부 읽고 메모리에서 자르면 뒤따르는 참가자·이름 조회가 버릴 행까지 따라 돈다.
+    @Transactional(readOnly = true)
+    public ScheduleListResponse list(LocalDate from, LocalDate to, List<Long> targetUserIds,
+                                     ScheduleType type, Pageable pageable) {
+        // 1) 기간 검증(SCHEDULE_004): 조회 시작일이 종료일보다 늦으면 차단
+        if (from.isAfter(to)) {
+            throw BaseException.type(ScheduleErrorCode.INVALID_SEARCH_PERIOD);
+        }
+        if (targetUserIds == null || targetUserIds.isEmpty()) {
+            return ScheduleListResponse.builder().schedules(List.of()).build();
+        }
+
+        // 2) 날짜를 일시 범위로 변환: from 00:00:00 ~ to 23:59:59
         LocalDateTime fromStart = from.atStartOfDay();
         LocalDateTime toEnd = to.atTime(23, 59, 59);
 
-        // 4) [쿼리1] 기간과 겹치고 + 대상 사용자가 참가자인 일정 (startAt ASC)
-        List<ScheduleEntity> schedules =
-                scheduleRepository.findOverlappingByParticipants(fromStart, toEnd, new ArrayList<>(targetUserIds));
+        // 3) [쿼리1] 기간과 겹치고 + 대상 사용자가 참가자인 일정 (startAt ASC). 상한은 pageable이 건다.
+        List<ScheduleEntity> schedules = scheduleRepository.findOverlappingByParticipants(
+                fromStart, toEnd, targetUserIds, type, pageable);
         if (schedules.isEmpty()) {
             return ScheduleListResponse.builder().schedules(List.of()).build();
         }
@@ -196,9 +212,13 @@ public class ScheduleService {
             syncParticipants(scheduleId, userId, request.participantUserIds());
         }
 
-        // 6) 수정된 일정 id 반환
+        // 6) 병합된 최종값을 반환. 부분 수정이라 요청만으로는 최종 상태를 알 수 없다.
         return ScheduleUpdateResponse.builder()
                 .scheduleId(schedule.getId())
+                .title(title)
+                .startAt(startAt)
+                .endAt(endAt)
+                .type(type)
                 .build();
     }
 

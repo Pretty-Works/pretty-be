@@ -3,6 +3,7 @@ package HK.PrettyWorks_BE.task.service;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.global.util.Percent;
+import HK.PrettyWorks_BE.global.util.WeekRange;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
 import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
@@ -16,6 +17,8 @@ import HK.PrettyWorks_BE.task.dto.res.TaskHomeResponse.TaskGroup;
 import HK.PrettyWorks_BE.task.dto.res.TaskHomeResponse.TaskItem;
 import HK.PrettyWorks_BE.task.dto.res.TaskProjectResponse;
 import HK.PrettyWorks_BE.task.dto.res.TaskResponse;
+import HK.PrettyWorks_BE.task.dto.res.TaskStatusResponse;
+import HK.PrettyWorks_BE.task.dto.res.TaskWeeklyResponse;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.task.exception.TaskErrorCode;
 import HK.PrettyWorks_BE.task.policy.TaskPolicy;
@@ -166,7 +169,7 @@ public class TaskService {
     }
 
     @Transactional
-    public void toggleStatus(Long userId, Long taskId, TaskStatusRequest request) {
+    public TaskStatusResponse toggleStatus(Long userId, Long taskId, TaskStatusRequest request) {
         // 1) 대상 할 일 조회 (TASK_003)
         TaskEntity task = taskRepository.findById(taskId)
                 .orElseThrow(() -> BaseException.type(TaskErrorCode.TASK_NOT_FOUND));
@@ -180,7 +183,17 @@ public class TaskService {
         currentUserService.getEmployedUser(userId);
 
         // 4) 완료 토글 (미완료→완료일 때만 시각 기록 = 멱등), dirty checking으로 UPDATE
+        boolean wasCompleted = task.getCompletedAt() != null;
         task.toggleDone(request.done(), LocalDateTime.now());
+        boolean nowCompleted = task.getCompletedAt() != null;
+
+        return TaskStatusResponse.builder()
+                .taskId(task.getId())
+                .content(task.getContent())
+                .completed(nowCompleted)
+                .completedAt(task.getCompletedAt())
+                .changed(wasCompleted != nowCompleted)
+                .build();
     }
 
     @Transactional(readOnly = true)
@@ -228,6 +241,18 @@ public class TaskService {
                 ))
                 .toList();
         return new TaskGroup(projectId, projectName, items);
+    }
+
+    // 본인 담당 할 일의 주간 조회. 홈 조회(getTaskHome)는 "완료 3일 이내"라는 다른 경계를 쓰므로
+    // 주 단위로 묻는 쪽(에이전트 task.list)은 이 진입점을 쓴다.
+    // 주 범위 계산은 WeekRange가 소유한다 — 월요일의 정의가 여기서 갈리면 화면과 답변이 다른 주를 가리킨다.
+    @Transactional(readOnly = true)
+    public List<TaskWeeklyResponse> getMyWeeklyTasks(Long userId, WeekRange week) {
+        return taskRepository.findMyWeeklyRows(
+                        userId, week.start(), week.end(), ProjectStatus.ARCHIVED)
+                .stream()
+                .map(TaskWeeklyResponse::from)
+                .toList();
     }
 
     @Transactional(readOnly = true)
@@ -282,7 +307,10 @@ public class TaskService {
         TaskProjectResponse.Summary summary =
                 new TaskProjectResponse.Summary(totalAll, doneAll, Percent.floorRate(doneAll, totalAll), teamRates);
 
-        return new TaskProjectResponse(weekStart, weekEnd, summary, groups);
+        // 프로젝트명은 행마다 같은 값이라 아무 행에서 꺼내면 된다. 행이 없으면 null.
+        String projectName = rows.isEmpty() ? null : rows.get(0).projectName();
+
+        return new TaskProjectResponse(weekStart, weekEnd, projectName, summary, groups);
     }
 
     // TaskProjectRow → TaskItem. done(completedAt≠null)·dDay(오늘~마감, 내림)·overdue(미완료 && 마감<오늘) 파생.

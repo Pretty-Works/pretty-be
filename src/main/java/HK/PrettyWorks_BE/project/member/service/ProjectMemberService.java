@@ -5,6 +5,7 @@ import HK.PrettyWorks_BE.project.member.constant.ProjectMemberStatus;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
 import HK.PrettyWorks_BE.project.member.exception.ProjectMemberErrorCode;
 import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberSearchResponse;
+import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberDetailResponse;
 import HK.PrettyWorks_BE.project.member.repository.ProjectMemberRepository;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
@@ -15,6 +16,7 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -99,6 +101,25 @@ public class ProjectMemberService {
                         PageRequest.of(0, condition.limit()))
                 .stream()
                 .map(ProjectMemberSearchResponse::from)
+                .toList();
+    }
+
+    // 참여중 재직자 전체. 자동완성(searchMembers)과 달리 검색어 없이도 전체를 주고 요청자 본인도 포함한다.
+    //
+    // 재직 기준은 자동완성과 같다(퇴사만 제외, 휴직 포함). 두 조회가 다른 명단을 주면
+    // 화면에는 보이는 사람이 에이전트에게는 안 보이는 식으로 갈린다.
+    @Transactional(readOnly = true)
+    public List<ProjectMemberDetailResponse> getActiveMembers(Long projectId, Long requesterId,
+                                                              String keyword, int limit) {
+        validateAccess(projectId, requesterId);
+
+        String searchKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+        return projectMemberRepository.findActiveMembers(
+                        projectId, searchKeyword,
+                        ProjectMemberStatus.ACTIVE, UserPolicy.EMPLOYED_STATUSES,
+                        PageRequest.of(0, limit))
+                .stream()
+                .map(ProjectMemberDetailResponse::from)
                 .toList();
     }
 }

@@ -11,7 +11,12 @@ public record AgentPage<T>(List<T> content, long totalCount, boolean truncated) 
     public AgentPage { content = List.copyOf(content); }
 
     public static int validateSize(int size) {
-        if (size < 1 || size > MAX_SIZE) throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
+        return validateSize(size, MAX_SIZE);
+    }
+
+    // 도구마다 상한이 다르다(목록 50 · 회의록 20 · 사용자 검색 20). 범위를 벗어나면 REQUEST_001.
+    public static int validateSize(int size, int maxSize) {
+        if (size < 1 || size > maxSize) throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
         return size;
     }
 

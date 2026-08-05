@@ -10,6 +10,8 @@ import java.util.List;
 public record TaskProjectResponse(
         LocalDate weekStart,
         LocalDate weekEnd,
+        // 조회한 프로젝트명. 그 주에 할 일이 하나도 없으면 조인할 행이 없어 null이다.
+        String projectName,
         Summary summary,
         List<TeamGroup> groups
 ) {

@@ -21,9 +21,9 @@ import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
-import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.exception.UserErrorCode;
+import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import org.springframework.data.domain.Page;
@@ -124,10 +124,19 @@ public class MeetingService {
     @Transactional(readOnly = true)
     public PageResponse<MeetingListResponse> getMeetingList
     (Long projectId, Long userId, String title, String attendeeName, Pageable pageable) {
+        return getMeetingList(projectId, userId, title, attendeeName, null, null, pageable);
+    }
+
+    // 회의 일자 구간까지 좁히는 일반형 조회. "지난 달 회의록"처럼 기간으로 묻는 에이전트 도구(meeting.list)가 쓴다.
+    @Transactional(readOnly = true)
+    public PageResponse<MeetingListResponse> getMeetingList
+    (Long projectId, Long userId, String title, String attendeeName,
+     LocalDate from, LocalDate to, Pageable pageable) {
 
         projectMemberService.validateAccess(projectId, userId);
 
-        Page<MeetingEntity> meetings = meetingRepository.findMeetingSummaries(projectId, title, attendeeName, pageable);
+        Page<MeetingEntity> meetings =
+                meetingRepository.findMeetingSummaries(projectId, title, attendeeName, from, to, pageable);
 
         // 이 페이지의 회의 id들을 모아서 참석자를 한 번에 조회 후 meetingId로 그룹핑
         List<Long> meetingIds = meetings.getContent().stream()
@@ -158,6 +167,8 @@ public class MeetingService {
                     .authorName(authorName)
                     .attendeeNames(attendeeNames)
                     .meetingDate(meeting.getMeetingDate())
+                    .location(meeting.getLocation())
+                    .purpose(meeting.getPurpose())
                     .build();
         });
 
@@ -311,10 +322,14 @@ public class MeetingService {
             throw BaseException.type(MeetingErrorCode.ATTENDEE_NOT_FOUND);
         }
 
-        // 재직중 확인
+        // 재직 확인 — 퇴사자(RESIGNED)만 거부하고 휴직(ON_LEAVE)은 허용한다.
+        // 회의록은 "그 자리에 누가 있었나"의 기록이라 휴직 전 회의를 뒤늦게 적을 수 있고,
+        // 복귀 예정자·인수인계 참석도 실제로 일어난다.
+        // 프로젝트 멤버·일정 참가자와 같은 기준(UserPolicy.isEmployed)으로 맞춘다 —
+        // 기준이 갈리면 참여자 목록에는 보이는데 참석자로는 거부되는 일이 생긴다.
         for (UserEntity attendee : attendees) {
-            if (attendee.getStatus() != StatusType.ACTIVE) {
-                throw BaseException.type(UserErrorCode.INACTIVE_USER);
+            if (!UserPolicy.isEmployed(attendee)) {
+                throw BaseException.type(UserErrorCode.RESIGNED_USER);
             }
         }
 

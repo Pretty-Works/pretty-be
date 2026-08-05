@@ -1,5 +1,6 @@
 package HK.PrettyWorks_BE.project.finance.repository;
 
+import HK.PrettyWorks_BE.project.finance.constant.ExpenseCategory;
 import HK.PrettyWorks_BE.project.finance.domain.ExpenseEntity;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
@@ -24,12 +25,16 @@ public interface ExpenseRepository extends JpaRepository<ExpenseEntity, Long> {
     //
     // order by를 넣지 않는다. 탭마다 정렬 방향이 반대라 서비스가 Pageable의 Sort로 넘긴다.
     // (Sort 속성은 엔티티 필드명 기준: expenseDate, id)
+    // category·spenderId는 에이전트 도구(expense.list)가 쓰는 추가 필터다. 화면은 둘 다 null로 부른다.
+    // 같은 조건을 쿼리 두 벌로 나누면 소프트 삭제 제외 같은 규칙이 한쪽에만 반영되어 갈라진다.
     @Query(value = """
             select e from ExpenseEntity e
             where e.projectId = :projectId
               and e.deletedAt is null
               and (:from is null or e.expenseDate >= :from)
               and (:to is null or e.expenseDate <= :to)
+              and (:category is null or e.category = :category)
+              and (:spenderId is null or e.spenderId = :spenderId)
               and (:keyword is null
                    or e.merchant like concat('%', :keyword, '%')
                    or e.purpose like concat('%', :keyword, '%'))
@@ -40,6 +45,8 @@ public interface ExpenseRepository extends JpaRepository<ExpenseEntity, Long> {
               and e.deletedAt is null
               and (:from is null or e.expenseDate >= :from)
               and (:to is null or e.expenseDate <= :to)
+              and (:category is null or e.category = :category)
+              and (:spenderId is null or e.spenderId = :spenderId)
               and (:keyword is null
                    or e.merchant like concat('%', :keyword, '%')
                    or e.purpose like concat('%', :keyword, '%'))
@@ -47,6 +54,8 @@ public interface ExpenseRepository extends JpaRepository<ExpenseEntity, Long> {
     Page<ExpenseEntity> findExpenses(@Param("projectId") Long projectId,
                                      @Param("from") LocalDate from,
                                      @Param("to") LocalDate to,
+                                     @Param("category") ExpenseCategory category,
+                                     @Param("spenderId") Long spenderId,
                                      @Param("keyword") String keyword,
                                      Pageable pageable);
 
@@ -55,7 +64,8 @@ public interface ExpenseRepository extends JpaRepository<ExpenseEntity, Long> {
     @Query("""
             select new HK.PrettyWorks_BE.project.finance.repository.BudgetTotalRow(
                        sum(case when e.expenseDate <= :today then e.amount else 0 end),
-                       sum(case when e.expenseDate >  :today then e.amount else 0 end))
+                       sum(case when e.expenseDate >  :today then e.amount else 0 end),
+                       count(e))
             from ExpenseEntity e
             where e.projectId = :projectId and e.deletedAt is null
             """)

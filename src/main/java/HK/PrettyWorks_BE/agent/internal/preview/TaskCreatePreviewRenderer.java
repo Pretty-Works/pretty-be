@@ -19,16 +19,19 @@ public class TaskCreatePreviewRenderer implements ApprovalPreviewRenderer {
 
     @Override
     public String render(JsonNode params) {
-        if (params == null || !params.isArray() || params.size() == 0
-                || params.size() > TaskPolicy.MAX_CREATE_BATCH_SIZE) {
+        // 요청 바디는 {"tasks":[...]} 형태다. 최상위를 배열로 두지 않은 이유는
+        // AgentTaskCreateRequest 주석 참고.
+        JsonNode tasks = params == null ? null : params.get("tasks");
+        if (tasks == null || !tasks.isArray() || tasks.isEmpty()
+                || tasks.size() > TaskPolicy.MAX_CREATE_BATCH_SIZE) {
             throw BaseException.type(AgentErrorCode.AGENT_RESPONSE_INVALID);
         }
 
         StringBuilder preview = new StringBuilder("할 일 ")
-                .append(params.size())
+                .append(tasks.size())
                 .append("건을 추가합니다.");
-        for (int index = 0; index < params.size(); index++) {
-            JsonNode task = params.get(index);
+        for (int index = 0; index < tasks.size(); index++) {
+            JsonNode task = tasks.get(index);
             JsonNode content = task == null ? null : task.get("content");
             JsonNode dueDate = task == null ? null : task.get("dueDate");
             if (task == null || !task.isObject()
