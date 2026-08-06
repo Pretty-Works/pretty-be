@@ -10,6 +10,8 @@ public record TaskHomeRow(
         LocalDateTime completedAt,
         LocalDate dueDate,
         Long projectId,
-        String projectName
+        String projectName,
+        // 삭제 권한 판정용. 남이 배정한 할 일은 담당자라도 지울 수 없다.
+        Long creatorId
 ) {
 }

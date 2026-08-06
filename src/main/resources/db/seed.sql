@@ -128,64 +128,64 @@ VALUES
 --     · 오늘/근미래     → 이번 주 보드
 -- =============================================================================
 INSERT INTO tasks
-    (project_id, assignee_id, content, completed_at, due_date, created_at, modified_at)
+    (project_id, assignee_id, creator_id, content, completed_at, due_date, created_at, modified_at)
 VALUES
     -- P1 (AI 검색 고도화)
-    (1, 1, '스프린트 리뷰 안건 취합',  NULL,                                  DATE_ADD(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
-    (1, 1, '검색 로드맵 문서화',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
-    (1, 1, '분기 예산 재조정',         DATE_SUB(NOW(6), INTERVAL 1 DAY),      DATE_SUB(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
-    (1, 2, '검색 API 인덱싱 개선',     DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
-    (1, 2, '랭킹 알고리즘 튜닝',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
-    (1, 2, '캐시 레이어 도입',         NULL,                                  DATE_SUB(CURDATE(), INTERVAL 9 DAY),  NOW(6), NOW(6)),  -- 지연
-    (1, 2, '벤치마크 리포트 작성',     DATE_SUB(NOW(6), INTERVAL 8 DAY),      DATE_SUB(CURDATE(), INTERVAL 8 DAY),  NOW(6), NOW(6)),
-    (1, 3, '쿼리 파서 리팩터링',       NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
-    (1, 3, '로그 수집 배치',           DATE_SUB(NOW(6), INTERVAL 3 DAY),      DATE_SUB(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
-    (1, 3, '색인 재구축 스크립트',     NULL,                                  DATE_ADD(CURDATE(), INTERVAL 6 DAY),  NOW(6), NOW(6)),
-    (1, 4, '검색 결과 UI 개선',        NULL,                                  DATE_ADD(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
-    (1, 4, '자동완성 컴포넌트',        NULL,                                  DATE_ADD(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),
-    (1, 4, '접근성 점검',              NULL,                                  DATE_SUB(CURDATE(), INTERVAL 12 DAY), NOW(6), NOW(6)),  -- 지연
-    (1, 6, '임베딩 파이프라인 구축',   NULL,                                  DATE_ADD(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
-    (1, 6, '데이터 라벨링 QA',         DATE_SUB(NOW(6), INTERVAL 4 DAY),      DATE_SUB(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
-    (1, 6, '피처 스토어 스키마',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 10 DAY), NOW(6), NOW(6)),
+    (1, 1, 1, '스프린트 리뷰 안건 취합',  NULL,                                  DATE_ADD(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
+    (1, 1, 1, '검색 로드맵 문서화',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
+    (1, 1, 1, '분기 예산 재조정',         DATE_SUB(NOW(6), INTERVAL 1 DAY),      DATE_SUB(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
+    (1, 2, 2, '검색 API 인덱싱 개선',     DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (1, 2, 2, '랭킹 알고리즘 튜닝',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (1, 2, 2, '캐시 레이어 도입',         NULL,                                  DATE_SUB(CURDATE(), INTERVAL 9 DAY),  NOW(6), NOW(6)),  -- 지연
+    (1, 2, 2, '벤치마크 리포트 작성',     DATE_SUB(NOW(6), INTERVAL 8 DAY),      DATE_SUB(CURDATE(), INTERVAL 8 DAY),  NOW(6), NOW(6)),
+    (1, 3, 1, '쿼리 파서 리팩터링',       NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
+    (1, 3, 3, '로그 수집 배치',           DATE_SUB(NOW(6), INTERVAL 3 DAY),      DATE_SUB(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
+    (1, 3, 3, '색인 재구축 스크립트',     NULL,                                  DATE_ADD(CURDATE(), INTERVAL 6 DAY),  NOW(6), NOW(6)),
+    (1, 4, 1, '검색 결과 UI 개선',        NULL,                                  DATE_ADD(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
+    (1, 4, 1, '자동완성 컴포넌트',        NULL,                                  DATE_ADD(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),
+    (1, 4, 1, '접근성 점검',              NULL,                                  DATE_SUB(CURDATE(), INTERVAL 12 DAY), NOW(6), NOW(6)),  -- 지연
+    (1, 6, 6, '임베딩 파이프라인 구축',   NULL,                                  DATE_ADD(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
+    (1, 6, 6, '데이터 라벨링 QA',         DATE_SUB(NOW(6), INTERVAL 4 DAY),      DATE_SUB(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
+    (1, 6, 6, '피처 스토어 스키마',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 10 DAY), NOW(6), NOW(6)),
     -- P2 (사내 그룹웨어 리뉴얼)
-    (2, 1, '그룹웨어 요구사항 정리',   DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
-    (2, 1, '마일스톤 재조정',          NULL,                                  DATE_ADD(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
-    (2, 4, '디자인 시스템 토큰화',     NULL,                                  DATE_ADD(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
-    (2, 4, '공통 레이아웃 마크업',     DATE_SUB(NOW(6), INTERVAL 1 DAY),      DATE_SUB(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
-    (2, 4, '반응형 QA',                NULL,                                  DATE_SUB(CURDATE(), INTERVAL 7 DAY),  NOW(6), NOW(6)),  -- 지연
-    (2, 5, '정보구조(IA) 설계',        NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
-    (2, 5, '사용자 시나리오 작성',     NULL,                                  DATE_SUB(CURDATE(), INTERVAL 6 DAY),  NOW(6), NOW(6)),  -- 지연
-    (2, 5, '릴리즈 노트 템플릿',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
-    (2, 7, '알림 센터 UI',             NULL,                                  DATE_ADD(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),
-    (2, 7, '다크모드 대응',            NULL,                                  DATE_SUB(CURDATE(), INTERVAL 13 DAY), NOW(6), NOW(6)),  -- 지연
-    (2, 7, '접근성 개선',              NULL,                                  DATE_ADD(CURDATE(), INTERVAL 8 DAY),  NOW(6), NOW(6)),
-    (2, 8, 'CI 파이프라인 구성',       DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
-    (2, 8, '스테이징 인프라 세팅',     NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
-    (2, 8, '모니터링 대시보드',        NULL,                                  DATE_ADD(CURDATE(), INTERVAL 9 DAY),  NOW(6), NOW(6)),
+    (2, 1, 1, '그룹웨어 요구사항 정리',   DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (2, 1, 1, '마일스톤 재조정',          NULL,                                  DATE_ADD(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
+    (2, 4, 4, '디자인 시스템 토큰화',     NULL,                                  DATE_ADD(CURDATE(), INTERVAL 1 DAY),  NOW(6), NOW(6)),
+    (2, 4, 4, '공통 레이아웃 마크업',     DATE_SUB(NOW(6), INTERVAL 1 DAY),      DATE_SUB(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
+    (2, 4, 4, '반응형 QA',                NULL,                                  DATE_SUB(CURDATE(), INTERVAL 7 DAY),  NOW(6), NOW(6)),  -- 지연
+    (2, 5, 5, '정보구조(IA) 설계',        NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
+    (2, 5, 5, '사용자 시나리오 작성',     NULL,                                  DATE_SUB(CURDATE(), INTERVAL 6 DAY),  NOW(6), NOW(6)),  -- 지연
+    (2, 5, 5, '릴리즈 노트 템플릿',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6)),
+    (2, 7, 7, '알림 센터 UI',             NULL,                                  DATE_ADD(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),
+    (2, 7, 7, '다크모드 대응',            NULL,                                  DATE_SUB(CURDATE(), INTERVAL 13 DAY), NOW(6), NOW(6)),  -- 지연
+    (2, 7, 7, '접근성 개선',              NULL,                                  DATE_ADD(CURDATE(), INTERVAL 8 DAY),  NOW(6), NOW(6)),
+    (2, 8, 8, 'CI 파이프라인 구성',       DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (2, 8, 8, '스테이징 인프라 세팅',     NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
+    (2, 8, 8, '모니터링 대시보드',        NULL,                                  DATE_ADD(CURDATE(), INTERVAL 9 DAY),  NOW(6), NOW(6)),
     -- P3 (데이터 파이프라인 구축 — 보류 상태)
-    (3, 5, '수집 요건 정의',           DATE_SUB(NOW(6), INTERVAL 30 DAY),     DATE_SUB(CURDATE(), INTERVAL 30 DAY), NOW(6), NOW(6)),
-    (3, 2, '커넥터 개발',              NULL,                                  DATE_ADD(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
-    (3, 2, '스키마 마이그레이션',      NULL,                                  DATE_SUB(CURDATE(), INTERVAL 10 DAY), NOW(6), NOW(6)),  -- 지연
-    (3, 2, '증분 적재 PoC',            NULL,                                  DATE_ADD(CURDATE(), INTERVAL 7 DAY),  NOW(6), NOW(6)),
-    (3, 6, '적재 배치 설계',           NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
-    (3, 6, '데이터 품질 룰',           NULL,                                  DATE_ADD(CURDATE(), INTERVAL 12 DAY), NOW(6), NOW(6)),
-    (3, 6, '파티셔닝 전략',            DATE_SUB(NOW(6), INTERVAL 15 DAY),     DATE_SUB(CURDATE(), INTERVAL 15 DAY), NOW(6), NOW(6)),
+    (3, 5, 5, '수집 요건 정의',           DATE_SUB(NOW(6), INTERVAL 30 DAY),     DATE_SUB(CURDATE(), INTERVAL 30 DAY), NOW(6), NOW(6)),
+    (3, 2, 2, '커넥터 개발',              NULL,                                  DATE_ADD(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
+    (3, 2, 2, '스키마 마이그레이션',      NULL,                                  DATE_SUB(CURDATE(), INTERVAL 10 DAY), NOW(6), NOW(6)),  -- 지연
+    (3, 2, 2, '증분 적재 PoC',            NULL,                                  DATE_ADD(CURDATE(), INTERVAL 7 DAY),  NOW(6), NOW(6)),
+    (3, 6, 5, '적재 배치 설계',           NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
+    (3, 6, 5, '데이터 품질 룰',           NULL,                                  DATE_ADD(CURDATE(), INTERVAL 12 DAY), NOW(6), NOW(6)),
+    (3, 6, 5, '파티셔닝 전략',            DATE_SUB(NOW(6), INTERVAL 15 DAY),     DATE_SUB(CURDATE(), INTERVAL 15 DAY), NOW(6), NOW(6)),
     -- P4 (레거시 마이그레이션 — 완료 프로젝트, 전부 과거)
-    (4, 1, '이관 계획 수립',           DATE_SUB(NOW(6), INTERVAL 170 DAY),    DATE_SUB(CURDATE(), INTERVAL 170 DAY), NOW(6), NOW(6)),
-    (4, 2, '스키마 이관 스크립트',     DATE_SUB(NOW(6), INTERVAL 120 DAY),    DATE_SUB(CURDATE(), INTERVAL 120 DAY), NOW(6), NOW(6)),
-    (4, 2, '데이터 검증',              DATE_SUB(NOW(6), INTERVAL 90 DAY),     DATE_SUB(CURDATE(), INTERVAL 90 DAY),  NOW(6), NOW(6)),
-    (4, 4, '레거시 화면 대체',         DATE_SUB(NOW(6), INTERVAL 60 DAY),     DATE_SUB(CURDATE(), INTERVAL 60 DAY),  NOW(6), NOW(6)),
-    (4, 1, '컷오버 리허설',            DATE_SUB(NOW(6), INTERVAL 40 DAY),     DATE_SUB(CURDATE(), INTERVAL 40 DAY),  NOW(6), NOW(6)),
+    (4, 1, 1, '이관 계획 수립',           DATE_SUB(NOW(6), INTERVAL 170 DAY),    DATE_SUB(CURDATE(), INTERVAL 170 DAY), NOW(6), NOW(6)),
+    (4, 2, 2, '스키마 이관 스크립트',     DATE_SUB(NOW(6), INTERVAL 120 DAY),    DATE_SUB(CURDATE(), INTERVAL 120 DAY), NOW(6), NOW(6)),
+    (4, 2, 2, '데이터 검증',              DATE_SUB(NOW(6), INTERVAL 90 DAY),     DATE_SUB(CURDATE(), INTERVAL 90 DAY),  NOW(6), NOW(6)),
+    (4, 4, 4, '레거시 화면 대체',         DATE_SUB(NOW(6), INTERVAL 60 DAY),     DATE_SUB(CURDATE(), INTERVAL 60 DAY),  NOW(6), NOW(6)),
+    (4, 1, 1, '컷오버 리허설',            DATE_SUB(NOW(6), INTERVAL 40 DAY),     DATE_SUB(CURDATE(), INTERVAL 40 DAY),  NOW(6), NOW(6)),
     -- 개인 할 일 (project_id NULL — 프로젝트 검증을 건너뜁니다)
-    (NULL, 1, '주간 업무 보고 작성',   NULL,                                  DATE_ADD(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
-    (NULL, 2, '기술 블로그 초안',      NULL,                                  DATE_ADD(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),
-    (NULL, 2, '도서 DDIA 5장 정리',    NULL,                                  DATE_SUB(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),  -- 지연(개인)
-    (NULL, 3, '사내 교육 수강',        DATE_SUB(NOW(6), INTERVAL 1 DAY),      DATE_ADD(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
-    (NULL, 4, '포트폴리오 정리',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 11 DAY), NOW(6), NOW(6)),
-    (NULL, 5, '경비 정산',             DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
-    (NULL, 6, '자격증 신청',           NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
-    (NULL, 7, '건강검진 예약',         NULL,                                  DATE_ADD(CURDATE(), INTERVAL 14 DAY), NOW(6), NOW(6)),
-    (NULL, 8, '온콜 인수인계 문서',    NULL,                                  DATE_SUB(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6));  -- 지연(개인)
+    (NULL, 1, 1, '주간 업무 보고 작성',   NULL,                                  DATE_ADD(CURDATE(), INTERVAL 3 DAY),  NOW(6), NOW(6)),
+    (NULL, 2, 2, '기술 블로그 초안',      NULL,                                  DATE_ADD(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),
+    (NULL, 2, 2, '도서 DDIA 5장 정리',    NULL,                                  DATE_SUB(CURDATE(), INTERVAL 5 DAY),  NOW(6), NOW(6)),  -- 지연(개인)
+    (NULL, 3, 3, '사내 교육 수강',        DATE_SUB(NOW(6), INTERVAL 1 DAY),      DATE_ADD(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (NULL, 4, 4, '포트폴리오 정리',       NULL,                                  DATE_ADD(CURDATE(), INTERVAL 11 DAY), NOW(6), NOW(6)),
+    (NULL, 5, 5, '경비 정산',             DATE_SUB(NOW(6), INTERVAL 2 DAY),      DATE_SUB(CURDATE(), INTERVAL 2 DAY),  NOW(6), NOW(6)),
+    (NULL, 6, 6, '자격증 신청',           NULL,                                  CURDATE(),                            NOW(6), NOW(6)),
+    (NULL, 7, 7, '건강검진 예약',         NULL,                                  DATE_ADD(CURDATE(), INTERVAL 14 DAY), NOW(6), NOW(6)),
+    (NULL, 8, 8, '온콜 인수인계 문서',    NULL,                                  DATE_SUB(CURDATE(), INTERVAL 4 DAY),  NOW(6), NOW(6));  -- 지연(개인)
 
 
 -- =============================================================================

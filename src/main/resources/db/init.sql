@@ -145,7 +145,11 @@ CREATE TABLE IF NOT EXISTS milestones (
 CREATE TABLE IF NOT EXISTS tasks (
     id          BIGINT       NOT NULL AUTO_INCREMENT,
     project_id  BIGINT       NULL                   COMMENT '프로젝트 FK (개인 할 일이면 NULL)',
-    assignee_id BIGINT       NOT NULL               COMMENT '담당자 (users FK, 현재는 작성자 본인)',
+    -- 담당자와 작성자를 나눕니다. 오너·PM이 팀원에게 할 일을 배정할 수 있어 둘이 달라질 수 있습니다.
+    -- 권한이 갈립니다 — 완료 토글은 담당자만, 삭제는 작성자만, 수정은 둘 다.
+    -- 개인 할 일(project_id IS NULL)은 배정할 상대가 없어 항상 두 값이 같습니다.
+    assignee_id BIGINT       NOT NULL               COMMENT '담당자 (users FK)',
+    creator_id  BIGINT       NOT NULL               COMMENT '작성자 (users FK). 개인 할 일이면 담당자와 같음',
     content     VARCHAR(100) NOT NULL               COMMENT '할 일 내용 (한 줄)',
     completed_at DATETIME(6) NULL                   COMMENT '완료 시각 (null이면 미완료)',
     due_date    DATE         NOT NULL               COMMENT '마감일',
@@ -155,7 +159,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     KEY idx_tasks_assignee_project_due (assignee_id, project_id, due_date),
     KEY idx_tasks_project_due (project_id, due_date),
     CONSTRAINT fk_tasks_project  FOREIGN KEY (project_id)  REFERENCES projects (id),
-    CONSTRAINT fk_tasks_assignee FOREIGN KEY (assignee_id) REFERENCES users (id)
+    CONSTRAINT fk_tasks_assignee FOREIGN KEY (assignee_id) REFERENCES users (id),
+    -- creator_id 전용 인덱스는 두지 않습니다. "내가 만든 할 일" 목록 API가 없고,
+    -- FK 제약이 인덱스를 자동 생성하므로 삭제 권한 판정에는 그것으로 충분합니다.
+    CONSTRAINT fk_tasks_creator  FOREIGN KEY (creator_id)  REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '할 일';
 
 
