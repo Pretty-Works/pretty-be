@@ -35,6 +35,7 @@ public class AgentRunFactory {
         currentUserService.getEmployedUserForUpdate(userId);
 
         LocalDateTime now = LocalDateTime.now();
+        // 기존 대화가 없으면 새 대화 생성
         AgentConversationEntity conversation = conversationId == null
                 ? conversationRepository.save(AgentConversationEntity.builder()
                         .userId(userId)
