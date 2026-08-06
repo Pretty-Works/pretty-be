@@ -1,5 +1,7 @@
 package HK.PrettyWorks_BE.agent.dto.req;
 
+import io.swagger.v3.oas.annotations.media.ArraySchema;
+import io.swagger.v3.oas.annotations.media.Schema;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 
@@ -8,8 +10,15 @@ import java.util.Collections;
 import java.util.List;
 
 public record AgentQuestionAnswerRequest(
+        @ArraySchema(
+                arraySchema = @Schema(description = "고른 선택지 id 목록. question 이벤트의 options[].id를 그대로 보낸다. "
+                        + "자유 입력만 보낼 때는 빈 배열이어도 된다."),
+                schema = @Schema(example = "3"))
         @Size(max = 50)
         List<@NotBlank @Size(max = 40) String> selectedOptionIds,
+
+        @Schema(description = "자유 입력 답변(선택, 최대 2000자).",
+                nullable = true, example = "그룹웨어 프로젝트로 해 줘")
         @Size(max = 2000) String freeText
 ) {
     public AgentQuestionAnswerRequest {

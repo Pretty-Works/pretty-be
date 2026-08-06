@@ -20,6 +20,7 @@ import org.springframework.context.annotation.Configuration;
 public class SwaggerConfig {
 
     private static final String JSON = "application/json";
+    private static final String EVENT_STREAM = "text/event-stream";
 
     @Bean
     public OpenAPI prettyWorksOpenAPI() {
@@ -85,7 +86,15 @@ public class SwaggerConfig {
                     .addMediaType(JSON, new MediaType().schema(wrap(null))));
             return;
         }
-        content.values().forEach(mediaType -> mediaType.setSchema(wrap(mediaType.getSchema())));
+        // SSE(text/event-stream)는 건너뛴다. ResponseInterceptor가 JSON 컨버터에만 붙으므로
+        // 스트림 본문은 실제로도 BaseResponse로 감싸이지 않는다. 여기서 감싸면 문서만 거짓말을 하게 되고,
+        // 프론트가 event/data 형식 대신 {errorCode, message, result}를 기다리는 코드를 짜게 된다.
+        content.forEach((mediaTypeName, mediaType) -> {
+            if (EVENT_STREAM.equals(mediaTypeName)) {
+                return;
+            }
+            mediaType.setSchema(wrap(mediaType.getSchema()));
+        });
     }
 
     private Schema<?> wrap(Schema<?> result) {

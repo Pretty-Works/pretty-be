@@ -2,6 +2,7 @@ package HK.PrettyWorks_BE.agent.dto.res;
 
 import HK.PrettyWorks_BE.agent.constant.AgentRole;
 import HK.PrettyWorks_BE.agent.constant.AgentRunStatus;
+import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import tools.jackson.databind.JsonNode;
 
@@ -37,12 +38,22 @@ public record AgentMessagesResponse(
             Boolean success,
 
             // "참고한 내용 N건" 접이식. 없으면 null.
+            // implementation = Object.class 를 빼면 JsonNode 게터가 전부 필드로 펼쳐진다(AgentMessageRequest 주석 참고).
+            @Schema(implementation = Object.class,
+                    description = "\"참고한 내용 N건\" 접이식에 뿌릴 단계 목록. 없으면 null.",
+                    example = "[{\"text\": \"할 일 3건을 찾았어요\"}]")
             JsonNode steps,
 
             // done.action 종류. 프론트가 NAVIGATE/FILL_FORM 버튼 동작을 정한다.
+            @Schema(description = "done.action의 종류. NAVIGATE·FILL_FORM 등. 없으면 null.",
+                    nullable = true, example = "NAVIGATE")
             String actionType,
 
             // done.action 원문. targetScreen·params·formData를 프론트가 해석한다.
+            @Schema(implementation = Object.class,
+                    description = "done.action 원문. targetScreen·params·formData를 프론트가 해석한다.",
+                    example = "{\"type\": \"NAVIGATE\", \"label\": \"할 일 보기\", "
+                            + "\"targetScreen\": \"TASK_LIST\", \"params\": {\"projectId\": 3}}")
             JsonNode action,
 
             LocalDateTime createdAt
