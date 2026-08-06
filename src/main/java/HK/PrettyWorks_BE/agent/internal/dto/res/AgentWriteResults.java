@@ -6,9 +6,9 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.List;
 
-// 쓰기 도구 8종의 응답을 한 파일에 모은다.
+// 쓰기 도구의 응답을 한 파일에 모은다.
 //
-// 각각 레코드 하나짜리 파일 8개로 흩으면 "무엇이 저장됐고 그 결과 무엇이 달라졌는지"라는
+// 각각 레코드 하나짜리 파일로 흩으면 "무엇이 저장됐고 그 결과 무엇이 달라졌는지"라는
 // 같은 모양의 계약을 한눈에 볼 수 없다. 공통 원칙은 하나다 —
 // 저장된 값 + 저장으로 달라진 파생값(잔여 연차·집행률·완료율)을 함께 준다.
 // 에이전트가 그 숫자를 다시 계산하면 서버와 어긋난 답을 말하게 된다.
@@ -43,6 +43,17 @@ public final class AgentWriteResults {
             Long projectId,
             String title,
             LocalDate meetingDate
+    ) {
+    }
+
+    // 회의록과 달리 저장 후 다시 읽지 않는다. 서버가 붙이는 파생값(문서번호 같은)이 없어
+    // 저장된 값이 곧 요청값이다.
+    @Builder
+    public record PostCreated(
+            Long postId,
+            Long projectId,
+            String title,
+            String priority
     ) {
     }
 

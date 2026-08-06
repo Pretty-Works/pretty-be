@@ -5,6 +5,7 @@ import HK.PrettyWorks_BE.agent.internal.dto.req.AgentExpenseCreateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentLeaveUpdateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentMeetingCreateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentMilestoneStatusRequest;
+import HK.PrettyWorks_BE.agent.internal.dto.req.AgentPostCreateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentScheduleUpdateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentTaskCreateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentTaskStatusRequest;
@@ -17,6 +18,8 @@ import HK.PrettyWorks_BE.agent.internal.dto.res.AgentMeetingDetailResponse;
 import HK.PrettyWorks_BE.agent.internal.dto.res.AgentMeetingListResponse;
 import HK.PrettyWorks_BE.agent.internal.dto.res.AgentMemberListResponse;
 import HK.PrettyWorks_BE.agent.internal.dto.res.AgentMilestoneListResponse;
+import HK.PrettyWorks_BE.agent.internal.dto.res.AgentPostDetailResponse;
+import HK.PrettyWorks_BE.agent.internal.dto.res.AgentPostListResponse;
 import HK.PrettyWorks_BE.agent.internal.dto.res.AgentProjectSearchResponse;
 import HK.PrettyWorks_BE.agent.internal.dto.res.AgentScheduleListResponse;
 import HK.PrettyWorks_BE.agent.internal.dto.res.AgentTaskListResponse;
@@ -24,6 +27,7 @@ import HK.PrettyWorks_BE.agent.internal.dto.res.AgentUserSearchResponse;
 import HK.PrettyWorks_BE.agent.internal.dto.res.AgentWriteResults;
 import HK.PrettyWorks_BE.agent.internal.service.AgentCalendarToolService;
 import HK.PrettyWorks_BE.agent.internal.service.AgentMeetingToolService;
+import HK.PrettyWorks_BE.agent.internal.service.AgentPostToolService;
 import HK.PrettyWorks_BE.agent.internal.service.AgentProjectToolService;
 import HK.PrettyWorks_BE.agent.internal.service.AgentTaskToolService;
 import HK.PrettyWorks_BE.agent.internal.service.AgentUserToolService;
@@ -60,6 +64,7 @@ public class InternalAgentToolController implements InternalAgentToolApi {
     private static final String TASK_CREATE = "task.create";
     private static final String TASK_TOGGLE_STATUS = "task.toggleStatus";
     private static final String MEETING_CREATE = "meeting.create";
+    private static final String POST_CREATE = "post.create";
     private static final String EXPENSE_CREATE = "expense.create";
     private static final String SCHEDULE_CREATE = "schedule.create";
     private static final String SCHEDULE_UPDATE = "schedule.update";
@@ -72,6 +77,7 @@ public class InternalAgentToolController implements InternalAgentToolApi {
     private final AgentCalendarToolService calendarToolService;
     private final AgentTaskToolService taskToolService;
     private final AgentMeetingToolService meetingToolService;
+    private final AgentPostToolService postToolService;
     private final AgentWriteExecutor writeExecutor;
 
     // ================================= 조회 (승인 불필요) =================================
@@ -167,6 +173,26 @@ public class InternalAgentToolController implements InternalAgentToolApi {
     }
 
     @Override
+    @GetMapping("/api/internal/agent/projects/{projectId}/posts")
+    public ResponseEntity<AgentPostListResponse> posts(
+            @AgentUser Long userId,
+            @PathVariable Long projectId,
+            @RequestParam(required = false) String title,
+            @RequestParam(required = false) String priority,
+            @RequestParam(defaultValue = "10") int size) {
+        return ResponseEntity.ok(postToolService.list(userId, projectId, title, priority, size));
+    }
+
+    @Override
+    @GetMapping("/api/internal/agent/projects/{projectId}/posts/{postId}")
+    public ResponseEntity<AgentPostDetailResponse> postDetail(
+            @AgentUser Long userId,
+            @PathVariable Long projectId,
+            @PathVariable Long postId) {
+        return ResponseEntity.ok(postToolService.detail(userId, projectId, postId));
+    }
+
+    @Override
     @GetMapping("/api/internal/agent/tasks")
     public ResponseEntity<AgentTaskListResponse> tasks(
             @AgentUser Long userId,
@@ -246,6 +272,20 @@ public class InternalAgentToolController implements InternalAgentToolApi {
                 AgentWriteResults.MeetingCreated.class,
                 (request, idempotencyKey) ->
                         meetingToolService.create(userId, request, idempotencyKey)));
+    }
+
+    @Override
+    @PostMapping(value = "/api/internal/agent/projects/{projectId}/posts",
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<AgentWriteResults.PostCreated> createPost(
+            @AgentUser Long userId, @PathVariable Long projectId) {
+        return ResponseEntity.ok(writeExecutor.executeValidated(
+                POST_CREATE,
+                Map.of("projectId", projectId),
+                AgentPostCreateRequest.class,
+                AgentWriteResults.PostCreated.class,
+                (request, idempotencyKey) ->
+                        postToolService.create(userId, request, idempotencyKey)));
     }
 
     @Override

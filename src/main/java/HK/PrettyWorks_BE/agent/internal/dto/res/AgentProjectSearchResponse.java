@@ -29,7 +29,8 @@ public record AgentProjectSearchResponse(
             boolean isOwner,
             // 0이면 예산 제한 없음.
             Long targetBudget,
-            // false면 할일·회의록·지출을 추가할 수 없다(PROJECT_020). 쓰기 도구를 시도하지 말 것.
+            // false면 할일·회의록·지출·게시글을 추가할 수 없다(PROJECT_020, 게시글은 POST_003).
+            // 쓰기 도구를 시도하지 말 것.
             boolean isOpenForContent
     ) {
     }
