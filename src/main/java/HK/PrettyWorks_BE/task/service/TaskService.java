@@ -35,11 +35,9 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.time.DayOfWeek;
 import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
-import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
 import java.util.Collection;
 import java.util.Comparator;
@@ -346,8 +344,12 @@ public class TaskService {
     // 주 범위 계산은 WeekRange가 소유한다 — 월요일의 정의가 여기서 갈리면 화면과 답변이 다른 주를 가리킨다.
     @Transactional(readOnly = true)
     public List<TaskWeeklyResponse> getMyWeeklyTasks(Long userId, WeekRange week) {
+        // 지연분은 이번 주를 볼 때만 함께 준다. 다음 주 질문에 지난 지연이 섞이면
+        // "다음 주에 할 일"을 알 수 없고, 지난 주 질문에는 그보다 더 오래된 것까지 딸려온다.
+        LocalDate carryOverBefore = week.contains(LocalDate.now()) ? week.start() : null;
+
         return taskRepository.findMyWeeklyRows(
-                        userId, week.start(), week.end(), ProjectStatus.ARCHIVED)
+                        userId, week.start(), week.end(), carryOverBefore, ProjectStatus.ARCHIVED)
                 .stream()
                 .map(TaskWeeklyResponse::from)
                 .toList();
@@ -361,13 +363,19 @@ public class TaskService {
         // 2) 조회자 부서 (isMine 판정용)
         DepartmentType viewerTeam = currentUserService.getCurrentUser(userId).getDepartment();
 
-        // 3) 주 범위: 오늘이 속한 주의 월요일 + weekOffset주, 월~일(7일)
+        // 3) 주 범위: 오늘이 속한 주의 월요일 + weekOffset주, 월~일(7일).
+        //    월요일의 정의는 WeekRange가 소유한다 — 여기서 따로 계산하면 개인 주간 조회와 갈릴 수 있다.
         LocalDate today = LocalDate.now();
-        LocalDate weekStart = today.with(TemporalAdjusters.previousOrSame(DayOfWeek.MONDAY)).plusWeeks(weekOffset);
-        LocalDate weekEnd = weekStart.plusDays(6);
+        WeekRange week = WeekRange.of(today, weekOffset);
+        LocalDate weekStart = week.start();
+        LocalDate weekEnd = week.end();
 
-        // 4) rows: 이번 주 범위 + 지난 주 이전 미완료 carry-over, dueDate 오름차순
-        List<TaskProjectRow> rows = taskRepository.findTaskProjectRows(projectId, weekStart, weekEnd);
+        // 4) rows: 그 주 마감분, dueDate 오름차순.
+        //    지연된 미완료는 이번 주(weekOffset=0)에서만 함께 보여준다 — 다음 주 보드에 계속 따라붙으면
+        //    "다음 주에 할 일"을 볼 수 없고, 지난 주 보드는 그 주의 기록이 아니게 된다.
+        LocalDate carryOverBefore = (weekOffset == 0) ? weekStart : null;
+        List<TaskProjectRow> rows =
+                taskRepository.findTaskProjectRows(projectId, weekStart, weekEnd, carryOverBefore);
 
         // 5) 팀(담당자 부서)별 그룹핑 — 팀 내부는 쿼리의 dueDate 순서 유지
         Map<DepartmentType, List<TaskProjectRow>> byTeam = new LinkedHashMap<>();
