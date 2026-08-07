@@ -22,4 +22,12 @@ public record WeekRange(LocalDate start, LocalDate end) {
     public static WeekRange of(LocalDate baseDate) {
         return of(baseDate, 0);
     }
+
+    // 그 날짜가 이 주에 속하는지. 양끝(월요일·일요일 당일) 포함.
+    //
+    // "지금 보고 있는 주가 이번 주인가"를 판단하는 데 쓴다 — 지연된 할 일을 함께 보여줄지가
+    // 여기서 갈린다. 주의 경계 판정을 호출부가 직접 하면 월요일의 정의가 또 갈라진다.
+    public boolean contains(LocalDate date) {
+        return !date.isBefore(start) && !date.isAfter(end);
+    }
 }
