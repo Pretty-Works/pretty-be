@@ -11,6 +11,8 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface ProjectRepository extends JpaRepository<ProjectEntity, Long> {
@@ -64,4 +66,9 @@ public interface ProjectRepository extends JpaRepository<ProjectEntity, Long> {
                                        @Param("ongoing") ProjectStatus ongoing,
                                        @Param("holding") ProjectStatus holding,
                                        Pageable pageable);
+
+    // AI 요약 생성 배치 대상. 엔티티가 아니라 id만 읽는다 — 배치는 프로젝트 본문이 필요 없고,
+    // 재료는 어차피 도메인 서비스가 다시 조회한다.
+    @Query("select p.id from ProjectEntity p where p.status in :statuses order by p.id asc")
+    List<Long> findIdsByStatusIn(@Param("statuses") Collection<ProjectStatus> statuses);
 }

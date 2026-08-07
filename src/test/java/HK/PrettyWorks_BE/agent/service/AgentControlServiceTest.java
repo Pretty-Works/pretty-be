@@ -3,6 +3,7 @@ package HK.PrettyWorks_BE.agent.service;
 import HK.PrettyWorks_BE.agent.constant.AgentRunStatus;
 import HK.PrettyWorks_BE.agent.domain.AgentConversationEntity;
 import HK.PrettyWorks_BE.agent.domain.AgentRunEntity;
+import HK.PrettyWorks_BE.agent.repository.AgentMessageRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentRunRepository;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import org.junit.jupiter.api.Test;
@@ -22,12 +23,13 @@ import static org.mockito.Mockito.when;
 class AgentControlServiceTest {
     private final AgentAccessGuard accessGuard = mock(AgentAccessGuard.class);
     private final AgentRunRepository runRepository = mock(AgentRunRepository.class);
+    private final AgentMessageRepository messageRepository = mock(AgentMessageRepository.class);
     private final AgentRunEventService runEventService = mock(AgentRunEventService.class);
     private final AgentSegmentExecutor segmentExecutor = mock(AgentSegmentExecutor.class);
     private final AgentStreamService streamService = mock(AgentStreamService.class);
     private final CurrentUserService currentUserService = mock(CurrentUserService.class);
     private final AgentControlService service = new AgentControlService(
-            accessGuard, runRepository, runEventService, segmentExecutor,
+            accessGuard, runRepository, messageRepository, runEventService, segmentExecutor,
             streamService, currentUserService);
 
     @Test
@@ -78,6 +80,56 @@ class AgentControlServiceTest {
         assertThat(response.autoApprove()).isFalse();
         assertThat(conversation.isAutoApprove()).isFalse();
         verify(currentUserService).getEmployedUser(1L);
+    }
+
+    @Test
+    void markReadMovesReadPointToLatestMessage() {
+        AgentConversationEntity conversation = conversation();
+        when(accessGuard.conversationForUpdate(20L, 1L)).thenReturn(conversation);
+        when(messageRepository.findLatestId(20L)).thenReturn(102L);
+
+        var response = service.markRead(1L, 20L);
+
+        assertThat(response.conversationId()).isEqualTo(20L);
+        assertThat(response.lastReadMessageId()).isEqualTo(102L);
+        assertThat(conversation.getLastReadMessageId()).isEqualTo(102L);
+        verify(currentUserService).getEmployedUser(1L);
+    }
+
+    // 늦게 도착한 읽음 요청이 이미 읽은 답변을 다시 안 읽음으로 되돌리면 안 된다.
+    @Test
+    void markReadNeverMovesReadPointBackwards() {
+        AgentConversationEntity conversation = conversation();
+        ReflectionTestUtils.setField(conversation, "lastReadMessageId", 102L);
+        when(accessGuard.conversationForUpdate(20L, 1L)).thenReturn(conversation);
+        when(messageRepository.findLatestId(20L)).thenReturn(97L);
+
+        var response = service.markRead(1L, 20L);
+
+        assertThat(response.lastReadMessageId()).isEqualTo(102L);
+    }
+
+    // 말풍선이 하나도 없는 대화도 404 없이 지나가야 한다 — 옮길 지점만 없다.
+    @Test
+    void markReadOnEmptyConversationKeepsNullReadPoint() {
+        AgentConversationEntity conversation = conversation();
+        when(accessGuard.conversationForUpdate(20L, 1L)).thenReturn(conversation);
+        when(messageRepository.findLatestId(20L)).thenReturn(null);
+
+        var response = service.markRead(1L, 20L);
+
+        assertThat(response.lastReadMessageId()).isNull();
+    }
+
+    private AgentConversationEntity conversation() {
+        AgentConversationEntity conversation = AgentConversationEntity.builder()
+                .userId(1L)
+                .title("대화")
+                .lastMessageAt(LocalDateTime.now())
+                .autoApprove(false)
+                .build();
+        ReflectionTestUtils.setField(conversation, "id", 20L);
+        return conversation;
     }
 
     private AgentRunEntity run() {
