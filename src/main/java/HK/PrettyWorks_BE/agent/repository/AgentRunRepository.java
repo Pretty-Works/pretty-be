@@ -21,10 +21,16 @@ public interface AgentRunRepository extends JpaRepository<AgentRunEntity, Long> 
 
     boolean existsByConversationIdAndStatusIn(Long conversationId, Collection<AgentRunStatus> statuses);
     long countByUserIdAndStatusIn(Long userId, Collection<AgentRunStatus> statuses);
-    List<AgentRunEntity> findByConversationIdInAndStatusIn(
-            Collection<Long> conversationIds, Collection<AgentRunStatus> statuses);
     List<AgentRunEntity> findByConversationIdAndStatusIn(
             Long conversationId, Collection<AgentRunStatus> statuses);
+
+    // 대화 목록 화면용. 대화마다 가장 최근 실행 하나만 쓰므로 id 내림차순으로 받아 앞의 행만 남긴다.
+    @Query("select new HK.PrettyWorks_BE.agent.repository.AgentConversationRunRow("
+            + "r.conversationId, r.id, r.runId, r.status) "
+            + "from AgentRunEntity r where r.conversationId in :conversationIds "
+            + "order by r.conversationId, r.id desc")
+    List<AgentConversationRunRow> findRunRowsByConversationIdIn(
+            @Param("conversationIds") Collection<Long> conversationIds);
 
     @Modifying(clearAutomatically = true, flushAutomatically = true)
     @Query("""

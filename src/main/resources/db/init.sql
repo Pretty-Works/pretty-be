@@ -375,12 +375,17 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 --   - last_message_at 을 따로 둡니다. 메시지 추가는 agent_messages INSERT라 이 행이 바뀌지 않아
 --     modified_at 으로는 목록 정렬이 되지 않습니다.
 --   - 제목은 사용자가 붙이지 않고 LLM 요약(실패 시 첫 질문 앞부분)을 저장합니다.
+--   - last_read_message_id 로 안 읽음을 판정합니다. 시각이 아니라 id인 이유는 notifications 의
+--     last_seen_notification_id 와 같습니다 — 같은 초에 여러 건이 들어와도 경계가 흔들리지 않습니다.
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS agent_conversations (
     id              BIGINT       NOT NULL AUTO_INCREMENT,
     user_id         BIGINT       NOT NULL           COMMENT '대화 소유자 (users FK)',
     title           VARCHAR(100) NOT NULL           COMMENT '스레드 제목 (LLM 요약 또는 첫 질문 앞부분)',
     last_message_at DATETIME(6)  NOT NULL           COMMENT '마지막 메시지 시각 — 대화 목록 정렬 기준',
+    -- 사용자가 이 대화를 마지막으로 열어 본 지점. 이보다 큰 AGENT 메시지가 있으면 "안 읽음"입니다.
+    -- NULL은 한 번도 읽지 않은 대화라 AGENT 답변이 하나라도 있으면 안 읽음이 됩니다.
+    last_read_message_id BIGINT  NULL               COMMENT '마지막으로 읽은 메시지 id (agent_messages soft reference)',
     -- 켜면 쓰기 승인 카드를 띄우지 않고 BE가 사용자 대신 즉시 토큰을 발급합니다(규격 v2 §5-1).
     -- 승인 게이트를 없애는 게 아니라 "버튼을 누르는 주체"만 바뀌므로 params_hash 결합은 그대로입니다.
     -- 기본값이 FALSE인 것이 중요합니다 — 안전한 쪽이 기본이어야 합니다.
@@ -608,6 +613,39 @@ CREATE TABLE IF NOT EXISTS agent_interactions (
     KEY idx_agent_interactions_pending (status, expires_at),
     CONSTRAINT fk_agent_interactions_run FOREIGN KEY (run_id) REFERENCES agent_runs (id) ON DELETE CASCADE
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 승인·질문';
+
+
+-- =============================================================================
+-- project_summaries : 프로젝트 탭 상단 AI 요약 배너
+--   - 프로젝트 하나가 섹션 수만큼 행을 갖습니다(overview·board·budget·meeting).
+--     4장을 한 행에 몰아넣지 않은 이유는 조회가 ?section=budget 처럼 한 장 단위로 들어오기 때문입니다.
+--   - section 을 enum 이 아니라 문자열로 둡니다. BE는 게이트라서 섹션의 의미를 알지 않고 저장 키로만
+--     쓰며, LLM팀이 섹션을 하나 더 만들어도 BE 배포 없이 그대로 저장·조회됩니다.
+--   - payload_json 은 배너 한 장의 원문(section·headline·detail·stats)입니다. 서버는 열어보지 않고
+--     그대로 저장했다가 프론트에 돌려줍니다. 필드를 컬럼으로 펼치면 LLM팀이 칩 하나를 추가할 때마다
+--     마이그레이션이 필요해집니다.
+--   - display_order 는 FastAPI 응답 배열의 순서입니다. 섹션 이름을 해석하지 않고도
+--     overview → board → budget → meeting 순서를 유지하려면 순번을 받아 적어 두는 수밖에 없습니다.
+--   - generated_at 을 created_at 과 따로 둡니다. created_at 은 이 행이 처음 만들어진 시각이라
+--     재생성해도 그대로인데, 화면은 "언제 기준 요약인지"를 말해야 합니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS project_summaries (
+    id            BIGINT      NOT NULL AUTO_INCREMENT,
+    project_id    BIGINT      NOT NULL           COMMENT '프로젝트 FK',
+    section       VARCHAR(20) NOT NULL           COMMENT '탭 구분 (overview / board / budget / meeting). BE는 해석하지 않음',
+    display_order INT         NOT NULL           COMMENT 'FastAPI 응답 배열의 순서. 조회 시 이 순서로 내려감',
+    payload_json  LONGTEXT    NOT NULL           COMMENT '배너 원문 — headline·detail·stats. 서버 미해석',
+    generated_at  DATETIME(6) NOT NULL           COMMENT '이 배너를 만든 시각. 최소 재생성 간격 판정 기준',
+    created_at    DATETIME(6) NULL               COMMENT '생성 시각',
+    modified_at   DATETIME(6) NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 재생성은 섹션 단위 맞바꾸기입니다. 같은 섹션이 두 행이 되면 배너가 두 번 그려집니다.
+    UNIQUE KEY uk_project_summaries_project_section (project_id, section),
+    -- 조회는 WHERE project_id = ? ORDER BY display_order 하나뿐입니다.
+    KEY idx_project_summaries_project_order (project_id, display_order),
+    CONSTRAINT fk_project_summaries_project
+    FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 탭 AI 요약 배너';
 
 
 -- =============================================================================

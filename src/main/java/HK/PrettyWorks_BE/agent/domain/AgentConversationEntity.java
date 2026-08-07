@@ -42,6 +42,12 @@ public class AgentConversationEntity extends BaseTimeEntity {
     @Column(name = "auto_approve", nullable = false)
     private boolean autoApprove;
 
+    // 사용자가 마지막으로 읽은 메시지 id. 목록의 "안 읽음" 표시가 이 값과 최신 AGENT 메시지 id를 비교한다.
+    // 시각이 아니라 id인 이유는 notifications의 lastSeenNotificationId와 같다 — 같은 초에 여러 건이
+    // 들어와도 경계가 흔들리지 않는다. 실행 이력을 지워도 대화는 남아야 하므로 물리 FK는 두지 않는다.
+    @Column(name = "last_read_message_id")
+    private Long lastReadMessageId;
+
     @Builder
     public AgentConversationEntity(Long userId, String title, LocalDateTime lastMessageAt, Boolean autoApprove) {
         this.userId = userId;
@@ -71,6 +77,24 @@ public class AgentConversationEntity extends BaseTimeEntity {
 
     public void changeAutoApprove(boolean autoApprove) {
         this.autoApprove = autoApprove;
+    }
+
+    // 대화를 열었을 때 읽음 지점을 옮긴다. 뒤로는 가지 않는다 —
+    // 늦게 도착한 읽음 요청이 이미 읽은 답변을 다시 "안 읽음"으로 되돌리면 안 된다.
+    public void markRead(Long lastMessageId) {
+        if (lastMessageId == null
+                || (this.lastReadMessageId != null && this.lastReadMessageId >= lastMessageId)) {
+            return;
+        }
+
+        this.lastReadMessageId = lastMessageId;
+    }
+
+    // 안 읽음 여부. 판정 기준은 마지막 AGENT 메시지다 — 내가 방금 보낸 질문이 내 대화를
+    // 안 읽음으로 만들면 안 된다. 답변이 아직 없는 대화(null)는 항상 읽은 상태다.
+    public boolean isUnread(Long lastAgentMessageId) {
+        return lastAgentMessageId != null
+                && (this.lastReadMessageId == null || this.lastReadMessageId < lastAgentMessageId);
     }
 
     private static String truncate(String value) {

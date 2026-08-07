@@ -111,7 +111,14 @@ public enum AgentErrorCode implements ErrorCode {
 
     // 취소 API는 성공 응답을 반환하므로 HTTP 상태는 쓰이지 않고 SSE error 이벤트와
     // 실행 감사 이력에만 남는다. 기존 장애 코드와 섞으면 사용자가 취소한 작업이 장애율로 잡힌다.
-    RUN_CANCELED(HttpStatus.CONFLICT, "AGENT_027", "작업을 취소했습니다.");
+    RUN_CANCELED(HttpStatus.CONFLICT, "AGENT_027", "작업을 취소했습니다."),
+
+    // ── 프로젝트 탭 AI 요약 (에이전트 Run이 아닌 단발 API) ────────────────────
+    // 429 — 같은 프로젝트의 요약을 이미 만들고 있다. 저장된 배너가 있으면 그것을 돌려주므로,
+    // 이 코드는 "첫 생성이 진행 중이라 아직 보여줄 것이 없다"는 한 가지 경우에만 나간다.
+    // 초안 생성(AGENT_024)과 나눈 이유는 화면이 다르기 때문이다 — 이쪽은 배너를 잠시 접어두면 된다.
+    SUMMARY_IN_PROGRESS(HttpStatus.TOO_MANY_REQUESTS, "AGENT_028",
+            "요약을 만드는 중입니다. 잠시 후 다시 확인해 주세요.");
 
     private final HttpStatus status;
     private final String errorCode;

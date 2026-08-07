@@ -6,7 +6,8 @@ import HK.PrettyWorks_BE.agent.dto.req.AgentMessageRequest;
 import HK.PrettyWorks_BE.agent.dto.req.AgentQuestionAnswerRequest;
 import HK.PrettyWorks_BE.agent.dto.res.AgentAutoApproveResponse;
 import HK.PrettyWorks_BE.agent.dto.res.AgentCancelResponse;
-import HK.PrettyWorks_BE.agent.dto.res.AgentConversationsResponse;
+import HK.PrettyWorks_BE.agent.dto.res.AgentConversationListResponse;
+import HK.PrettyWorks_BE.agent.dto.res.AgentConversationReadResponse;
 import HK.PrettyWorks_BE.agent.dto.res.AgentMessagesResponse;
 import HK.PrettyWorks_BE.agent.dto.res.AgentPendingInteractionsResponse;
 import HK.PrettyWorks_BE.agent.service.AgentControlService;
@@ -14,6 +15,8 @@ import HK.PrettyWorks_BE.agent.service.AgentExecutionService;
 import HK.PrettyWorks_BE.agent.service.AgentQueryService;
 import HK.PrettyWorks_BE.agent.service.AgentResumeService;
 import HK.PrettyWorks_BE.agent.service.AgentStartedStream;
+import HK.PrettyWorks_BE.global.base.PageRequests;
+import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.security.info.UserAuthentication;
 import io.swagger.v3.oas.annotations.Parameter;
 import jakarta.validation.Valid;
@@ -109,14 +112,16 @@ public class AgentController implements AgentApi {
     // 패널 햄버거(☰)의 대화 내역. "최근 대화" 3건은 size=3으로 같은 API를 쓴다.
     @Override
     @GetMapping("/api/v1/agent/conversations")
-    public ResponseEntity<AgentConversationsResponse> getConversations(
+    public ResponseEntity<PageResponse<AgentConversationListResponse>> getConversations(
             @AuthenticationPrincipal Long userId,
-            @Parameter(description = "가져올 대화 수 (1~100). 패널의 '최근 대화'는 3, 전체보기는 기본값을 씁니다.", example = "20")
+            @Parameter(description = "페이지 번호 (0부터 시작)")
+            @RequestParam(defaultValue = "0") int page,
+            @Parameter(description = "한 페이지당 개수 (1~100). 패널의 '최근 대화'는 3, 전체보기는 기본값을 씁니다.", example = "20")
             @RequestParam(defaultValue = "20") int size
     ) {
-        AgentConversationsResponse response = agentQueryService.getConversations(userId, size);
-
-        return ResponseEntity.ok(response);
+        // 잘못된 page/size(page<0, size<1, size>100)는 PageRequests가 400으로 거부한다
+        return ResponseEntity.ok(
+                agentQueryService.getConversations(userId, PageRequests.of(page, size)));
     }
 
     // 대화 내역에서 하나를 골랐을 때 말풍선 복원. 오래된 순으로 내려간다.
@@ -129,6 +134,16 @@ public class AgentController implements AgentApi {
         AgentMessagesResponse response = agentQueryService.getMessages(userId, conversationId);
 
         return ResponseEntity.ok(response);
+    }
+
+    // 대화를 열었을 때 '새 답장' 표시를 끈다. 상세 조회와 분리한 이유는 AgentControlService 주석 참고.
+    @Override
+    @PatchMapping("/api/v1/agent/conversations/{conversationId}/read")
+    public ResponseEntity<AgentConversationReadResponse> markRead(
+            @AuthenticationPrincipal Long userId,
+            @PathVariable Long conversationId
+    ) {
+        return ResponseEntity.ok(agentControlService.markRead(userId, conversationId));
     }
 
     @Override
