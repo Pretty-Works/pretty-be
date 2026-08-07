@@ -1,5 +1,6 @@
 package HK.PrettyWorks_BE.project.project.dto.req;
 
+import HK.PrettyWorks_BE.project.project.dto.res.ProjectDetailResponse;
 import jakarta.validation.Valid;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.NotNull;
@@ -44,6 +45,41 @@ public record ProjectRequest(
         @Size(max = 50, message = "마일스톤은 최대 50개까지 등록할 수 있습니다.")
         List<MilestoneRequest> milestones
 ) {
+
+    /**
+     * 상세 조회 결과를 그대로 수정 요청으로 옮긴 빌더를 돌려줍니다. 호출자는 바꿀 필드만 덮어쓰면 됩니다.
+     *
+     * <p>수정 API가 전체 교체이기 때문에 필요합니다 — 목표일 하나 미루려 해도 참여자·마일스톤까지
+     * 되보내야 하고, 빠뜨린 목록은 "없애라"로 해석되어 지워집니다.
+     * 화면은 폼에 전체가 채워져 있어 문제가 없지만, 일부만 고치는 경로(재계획 적용)는 여기를 씁니다.
+     *
+     * <p><b>⚠️ 이 record에 필드를 추가하면 여기도 반드시 함께 채워야 합니다.</b>
+     * 빠뜨리면 부분 수정 경로에서 그 값이 매번 조용히 비워집니다.
+     *
+     * <p>참여자는 참여중인 사람만, 마일스톤은 전부 담깁니다. 마일스톤은 id를 함께 실어야 완료 상태가 보존됩니다.
+     */
+    public static ProjectRequestBuilder from(ProjectDetailResponse detail) {
+        return ProjectRequest.builder()
+                .name(detail.name())
+                .startDate(detail.startDate())
+                .endDate(detail.endDate())
+                .budget(detail.budget())
+                .description(detail.description())
+                .ownerRole(detail.owner().ownerRole())
+                .members(detail.members().stream()
+                        .map(member -> MemberRequest.builder()
+                                .userId(member.userId())
+                                .role(member.role())
+                                .build())
+                        .toList())
+                .milestones(detail.milestones().stream()
+                        .map(milestone -> MilestoneRequest.builder()
+                                .milestoneId(milestone.milestoneId())
+                                .targetDate(milestone.targetDate())
+                                .goal(milestone.goal())
+                                .build())
+                        .toList());
+    }
 
     @Builder
     public record MemberRequest(

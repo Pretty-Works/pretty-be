@@ -7,6 +7,10 @@ public final class TaskPolicy {
 
     public static final int MAX_CREATE_BATCH_SIZE = 50;
 
+    // 재계획 한 건이 손댈 수 있는 할 일 수. 승인 한 번으로 바뀌는 범위를 제한한다 —
+    // 사용자는 요약을 보고 승인하므로, 상한이 없으면 무엇을 허락했는지 가늠할 수 없다.
+    public static final int MAX_REPLAN_BATCH_SIZE = 50;
+
     private TaskPolicy() {
     }
 

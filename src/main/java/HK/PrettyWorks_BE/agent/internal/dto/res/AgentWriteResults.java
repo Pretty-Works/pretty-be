@@ -128,4 +128,45 @@ public final class AgentWriteResults {
             int completionRateAfter
     ) {
     }
+
+    // 저장 단계의 결과. 이 시점에 프로젝트 데이터는 하나도 바뀌지 않았다 —
+    // 에이전트는 이 목록을 그대로 읽어 "몇 번으로 하시겠어요"를 물으면 된다.
+    @Builder
+    public record ReplanCreated(
+            Long replanId,
+            Long projectId,
+            List<ReplanScenario> scenarios
+    ) {
+        @Builder
+        public record ReplanScenario(
+                String scenarioType,
+                // 한글 이름. 에이전트가 코드값을 그대로 말하지 않게 함께 준다.
+                String scenarioLabel,
+                String summary,
+                String risk,
+                // 이 시나리오가 바꿀 건수. "얼마나 큰 변경인가"를 가늠하는 값이다.
+                int operationCount
+        ) {
+        }
+    }
+
+    // 적용 결과. 종류별 건수를 서버가 세어 준다 —
+    // 이미 그 값이던 항목은 건너뛰므로, 에이전트가 요청 건수로 답하면 사실과 어긋난다.
+    @Builder
+    public record ReplanApplied(
+            Long replanId,
+            Long projectId,
+            String scenarioType,
+            String scenarioLabel,
+            // 프로젝트 목표일을 옮긴 경우에만 값이 있다.
+            LocalDate projectTargetDate,
+            int milestoneDateChangedCount,
+            int taskDueDateChangedCount,
+            int taskCreatedCount,
+            // 하드 삭제라 되돌릴 수 없다. 답변에서 반드시 언급해야 하는 숫자다.
+            // 담당자를 넘긴 재배치도 여기 잡힌다 — 지우고 새로 만드는 방식이라서다.
+            int taskDeletedCount,
+            int memberAddedCount
+    ) {
+    }
 }

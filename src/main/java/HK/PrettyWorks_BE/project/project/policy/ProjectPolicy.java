@@ -52,7 +52,12 @@ public final class ProjectPolicy {
     // 프로젝트가 콘텐츠(회의록·게시글 등) 추가/수정을 받을 수 있는 상태인지 확인합니다.
     // 완료·보관이면 닫힌 것으로 봅니다.
     public static boolean isOpenForContent(ProjectEntity project) {
-        ProjectStatus status = project.getStatus();
+        return isOpenForContent(project.getStatus());
+    }
+
+    // 상태 값만 가진 쪽(조회 응답으로 받은 경우)을 위한 형태. 엔티티를 다시 읽지 않으려고 둡니다.
+    // 판정 규칙은 위 메서드와 같아야 하므로 한 곳에 둡니다.
+    public static boolean isOpenForContent(ProjectStatus status) {
         return status != ProjectStatus.COMPLETED && status != ProjectStatus.ARCHIVED;
     }
 

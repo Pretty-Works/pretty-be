@@ -128,7 +128,10 @@ public class AgentTaskToolService {
                         .dueDate(row.dueDate())
                         .completed(row.completed())
                         .isCarryOver(row.dueDate().isBefore(week.start()))
+                        // 이 조회는 담당자가 본인인 할 일만 가져온다(findMyWeeklyRows).
+                        // 담당자는 수정도 토글도 되므로 둘 다 true다.
                         .canEdit(true)
+                        .canToggle(true)
                         .assigneeId(userId)
                         .assigneeName(myName)
                         .projectId(row.projectId())
@@ -151,7 +154,11 @@ public class AgentTaskToolService {
                         .dueDate(task.dueDate())
                         .completed(task.done())
                         .isCarryOver(task.dueDate().isBefore(week.start()))
-                        .canEdit(userId.equals(task.assignee().userId()))
+                        // 서버가 TaskPolicy로 판정한 값을 그대로 넘긴다. 여기서 다시 계산하면
+                        // 규칙이 두 벌이 되고, 어긋나는 순간 에이전트는 할 수 있는 일을 못 한다고
+                        // 답하거나 못 하는 일을 제안했다가 저장 단계에서 거절당한다.
+                        .canEdit(task.canEdit())
+                        .canToggle(task.canToggle())
                         .assigneeId(task.assignee().userId())
                         .assigneeName(task.assignee().name())
                         .projectId(projectId)

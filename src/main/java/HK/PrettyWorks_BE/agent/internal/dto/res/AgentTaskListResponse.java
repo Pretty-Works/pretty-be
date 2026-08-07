@@ -27,8 +27,14 @@ public record AgentTaskListResponse(
             boolean completed,
             // 지난 주 이전 마감인데 아직 미완료라 이번 주로 밀려온 건.
             boolean isCarryOver,
-            // 본인 할 일이면 true (TASK_004). task.toggleStatus 가능 여부의 기준.
+            // 내용·마감일을 고칠 수 있는지. 담당자 또는 작성자면 true (TASK_004).
+            //
+            // canToggle과 나눠 둔 이유: 두 권한이 다르다. 배정한 PM은 오타를 고칠 수 있지만
+            // 완료 체크는 못 하고(완료율이 실제 진척과 어긋나므로), 배정받은 사람은 둘 다 된다.
+            // 한 필드로 합치면 둘 중 하나는 반드시 틀린 답이 된다.
             boolean canEdit,
+            // 완료·미완료를 바꿀 수 있는지. 담당자만 true. task.toggleStatus 가능 여부의 기준.
+            boolean canToggle,
             Long assigneeId,
             String assigneeName,
             Long projectId,
