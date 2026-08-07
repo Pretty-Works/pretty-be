@@ -366,6 +366,7 @@ public class ProjectService {
                 .name(ownerUser == null ? null : ownerUser.getName())
                 .department(ownerUser == null ? null : ownerUser.getDepartment())
                 .position(ownerUser == null ? null : ownerUser.getPosition())
+                .status(ownerUser == null ? null : ownerUser.getStatus())
                 .ownerRole(ownerMember.getRole())
                 .build();
 
@@ -377,6 +378,7 @@ public class ProjectService {
                             .name(user == null ? null : user.getName())
                             .department(user == null ? null : user.getDepartment())
                             .position(user == null ? null : user.getPosition())
+                            .status(user == null ? null : user.getStatus())
                             .role(m.getRole())
                             .build();
                 })

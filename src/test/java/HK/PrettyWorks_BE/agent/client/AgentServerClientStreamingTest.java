@@ -213,6 +213,7 @@ class AgentServerClientStreamingTest {
     private AgentRunRequest request() {
         return new AgentRunRequest(
                 "run_public_1",
+                1L,
                 "이번 주 할 일을 확인해줘",
                 List.of(),
                 objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"),

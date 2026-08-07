@@ -62,7 +62,10 @@ public class AgentSummaryClient {
         requirePositive(connectTimeoutMillis, "agent.server.connect-timeout");
         requirePositive(summaryTimeoutMillis, "agent.server.summary-timeout-millis");
 
+        // HTTP/1.1 고정 — 기본값 HTTP_2는 평문 http:// 에서 h2c 업그레이드를 시도하는데
+        // uvicorn(h11)이 이를 못 받아 본문 파싱에 실패한다. AgentServerClient와 같은 이유다.
         this.httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofMillis(connectTimeoutMillis))
                 .build();
         this.summaryUri = resolveRootPath(baseUrl, PROJECT_SUMMARY_PATH);

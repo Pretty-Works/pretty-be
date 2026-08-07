@@ -3,6 +3,7 @@ package HK.PrettyWorks_BE.project.project.dto.res;
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
 import HK.PrettyWorks_BE.user.constant.DepartmentType;
 import HK.PrettyWorks_BE.user.constant.PositionType;
+import HK.PrettyWorks_BE.user.constant.StatusType;
 import lombok.Builder;
 
 import java.time.LocalDate;
@@ -41,6 +42,8 @@ public record ProjectDetailResponse(
             String name,
             DepartmentType department,
             PositionType position,
+            // 재직 상태. 화면이 휴직 뱃지를 붙이는 데 쓴다 (퇴사자는 참여자로 남지 않는다)
+            StatusType status,
             String ownerRole
     ) {
     }
@@ -52,6 +55,7 @@ public record ProjectDetailResponse(
             String name,
             DepartmentType department,
             PositionType position,
+            StatusType status,
             String role
     ) {
     }

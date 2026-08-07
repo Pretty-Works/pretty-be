@@ -83,7 +83,13 @@ public class AgentServerClient {
 
         // 타임아웃을 반드시 건다. 기본값은 사실상 무제한이라, FastAPI가 멈추면 우리 요청 스레드가
         // 그대로 물려 톰캣 풀이 마르고 관계없는 API까지 같이 느려진다.
+        //
+        // HTTP/1.1로 고정한다. HttpClient 기본값은 HTTP_2라 평문 http:// 로 부를 때
+        // h2c 업그레이드(Connection: Upgrade, HTTP2-Settings)를 먼저 시도하는데,
+        // FastAPI를 띄우는 uvicorn(h11)은 이를 못 받아 "Unsupported upgrade request"를 남기고
+        // 본문 파싱에 실패해 422를 돌려준다. 그러면 BE는 AGENT_007로 번역해 실행이 통째로 죽는다.
         HttpClient httpClient = HttpClient.newBuilder()
+                .version(HttpClient.Version.HTTP_1_1)
                 .connectTimeout(Duration.ofMillis(connectTimeoutMillis))
                 .build();
 

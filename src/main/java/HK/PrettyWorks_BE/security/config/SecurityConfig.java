@@ -16,10 +16,12 @@ import org.springframework.boot.web.servlet.FilterRegistrationBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.core.annotation.Order;
+import org.springframework.security.config.ObjectPostProcessor;
 import org.springframework.security.config.annotation.web.builders.HttpSecurity;
 import org.springframework.security.config.annotation.web.configurers.AbstractHttpConfigurer;
 import org.springframework.security.config.http.SessionCreationPolicy;
 import org.springframework.security.web.SecurityFilterChain;
+import org.springframework.security.web.access.intercept.AuthorizationFilter;
 import org.springframework.security.web.authentication.UsernamePasswordAuthenticationFilter;
 import org.springframework.security.config.Customizer;
 import org.springframework.web.cors.CorsConfiguration;
@@ -101,6 +103,24 @@ public class SecurityConfig {
                 .authorizeHttpRequests(auth -> auth
                         .requestMatchers(AuthConstant.AUTH_WHITELIST).permitAll()
                         .anyRequest().authenticated()
+                        // SSE(SseEmitter) 응답을 깨뜨리지 않기 위해 ASYNC 디스패치는 인가에서 제외합니다.
+                        //
+                        // emitter.complete() 를 부르면 톰캣이 응답을 마무리하려고 필터 체인을 ASYNC로
+                        // 한 번 더 태웁니다. 이때 JwtAuthenticationFilter 는 OncePerRequestFilter 라
+                        // 기본값(shouldNotFilterAsyncDispatch=true)에 따라 건너뛰어 SecurityContext 가 비고,
+                        // AuthorizationFilter 만 돌아 Access Denied 가 납니다. 그 시점엔 이미 응답이
+                        // 커밋된 뒤라 에러 페이지도 못 쓰고 커넥션이 그냥 끊겨, 브라우저에는 종료 청크가
+                        // 빠진 ERR_INCOMPLETE_CHUNKED_ENCODING 으로 보입니다.
+                        //
+                        // 최초 REQUEST 디스패치에서 이미 인가를 마쳤고 ASYNC 는 그 응답을 닫는 절차일
+                        // 뿐이라, 여기서 다시 인가할 실익이 없습니다. (FORWARD/INCLUDE 는 그대로 검사)
+                        .withObjectPostProcessor(new ObjectPostProcessor<AuthorizationFilter>() {
+                            @Override
+                            public <O extends AuthorizationFilter> O postProcess(O filter) {
+                                filter.setFilterAsyncDispatch(false);
+                                return filter;
+                            }
+                        })
                 )
                 // 인증되지 않은 요청이 보호 자원에 접근하면 JSON 형태의 401 응답을 내려줍니다.
                 .exceptionHandling(exception ->

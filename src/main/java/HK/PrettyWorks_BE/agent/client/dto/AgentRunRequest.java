@@ -10,11 +10,12 @@ import java.util.List;
  *
  * <p>{@code userId}는 보내지 않습니다. FastAPI가 업무 데이터를 읽고 쓸 때의 신원은
  * 요청 바디가 아니라 내부 도구의 {@code X-Run-Id}를 Spring이 역산해 결정합니다.
- * {@code conversationId}도 FastAPI 체크포인트 키가 아니므로 노출하지 않습니다.</p>
+ * {@code conversationId}는 FastAPI RunRequest 스키마의 필수 필드라 그대로 실어 보낸다.</p>
  */
 @Builder
 public record AgentRunRequest(
         String runId,
+        Long conversationId,
         String goal,
         List<ContextMessage> messages,
         JsonNode screenContext,
@@ -23,6 +24,9 @@ public record AgentRunRequest(
 ) {
     public AgentRunRequest {
         requireText(runId, "runId");
+        if (conversationId == null) {
+            throw new IllegalArgumentException("conversationId must not be null");
+        }
         requireText(goal, "goal");
         requireText(requestSource, "requestSource");
         requireText(locale, "locale");
