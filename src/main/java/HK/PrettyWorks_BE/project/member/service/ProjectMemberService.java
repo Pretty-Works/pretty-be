@@ -4,8 +4,8 @@ import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.project.member.constant.ProjectMemberStatus;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
 import HK.PrettyWorks_BE.project.member.exception.ProjectMemberErrorCode;
-import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberSearchResponse;
-import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberDetailResponse;
+import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberResponse;
+import HK.PrettyWorks_BE.global.base.PageRequests;
 import HK.PrettyWorks_BE.project.member.repository.ProjectMemberRepository;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
@@ -13,10 +13,8 @@ import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import HK.PrettyWorks_BE.user.service.UserSearchCondition;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
-import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Optional;
@@ -82,44 +80,30 @@ public class ProjectMemberService {
         return projectMemberRepository.findOwner(projectId).map(ProjectMemberEntity::getUserId);
     }
 
-    // 회의록·할 일 등 프로젝트 하위 기능에서 사용할 참여중 재직자 이름 자동완성.
-    // 휴직자도 포함한다 — 프로젝트 참여·회의 참석이 열려 있으므로 사내 임직원 검색과 기준이 같아야 한다.
+    /**
+     * 참여중 재직자 조회. 명단 화면·참여자 추가 자동완성·에이전트 도구가 모두 이 진입점을 쓴다.
+     *
+     * <p>휴직자도 포함한다 — 프로젝트 참여·회의 참석이 열려 있으므로 사내 임직원 검색과 기준이 같아야 한다.
+     * 세 용도가 다른 명단을 받으면 화면에는 보이는 사람이 에이전트에게는 안 보이는 식으로 갈린다.
+     *
+     * @param keyword     이름 부분 일치. 비우면 전체
+     * @param excludeSelf 요청자 본인을 뺄지. 참여자 추가 자동완성은 이미 참여 중인 본인을 후보로 둘 이유가 없다
+     * @param size        1~100. 자동완성 상한(20)보다 큰 이유는 명단이 전원을 받아야 하기 때문이다
+     */
     @Transactional(readOnly = true)
-    public List<ProjectMemberSearchResponse> searchMembers(Long projectId, Long requesterId,
-                                                           String keyword, int limit) {
+    public List<ProjectMemberResponse> getMembers(Long projectId, Long requesterId,
+                                                  String keyword, boolean excludeSelf, int size) {
         currentUserService.getEmployedUser(requesterId);
         validateAccess(projectId, requesterId);
 
-        UserSearchCondition condition = UserSearchCondition.of(keyword, limit);
-        if (condition.isEmpty()) {
-            return List.of();
-        }
-
-        return projectMemberRepository.searchActiveMembers(
-                        projectId, requesterId, condition.keyword(),
-                        ProjectMemberStatus.ACTIVE, UserPolicy.EMPLOYED_STATUSES,
-                        PageRequest.of(0, condition.limit()))
-                .stream()
-                .map(ProjectMemberSearchResponse::from)
-                .toList();
-    }
-
-    // 참여중 재직자 전체. 자동완성(searchMembers)과 달리 검색어 없이도 전체를 주고 요청자 본인도 포함한다.
-    //
-    // 재직 기준은 자동완성과 같다(퇴사만 제외, 휴직 포함). 두 조회가 다른 명단을 주면
-    // 화면에는 보이는 사람이 에이전트에게는 안 보이는 식으로 갈린다.
-    @Transactional(readOnly = true)
-    public List<ProjectMemberDetailResponse> getActiveMembers(Long projectId, Long requesterId,
-                                                              String keyword, int limit) {
-        validateAccess(projectId, requesterId);
-
-        String searchKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
         return projectMemberRepository.findActiveMembers(
-                        projectId, searchKeyword,
+                        projectId,
+                        UserSearchCondition.normalizeKeyword(keyword),
+                        excludeSelf ? requesterId : null,
                         ProjectMemberStatus.ACTIVE, UserPolicy.EMPLOYED_STATUSES,
-                        PageRequest.of(0, limit))
+                        PageRequests.of(0, size))
                 .stream()
-                .map(ProjectMemberDetailResponse::from)
+                .map(ProjectMemberResponse::from)
                 .toList();
     }
 }

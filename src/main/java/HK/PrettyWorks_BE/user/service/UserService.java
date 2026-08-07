@@ -61,4 +61,17 @@ public class UserService {
         return userRepository.findAllById(userIds).stream()
                 .collect(Collectors.toMap(UserEntity::getId, UserEntity::getName));
     }
+
+    // 이름 말고 부서·직급까지 필요한 화면용(프로젝트 상세의 참여자 카드 등).
+    // getNameMap과 나눠 둔 이유: 이름만 쓰는 쪽이 훨씬 많은데 전부 엔티티를 들고 다니면
+    // 호출부가 필요 이상으로 많은 필드에 접근할 수 있게 된다.
+    @Transactional(readOnly = true)
+    public Map<Long, UserEntity> getUserMap(Collection<Long> userIds) {
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(UserEntity::getId, user -> user));
+    }
 }

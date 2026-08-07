@@ -347,28 +347,38 @@ public class ProjectService {
             throw BaseException.type(GlobalErrorCode.INTERNAL_SERVER_ERROR);   // 오너는 항상 존재해야 한다
         }
 
-        // 4) 멤버 이름을 한 번에 조회 (userId → name). 루프 안에서 개별 조회하지 않는다.
+        // 4) 멤버 정보를 한 번에 조회 (userId → user). 루프 안에서 개별 조회하지 않는다.
+        //    이름뿐 아니라 부서·직급까지 필요해 getNameMap이 아니라 getUserMap을 쓴다 —
+        //    수정 화면의 참여자 카드가 "이름 · 부서"로 표시한다.
         Set<Long> memberUserIds = activeMembers.stream()
                 .map(ProjectMemberEntity::getUserId)
                 .collect(Collectors.toSet());
-        Map<Long, String> nameById = userService.getNameMap(memberUserIds);
+        Map<Long, UserEntity> userById = userService.getUserMap(memberUserIds);
 
         // 5) 마일스톤 (목표일 오름차순)
         List<MilestoneEntity> milestones = milestoneRepository.findByProjectIdOrderByTargetDateAscIdAsc(projectId);
 
         // 6) 조립 — progress는 오늘 날짜로 계산한 파생값
+        UserEntity ownerUser = userById.get(ownerMember.getUserId());
         ProjectDetailResponse.Owner owner = ProjectDetailResponse.Owner.builder()
                 .userId(ownerMember.getUserId())
-                .name(nameById.get(ownerMember.getUserId()))
+                .name(ownerUser == null ? null : ownerUser.getName())
+                .department(ownerUser == null ? null : ownerUser.getDepartment())
+                .position(ownerUser == null ? null : ownerUser.getPosition())
                 .ownerRole(ownerMember.getRole())
                 .build();
 
         List<ProjectDetailResponse.Member> memberDtos = participants.stream()
-                .map(m -> ProjectDetailResponse.Member.builder()
-                        .userId(m.getUserId())
-                        .name(nameById.get(m.getUserId()))
-                        .role(m.getRole())
-                        .build())
+                .map(m -> {
+                    UserEntity user = userById.get(m.getUserId());
+                    return ProjectDetailResponse.Member.builder()
+                            .userId(m.getUserId())
+                            .name(user == null ? null : user.getName())
+                            .department(user == null ? null : user.getDepartment())
+                            .position(user == null ? null : user.getPosition())
+                            .role(m.getRole())
+                            .build();
+                })
                 .toList();
 
         List<MilestoneSummary> milestoneDtos = MilestoneSummary.listFrom(milestones);

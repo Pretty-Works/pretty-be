@@ -15,8 +15,15 @@ public record UserSearchCondition(String keyword, int limit) {
         if (limit < 1 || limit > MAX_LIMIT) {
             throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
         }
+
+        return new UserSearchCondition(normalizeKeyword(keyword), limit);
+    }
+
+    // 검색어만 정규화한다(빈 값이면 null). 목록 크기 상한이 자동완성(20)과 다른 조회 —
+    // 프로젝트 참여자 명단처럼 전원을 내려주는 API — 가 검색어 규칙만 재사용한다.
+    public static String normalizeKeyword(String keyword) {
         if (!StringUtils.hasText(keyword)) {
-            return new UserSearchCondition(null, limit);
+            return null;
         }
 
         String normalizedKeyword = keyword.trim();
@@ -25,7 +32,7 @@ public record UserSearchCondition(String keyword, int limit) {
             throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
         }
 
-        return new UserSearchCondition(normalizedKeyword, limit);
+        return normalizedKeyword;
     }
 
     public boolean isEmpty() {
