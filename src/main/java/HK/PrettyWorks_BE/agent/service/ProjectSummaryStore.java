@@ -42,10 +42,20 @@ public class ProjectSummaryStore {
             JsonNode banner = jsonSupport.read(row.getPayloadJson());
             // 깨진 JSON 한 장 때문에 배너 전체가 500이 되면 안 된다. 다음 배치가 덮어쓴다.
             if (banner != null) {
-                stored.add(new StoredSummary(row.getSection(), banner, row.getGeneratedAt()));
+                stored.add(new StoredSummary(row.getSection(), banner, row.getGeneratedAt(),
+                        row.getSourceStamp()));
             }
         }
         return stored;
+    }
+
+    /**
+     * 지금 이 프로젝트의 재료 지문을 읽습니다. 저장된 배너의 지문과 다르면 그사이 누군가
+     * 할 일을 체크했거나 게시글을 썼다는 뜻입니다.
+     */
+    @Transactional(readOnly = true)
+    public String currentStamp(Long projectId) {
+        return summaryRepository.findSourceStamp(projectId);
     }
 
     /**
@@ -55,7 +65,8 @@ public class ProjectSummaryStore {
      * 화면에 옛날 배너가 계속 떠 있게 됩니다.</p>
      */
     @Transactional
-    public void save(Long projectId, AgentProjectSummaryResult result, LocalDateTime generatedAt) {
+    public void save(Long projectId, AgentProjectSummaryResult result,
+                     LocalDateTime generatedAt, String sourceStamp) {
         // 대소문자를 무시하고 짝을 찾는다. (project_id, section) 유니크 인덱스가 utf8mb4_unicode_ci라
         // DB는 "overview"와 "Overview"를 같은 키로 본다. 여기서 대소문자를 구분하면
         // 표기가 바뀐 날 UPDATE가 아니라 INSERT + DELETE가 되는데, 하이버네이트는 INSERT를 먼저
@@ -77,10 +88,11 @@ public class ProjectSummaryStore {
                         .displayOrder(order)
                         .payloadJson(payloadJson)
                         .generatedAt(generatedAt)
+                        .sourceStamp(sourceStamp)
                         .build());
             } else {
                 // 영속 엔티티라 dirty checking으로 UPDATE된다.
-                row.refresh(order, payloadJson, generatedAt);
+                row.refresh(order, payloadJson, generatedAt, sourceStamp);
             }
             order++;
         }
@@ -96,10 +108,12 @@ public class ProjectSummaryStore {
     }
 
     /**
-     * @param section   overview · board · budget · meeting
-     * @param banner    프론트로 그대로 나갈 원문
+     * @param section     overview · board · budget · meeting
+     * @param banner      프론트로 그대로 나갈 원문
      * @param generatedAt 이 배너를 만든 시각
+     * @param sourceStamp 만들 때의 재료 지문. 지금 값과 다르면 배너가 낡았다는 뜻이다.
      */
-    public record StoredSummary(String section, JsonNode banner, LocalDateTime generatedAt) {
+    public record StoredSummary(String section, JsonNode banner, LocalDateTime generatedAt,
+                                String sourceStamp) {
     }
 }

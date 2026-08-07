@@ -19,6 +19,7 @@ import java.time.LocalDate;
 import java.time.LocalDateTime;
 import java.util.Comparator;
 import java.util.List;
+import java.util.Objects;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
@@ -69,12 +70,22 @@ public class ProjectSummaryService {
     /**
      * 배너를 읽습니다. 프론트가 부르는 것은 사실상 이것 하나입니다 — projectId만 있으면 됩니다.
      *
-     * <p>저장된 것이 있으면 그대로 주고(LLM 호출 없음, 탭 전환마다 불러도 됩니다),
-     * 아직 없으면 그 자리에서 만들어 저장한 뒤 돌려줍니다. 프론트가 "요약이 있나 없나"를
-     * 판단해 생성 API를 따로 부를 필요를 없애기 위한 read-through입니다.</p>
+     * <p>세 갈래로 갈립니다.</p>
+     * <ol>
+     *   <li>저장된 배너가 없다 → 그 자리에서 만든다(새 프로젝트, 배치 실패 후)</li>
+     *   <li>있는데 그사이 재료가 바뀌었다 → 다시 만든다. 단 마지막 생성으로부터
+     *       {@code agent.summary.min-refresh-interval-minutes}가 지났을 때만</li>
+     *   <li>그 밖에는 저장된 것을 그대로 준다 — LLM 호출 없음, 즉시 응답</li>
+     * </ol>
+     *
+     * <p>재료가 바뀌었는지는 도메인이 알려 주지 않고 여기서 물어봅니다
+     * ({@link ProjectSummaryStore#currentStamp}). 할 일 상태 변경·지출 등록·게시글 작성·
+     * 에이전트 쓰기 도구까지 무효화 지점이 도메인 전반에 흩어져 있어, 그 자리마다 호출을 심으면
+     * 지점이 하나 늘 때마다 빠뜨릴 자리가 하나씩 늘어나기 때문입니다.</p>
      *
      * <p>생성에 실패해도 이 API는 실패하지 않습니다. 배너는 화면의 부가 정보라
-     * 에이전트 서버가 죽었다고 프로젝트 페이지 전체가 5xx로 막히면 안 됩니다 — 빈 배열을 줍니다.</p>
+     * 에이전트 서버가 죽었다고 프로젝트 페이지 전체가 5xx로 막히면 안 됩니다 —
+     * 저장된 것이 있으면 그것을, 없으면 빈 배열을 줍니다.</p>
      *
      * @param section 특정 섹션 한 장만 원할 때. 비우면 4장 전부.
      */
@@ -82,12 +93,32 @@ public class ProjectSummaryService {
         projectMemberService.validateAccess(projectId, userId);
 
         List<ProjectSummaryStore.StoredSummary> stored = summaryStore.load(projectId);
-        if (stored.isEmpty()) {
-            // 있으면 낡았어도 그대로 준다. 여기서 '며칠 지났으면 다시'까지 판정하면
-            // 조회가 어느 날 갑자기 수 초 걸린다. 갱신은 배치와 갱신 API의 몫이다.
-            stored = generateQuietly(userId, projectId);
+        if (stored.isEmpty() || needsRefresh(projectId, stored)) {
+            List<ProjectSummaryStore.StoredSummary> regenerated = generateQuietly(userId, projectId);
+            // 실패하면 있던 배너를 그대로 쓴다. 낡은 배너가 배너 없음보다 낫다.
+            if (!regenerated.isEmpty()) {
+                stored = regenerated;
+            }
         }
         return toResponse(projectId, stored, section);
+    }
+
+    // 재료가 바뀌었고, 마지막 생성으로부터 최소 간격이 지났을 때만 true.
+    //
+    // 최소 간격이 없으면 활발한 프로젝트에서 진입할 때마다 LLM이 돈다. 할 일 하나만 체크해도
+    // 지문이 달라지기 때문이다. 간격은 "얼마나 최신이어야 하는가"의 가격표다.
+    private boolean needsRefresh(Long projectId, List<ProjectSummaryStore.StoredSummary> stored) {
+        if (isFresh(stored)) {
+            return false;
+        }
+        // 지문은 해석하지 않고 같은지만 본다. 저장된 값이 null이면(지문 도입 전에 만들어진 배너)
+        // 한 번 다시 만들면서 지문이 채워진다.
+        String current = summaryStore.currentStamp(projectId);
+        boolean changed = !Objects.equals(current, stored.getFirst().sourceStamp());
+        if (changed) {
+            log.debug("[프로젝트 요약] 재료가 바뀌어 다시 만듭니다. projectId={}", projectId);
+        }
+        return changed;
     }
 
     /**
@@ -146,19 +177,20 @@ public class ProjectSummaryService {
 
     // ================================= 내부 =================================
 
-    // 조회가 부르는 첫 생성. 실패해도 예외를 밖으로 내보내지 않는다 —
+    // 조회가 부르는 생성. 실패해도 예외를 밖으로 내보내지 않는다 —
     // 배너가 없는 화면은 멀쩡하지만, 배너 때문에 500이 나는 화면은 못 쓴다.
+    // 빈 목록을 돌려주면 호출자가 저장된 배너를 그대로 쓴다.
     private List<ProjectSummaryStore.StoredSummary> generateQuietly(Long userId, Long projectId) {
         if (!generating.add(projectId)) {
             // 다른 요청이 이미 만들고 있다. 탭 4개를 동시에 여는 경우가 대표적이다.
-            // 기다리지 않고 빈 배너로 응답한다 — 잠시 뒤 다시 조회하면 나온다.
-            log.debug("[프로젝트 요약] 이미 생성 중이라 빈 배너로 응답합니다. projectId={}", projectId);
+            // 기다리지 않는다 — 잠시 뒤 다시 조회하면 새것이 나온다.
+            log.debug("[프로젝트 요약] 이미 생성 중이라 기다리지 않습니다. projectId={}", projectId);
             return List.of();
         }
         try {
             return generate(userId, projectId);
         } catch (RuntimeException failure) {
-            log.warn("[프로젝트 요약] 첫 생성에 실패해 빈 배너로 응답합니다. projectId={}", projectId, failure);
+            log.warn("[프로젝트 요약] 생성에 실패했습니다. projectId={}", projectId, failure);
             return List.of();
         } finally {
             generating.remove(projectId);
@@ -168,22 +200,28 @@ public class ProjectSummaryService {
     // 재료 수집(짧은 트랜잭션) → FastAPI 호출(트랜잭션 밖) → 저장(짧은 트랜잭션).
     private List<ProjectSummaryStore.StoredSummary> generate(Long viewerId, Long projectId) {
         LocalDate today = LocalDate.now();
+
+        // 지문을 재료보다 먼저 읽는다. 순서가 반대면, 재료를 읽은 뒤 지문을 읽기까지의 사이에
+        // 들어온 변경이 지문에는 잡히고 재료에는 빠진다 — 그러면 낡은 배너가 최신으로 표시되고
+        // 다음 조회도 "안 바뀌었다"고 판정해 영영 갱신되지 않는다.
+        String sourceStamp = summaryStore.currentStamp(projectId);
         AgentProjectSummaryRequest materials = materialService.collect(viewerId, projectId, today);
 
         AgentProjectSummaryResult result = summaryClient.generate(materials);
 
         LocalDateTime generatedAt = LocalDateTime.now();
-        summaryStore.save(projectId, result, generatedAt);
+        summaryStore.save(projectId, result, generatedAt, sourceStamp);
         log.info("[프로젝트 요약] 생성 완료. projectId={} sections={}",
                 projectId, result.summaries().size());
 
         // 저장한 것을 다시 읽지 않는다. 방금 만든 값이 곧 응답이다.
         return result.summaries().stream()
                 .map(summary -> new ProjectSummaryStore.StoredSummary(
-                        summary.section(), summary.payload(), generatedAt))
+                        summary.section(), summary.payload(), generatedAt, sourceStamp))
                 .toList();
     }
 
+    // 마지막 생성으로부터 최소 간격이 지나지 않았으면 재료가 바뀌었어도 다시 만들지 않는다.
     private boolean isFresh(List<ProjectSummaryStore.StoredSummary> stored) {
         if (stored.isEmpty()) {
             return false;

@@ -55,19 +55,28 @@ public class ProjectSummaryEntity extends BaseTimeEntity {
     @Column(name = "generated_at", nullable = false)
     private LocalDateTime generatedAt;
 
+    // 만들 때의 재료 상태를 나타내는 지문(최근 수정 시각 + 행 수). 다음 조회에서 지금 값과 비교해
+    // "그사이 바뀌었나"를 판정한다. 이 칼럼이 있어서 도메인 코드에 캐시 무효화를 심지 않아도 된다.
+    // 서버는 값을 해석하지 않고 같은지만 본다.
+    @Column(name = "source_stamp", length = 64)
+    private String sourceStamp;
+
     @Builder
     public ProjectSummaryEntity(Long projectId, String section, int displayOrder,
-                                String payloadJson, LocalDateTime generatedAt) {
+                                String payloadJson, LocalDateTime generatedAt, String sourceStamp) {
         this.projectId = projectId;
         this.section = section;
         this.displayOrder = displayOrder;
         this.payloadJson = payloadJson;
         this.generatedAt = generatedAt;
+        this.sourceStamp = sourceStamp;
     }
 
-    public void refresh(int displayOrder, String payloadJson, LocalDateTime generatedAt) {
+    public void refresh(int displayOrder, String payloadJson, LocalDateTime generatedAt,
+                        String sourceStamp) {
         this.displayOrder = displayOrder;
         this.payloadJson = payloadJson;
         this.generatedAt = generatedAt;
+        this.sourceStamp = sourceStamp;
     }
 }
