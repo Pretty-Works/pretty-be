@@ -83,10 +83,11 @@ public class MilestoneService {
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
 
-        // 2) 변경 권한 (PROJECT_005): 호출자의 참여중(ACTIVE) 멤버십이 오너이거나 role="PM"
+        // 2) 변경 권한 (PROJECT_005): 참여중(ACTIVE) 멤버이면서 오너이거나 부서가 PM.
+        //    재직 검증 없이 읽는다 — 퇴사자에게 USER_003보다 403이 먼저 나가야 한다.
         ProjectMemberEntity caller = projectMemberService.getActiveMembership(projectId, userId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.NO_EDIT_PERMISSION));
-        if (!ProjectPolicy.canUpdate(caller)) {
+        if (!ProjectPolicy.canUpdate(caller, currentUserService.getCurrentUser(userId))) {
             throw BaseException.type(ProjectErrorCode.NO_EDIT_PERMISSION);
         }
 

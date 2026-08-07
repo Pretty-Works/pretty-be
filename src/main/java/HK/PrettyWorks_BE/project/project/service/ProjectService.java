@@ -173,10 +173,11 @@ public class ProjectService {
         ProjectEntity project = projectRepository.findByIdWithOptimisticLock(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
 
-        // 2) 수정 권한 (PROJECT_005): 호출자의 참여중(ACTIVE) 멤버십이 오너이거나 role="PM"
+        // 2) 수정 권한 (PROJECT_005): 참여중(ACTIVE) 멤버이면서 오너이거나 부서가 PM.
+        //    재직 검증 없이 읽는다 — 퇴사자에게 USER_003보다 403이 먼저 나가야 한다.
         ProjectMemberEntity caller = projectMemberService.getActiveMembership(projectId, userId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.NO_EDIT_PERMISSION));
-        if (!ProjectPolicy.canUpdate(caller)) {
+        if (!ProjectPolicy.canUpdate(caller, currentUserService.getCurrentUser(userId))) {
             throw BaseException.type(ProjectErrorCode.NO_EDIT_PERMISSION);
         }
 
@@ -405,11 +406,11 @@ public class ProjectService {
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
 
-        // 2) 상태 변경 권한 (PROJECT_017): 수정과 같은 기준 — 오너이거나 프로젝트 내 역할이 PM인 참여자.
+        // 2) 상태 변경 권한 (PROJECT_017): 수정과 같은 기준 — 오너이거나 부서가 PM인 참여자.
         //    에러코드를 PROJECT_005와 나눠 두는 이유는 규칙이 달라서가 아니라 화면 문구가 달라야 하기 때문이다.
         ProjectMemberEntity caller = projectMemberService.getActiveMembership(projectId, userId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.NO_STATUS_CHANGE_PERMISSION));
-        if (!ProjectPolicy.canUpdate(caller)) {
+        if (!ProjectPolicy.canUpdate(caller, currentUserService.getCurrentUser(userId))) {
             throw BaseException.type(ProjectErrorCode.NO_STATUS_CHANGE_PERMISSION);
         }
 
