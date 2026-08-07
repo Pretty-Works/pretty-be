@@ -1,11 +1,13 @@
 package HK.PrettyWorks_BE.agent.repository;
 
+import HK.PrettyWorks_BE.agent.constant.AgentRole;
 import HK.PrettyWorks_BE.agent.domain.AgentMessageEntity;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
 import java.util.List;
 
 public interface AgentMessageRepository extends JpaRepository<AgentMessageEntity, Long> {
@@ -28,6 +30,22 @@ public interface AgentMessageRepository extends JpaRepository<AgentMessageEntity
             "and (m.success is null or m.success = true) " +
             "order by m.id desc")
     List<AgentContextRow> findRecentContext(@Param("conversationId") Long conversationId, Pageable pageable);
+
+    // 대화 목록의 "안 읽음" 판정용. 페이지에 실린 대화들의 마지막 AGENT 메시지 id를 한 번에 모은다
+    // (행마다 조회하면 N+1). idx_agent_messages_conversation (conversation_id, id)를 탄다.
+    @Query("select new HK.PrettyWorks_BE.agent.repository.AgentLastAgentMessageRow(" +
+            "m.conversationId, max(m.id)) " +
+            "from AgentMessageEntity m " +
+            "where m.conversationId in :conversationIds and m.role = :role " +
+            "group by m.conversationId")
+    List<AgentLastAgentMessageRow> findLastAgentMessageRows(
+            @Param("conversationIds") Collection<Long> conversationIds,
+            @Param("role") AgentRole role);
+
+    // 읽음 처리 지점. 역할을 가리지 않고 최신 id를 쓴다 — 지금 화면에 보이는 마지막 말풍선이
+    // USER 행일 수도 있고, 그 뒤에 오는 AGENT 답변은 어차피 더 큰 id라 안 읽음으로 남는다.
+    @Query("select max(m.id) from AgentMessageEntity m where m.conversationId = :conversationId")
+    Long findLatestId(@Param("conversationId") Long conversationId);
 
     // Run 시작 메시지는 이미 저장된 뒤 FastAPI 요청을 조립하므로, 방금 USER 메시지는 제외한다.
     @Query("select new HK.PrettyWorks_BE.agent.repository.AgentContextRow(m.role, m.content) " +

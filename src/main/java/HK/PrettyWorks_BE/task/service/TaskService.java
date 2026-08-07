@@ -41,10 +41,12 @@ import java.time.LocalDateTime;
 import java.time.temporal.ChronoUnit;
 import java.time.temporal.TemporalAdjusters;
 import java.util.ArrayList;
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import java.util.stream.IntStream;
 
 @Service
@@ -239,6 +241,55 @@ public class TaskService {
                 .completedAt(task.getCompletedAt())
                 .changed(wasCompleted != nowCompleted)
                 .build();
+    }
+
+    // ====================== 재계획(replan) 진입점 ======================
+    //
+    // 재계획은 "내가 만든 할 일을 다시 배치하는" 일이라 권한을 새로 정하지 않는다.
+    // 마감일 조정은 update, 삭제는 delete, 생성은 createBatch — 화면이 쓰는 공개 메서드를 그대로 쓴다.
+    // 그쪽 규칙(수정은 담당자·작성자, 삭제는 작성자)이 곧 재계획이 손댈 수 있는 범위가 된다.
+    //
+    // 담당자 교체도 마찬가지다. 화면이 지원하지 않으므로 재계획도 하지 않는다 —
+    // 넘길 일이 있으면 화면과 똑같이 지우고 새로 만든다(TASK_DELETE + TASK_CREATE).
+    // 한쪽만 할 수 있게 두면 같은 조작의 결과가 경로에 따라 달라진다.
+    //
+    // 그래서 여기 남는 것은 조회 하나뿐이다. 쓰기는 전부 공개 메서드가 처리한다.
+
+    /**
+     * 재계획이 손댈 할 일을 소속·권한 검증을 마친 뒤 돌려준다.
+     *
+     * <p>taskId는 테이블 전역으로 부여되어 다른 프로젝트의 id도 유효한 값이다. 화면 경로는 담당자·작성자
+     * 판정이 남의 프로젝트 할 일을 자연히 걸러내지만, 여기는 값을 '읽는' 단계라 소속을 직접 확인해야 한다.
+     *
+     * <p>같은 트랜잭션에서 이어지는 update·delete 호출은 여기서 적재된 엔티티를 그대로 쓰므로 조회가 늘지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public List<TaskEntity> loadEditableTasks(Long actorId, Long projectId, Collection<Long> taskIds) {
+        if (taskIds.isEmpty()) {
+            return List.of();
+        }
+        if (taskIds.size() > TaskPolicy.MAX_REPLAN_BATCH_SIZE) {
+            throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
+        }
+        projectMemberService.validateAccess(projectId, actorId);
+
+        Set<Long> distinctIds = Set.copyOf(taskIds);
+        List<TaskEntity> tasks = taskRepository.findAllById(distinctIds);
+        if (tasks.size() != distinctIds.size()) {
+            throw BaseException.type(TaskErrorCode.TASK_NOT_FOUND);
+        }
+
+        for (TaskEntity task : tasks) {
+            // 존재하지 않는 id와 남의 프로젝트 id를 같은 코드로 응답한다 — 구분하면 존재 여부가 새어나간다.
+            if (!projectId.equals(task.getProjectId())) {
+                throw BaseException.type(TaskErrorCode.TASK_NOT_FOUND);
+            }
+            // 화면 수정과 같은 기준(TaskPolicy). 삭제는 여기에 더해 작성자를 요구하며 delete가 다시 판정한다.
+            if (!TaskPolicy.canModify(task, actorId)) {
+                throw BaseException.type(TaskErrorCode.NO_EDIT_PERMISSION);
+            }
+        }
+        return tasks;
     }
 
     @Transactional(readOnly = true)

@@ -5,6 +5,8 @@ import HK.PrettyWorks_BE.agent.internal.dto.req.AgentLeaveUpdateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentMeetingCreateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentMilestoneStatusRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentPostCreateRequest;
+import HK.PrettyWorks_BE.agent.internal.dto.req.AgentReplanApplyRequest;
+import HK.PrettyWorks_BE.agent.internal.dto.req.AgentReplanCreateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentScheduleUpdateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentTaskCreateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentTaskStatusRequest;
@@ -104,7 +106,11 @@ public interface InternalAgentToolApi {
     @Operation(summary = "milestone.list", description = """
             프로젝트 중간 목표와 달성 현황을 알려줍니다. "일정 위험해 보여?"에 답하는 가장 직접적인 근거입니다.
             - isOverdue·isNext는 서버가 오늘 기준으로 계산해 내려줍니다. 날짜를 다시 비교하지 마세요.
-            - isNext가 true인 항목이 다음에 완료할 마일스톤입니다(milestone.toggleStatus의 출발점).
+            - isNext가 true인 항목이 다음에 완료할 마일스톤입니다.
+            - toggleable(응답)이 milestone.toggleStatus 가능 여부의 기준입니다. 마일스톤은 순서대로
+              완료·취소해야 하며, 서버가 그 순서를 보고 판정한 값입니다. isNext로 대신하지 마세요 —
+              isNext는 미완료 항목에만 붙어서 "완료 취소가 되는지"를 표현하지 못합니다.
+              단 toggleable은 순서만 본 값이라 권한은 빠져 있습니다(오너·PM 여부는 project.search로 확인).
             """)
     ResponseEntity<AgentMilestoneListResponse> milestones(Long userId, Long projectId);
 
@@ -177,6 +183,10 @@ public interface InternalAgentToolApi {
             - weekOffset(요청): 0(이번 주) · -1(지난 주) · 1(다음 주)처럼 주 단위 상대값입니다.
               범위는 -8 ~ 8이며 벗어나면 REQUEST_001로 거절합니다.
             - completionRate는 서버가 셉니다. 직접 세면 carry-over 포함 기준이 달라져 숫자가 어긋납니다.
+            - canEdit·canToggle(응답)은 권한이 서로 다릅니다. 하나로 판단하면 안 됩니다.
+              canEdit은 내용·마감일 수정으로 담당자 또는 작성자면 true이고,
+              canToggle은 완료 처리로 담당자만 true입니다(TASK_004).
+              배정한 PM은 오타를 고칠 수 있지만 완료 체크는 못 합니다.
             """)
     ResponseEntity<AgentTaskListResponse> tasks(
             Long userId, Long projectId, int weekOffset, boolean onlyIncomplete);
@@ -213,6 +223,12 @@ public interface InternalAgentToolApi {
             description = """
                     할 일 여러 건을 한 번에 등록합니다.
                     - tasks[].projectId가 null이면 개인 할 일, 값이 있으면 그 프로젝트의 할 일입니다.
+                    - tasks[].assigneeId(요청): 담당자입니다. 비우면 요청자 본인이 담당합니다.
+                      남을 지정하려면 그 프로젝트의 오너이거나 역할이 PM이어야 하고(TASK_008),
+                      대상도 그 프로젝트의 참여중 멤버여야 합니다(TASK_009).
+                      개인 할 일에는 지정할 수 없습니다(TASK_010).
+                      배정하면 담당자에게 알림이 갑니다.
+                    - 담당자 변경(재배정)은 지원하지 않습니다. 잘못 배정했다면 지우고 다시 만들어야 합니다.
                     - 승인된 배열 전체를 한 트랜잭션으로 저장하며, 한 항목이라도 실패하면 전부 롤백합니다.
                     """,
             requestBody = @RequestBody(required = true, content = @Content(
@@ -226,7 +242,9 @@ public interface InternalAgentToolApi {
                     할 일 한 건의 완료·미완료를 바꿉니다.
                     - completed(요청)로 목표 상태를 명시하므로 재시도해도 상태가 뒤집히지 않습니다.
                     - 이미 그 상태였다면 에러가 아니라 changed=false로 성공합니다.
-                    - 본인 할 일만 바꿀 수 있습니다(TASK_004).
+                    - 담당자만 바꿀 수 있습니다(TASK_004). 작성자라도 담당자가 아니면 못 합니다 —
+                      일을 한 사람이 체크해야 완료율이 실제 진척과 맞기 때문입니다.
+                      task.list의 canEdit이 아니라 canToggle로 판단하세요.
                     """,
             requestBody = @RequestBody(required = true, content = @Content(
                     schema = @Schema(implementation = AgentTaskStatusRequest.class)))
@@ -338,4 +356,49 @@ public interface InternalAgentToolApi {
                     schema = @Schema(implementation = AgentLeaveUpdateRequest.class)))
     )
     ResponseEntity<AgentWriteResults.LeaveSaved> updateLeave(Long userId, Long leaveId);
+
+    @Operation(
+            summary = "replan.create",
+            description = """
+                    일정이 틀어졌을 때 고를 수 있는 재계획안을 저장합니다. **프로젝트 데이터는 바뀌지 않습니다.**
+                    - scenarioType: REALLOCATE(인력 재배치) · EXTEND(일정 조정) · REDUCE_SCOPE(범위 축소)
+                      한 재계획에 같은 종류를 두 번 담을 수 없습니다.
+                    - risk: LOW · MEDIUM · HIGH — 사용자가 고르는 데 쓰는 라벨이며 서버 판정에는 쓰이지 않습니다.
+                    - operations의 종류별 필수 값 (빠지면 REPLAN_005):
+                      · PROJECT_TARGET_DATE_CHANGE — from, to
+                      · PROJECT_MEMBER_ADD — memberId (role은 선택)
+                      · MILESTONE_TARGET_DATE_CHANGE — milestoneId, from, to
+                      · TASK_DUE_DATE_CHANGE — taskId, from, to
+                      · TASK_CREATE — content, to(마감일). toAssigneeId는 선택(비우면 실행자 담당)
+                      · TASK_DELETE — taskId, expectedContent
+                    - **담당자 변경 항목은 없습니다.** 화면이 재배정을 지원하지 않아 재계획도 지원하지 않습니다.
+                      담당자를 넘기려면 화면과 같은 방식으로 TASK_DELETE + TASK_CREATE 를 함께 담으세요.
+                      이때 원래 할 일은 지워지므로 taskId·완료 상태가 사라집니다. 답변에 그 사실을 알려야 합니다.
+                    - from 계열은 "계획을 세울 때의 현재 값"입니다. 반드시 조회 도구로 확인한 실제 값을 넣으세요.
+                      적용 직전에 대조해 그 사이 누가 먼저 바꿨으면 REPLAN_004로 거부합니다.
+                    - 시나리오 종류가 operation 종류를 제한하지 않습니다. 범위를 줄이면서 마감일도 함께 옮길 수 있습니다.
+                    - 프로젝트 오너 또는 PM만 가능합니다(REPLAN_003).
+                    """,
+            requestBody = @RequestBody(required = true, content = @Content(
+                    schema = @Schema(implementation = AgentReplanCreateRequest.class)))
+    )
+    ResponseEntity<AgentWriteResults.ReplanCreated> createReplan(Long userId, Long projectId);
+
+    @Operation(
+            summary = "replan.apply",
+            description = """
+                    저장된 재계획 중 사용자가 고른 시나리오 하나를 실제 데이터에 반영합니다.
+                    - 변경 내용은 보내지 않습니다. replanId와 scenarioType만 보내면 서버가 저장된 계획을 읽어 실행합니다.
+                    - 전체가 한 트랜잭션입니다. 한 건이라도 실패하면 전부 되돌아갑니다.
+                    - 적용 순서는 서버가 정합니다(기간 → 참여자 → 마일스톤 → 마감일 → 생성 → 삭제).
+                    - 한 재계획은 한 번만 적용할 수 있습니다(REPLAN_006). 다시 계획하려면 replan.create로 새로 만드세요.
+                    - TASK_DELETE는 하드 삭제라 되돌릴 수 없습니다. 응답의 taskDeletedCount가 0이 아니면
+                      답변에서 반드시 몇 건이 삭제됐는지 알려야 합니다.
+                    - 계획 당시 값과 현재 값이 다르면 아무것도 바꾸지 않고 REPLAN_004로 거부합니다.
+                      이때는 조회 도구로 현재 상태를 다시 읽어 replan.create부터 다시 하세요.
+                    """,
+            requestBody = @RequestBody(required = true, content = @Content(
+                    schema = @Schema(implementation = AgentReplanApplyRequest.class)))
+    )
+    ResponseEntity<AgentWriteResults.ReplanApplied> applyReplan(Long userId, Long projectId, Long replanId);
 }

@@ -375,12 +375,17 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 --   - last_message_at 을 따로 둡니다. 메시지 추가는 agent_messages INSERT라 이 행이 바뀌지 않아
 --     modified_at 으로는 목록 정렬이 되지 않습니다.
 --   - 제목은 사용자가 붙이지 않고 LLM 요약(실패 시 첫 질문 앞부분)을 저장합니다.
+--   - last_read_message_id 로 안 읽음을 판정합니다. 시각이 아니라 id인 이유는 notifications 의
+--     last_seen_notification_id 와 같습니다 — 같은 초에 여러 건이 들어와도 경계가 흔들리지 않습니다.
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS agent_conversations (
     id              BIGINT       NOT NULL AUTO_INCREMENT,
     user_id         BIGINT       NOT NULL           COMMENT '대화 소유자 (users FK)',
     title           VARCHAR(100) NOT NULL           COMMENT '스레드 제목 (LLM 요약 또는 첫 질문 앞부분)',
     last_message_at DATETIME(6)  NOT NULL           COMMENT '마지막 메시지 시각 — 대화 목록 정렬 기준',
+    -- 사용자가 이 대화를 마지막으로 열어 본 지점. 이보다 큰 AGENT 메시지가 있으면 "안 읽음"입니다.
+    -- NULL은 한 번도 읽지 않은 대화라 AGENT 답변이 하나라도 있으면 안 읽음이 됩니다.
+    last_read_message_id BIGINT  NULL               COMMENT '마지막으로 읽은 메시지 id (agent_messages soft reference)',
     -- 켜면 쓰기 승인 카드를 띄우지 않고 BE가 사용자 대신 즉시 토큰을 발급합니다(규격 v2 §5-1).
     -- 승인 게이트를 없애는 게 아니라 "버튼을 누르는 주체"만 바뀌므로 params_hash 결합은 그대로입니다.
     -- 기본값이 FALSE인 것이 중요합니다 — 안전한 쪽이 기본이어야 합니다.
@@ -608,3 +613,95 @@ CREATE TABLE IF NOT EXISTS agent_interactions (
     KEY idx_agent_interactions_pending (status, expires_at),
     CONSTRAINT fk_agent_interactions_run FOREIGN KEY (run_id) REFERENCES agent_runs (id) ON DELETE CASCADE
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 승인·질문';
+
+
+-- =============================================================================
+-- project_summaries : 프로젝트 탭 상단 AI 요약 배너
+--   - 프로젝트 하나가 섹션 수만큼 행을 갖습니다(overview·board·budget·meeting).
+--     4장을 한 행에 몰아넣지 않은 이유는 조회가 ?section=budget 처럼 한 장 단위로 들어오기 때문입니다.
+--   - section 을 enum 이 아니라 문자열로 둡니다. BE는 게이트라서 섹션의 의미를 알지 않고 저장 키로만
+--     쓰며, LLM팀이 섹션을 하나 더 만들어도 BE 배포 없이 그대로 저장·조회됩니다.
+--   - payload_json 은 배너 한 장의 원문(section·headline·detail·stats)입니다. 서버는 열어보지 않고
+--     그대로 저장했다가 프론트에 돌려줍니다. 필드를 컬럼으로 펼치면 LLM팀이 칩 하나를 추가할 때마다
+--     마이그레이션이 필요해집니다.
+--   - display_order 는 FastAPI 응답 배열의 순서입니다. 섹션 이름을 해석하지 않고도
+--     overview → board → budget → meeting 순서를 유지하려면 순번을 받아 적어 두는 수밖에 없습니다.
+--   - generated_at 을 created_at 과 따로 둡니다. created_at 은 이 행이 처음 만들어진 시각이라
+--     재생성해도 그대로인데, 화면은 "언제 기준 요약인지"를 말해야 합니다.
+--   - source_stamp 은 만들 때의 재료 상태를 나타내는 지문입니다(최근 수정 시각 + 행 수).
+--     조회할 때 지금 값과 비교해 "그사이 바뀌었나"를 판정합니다. 이 칼럼 덕분에 할 일·지출·게시글 등
+--     도메인 곳곳에 캐시 무효화 호출을 심지 않아도 됩니다.
+--     행 수를 함께 담는 이유는 삭제 때문입니다 — 할 일·마일스톤은 하드 삭제라 행이 사라지고,
+--     게시글·회의록은 @SQLDelete 가 네이티브 UPDATE 로 지워 modified_at 이 갱신되지 않습니다.
+--     서버는 이 값을 해석하지 않고 같은지만 봅니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS project_summaries (
+    id            BIGINT      NOT NULL AUTO_INCREMENT,
+    project_id    BIGINT      NOT NULL           COMMENT '프로젝트 FK',
+    section       VARCHAR(20) NOT NULL           COMMENT '탭 구분 (overview / board / budget / meeting). BE는 해석하지 않음',
+    display_order INT         NOT NULL           COMMENT 'FastAPI 응답 배열의 순서. 조회 시 이 순서로 내려감',
+    payload_json  LONGTEXT    NOT NULL           COMMENT '배너 원문 — headline·detail·stats. 서버 미해석',
+    generated_at  DATETIME(6) NOT NULL           COMMENT '이 배너를 만든 시각. 최소 재생성 간격 판정 기준',
+    source_stamp  VARCHAR(64) NULL               COMMENT '생성 시점 재료의 지문(최근 수정 시각/행 수). 변경 감지용, 서버 미해석',
+    created_at    DATETIME(6) NULL               COMMENT '생성 시각',
+    modified_at   DATETIME(6) NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 재생성은 섹션 단위 맞바꾸기입니다. 같은 섹션이 두 행이 되면 배너가 두 번 그려집니다.
+    UNIQUE KEY uk_project_summaries_project_section (project_id, section),
+    -- 조회는 WHERE project_id = ? ORDER BY display_order 하나뿐입니다.
+    KEY idx_project_summaries_project_order (project_id, display_order),
+    CONSTRAINT fk_project_summaries_project
+    FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 탭 AI 요약 배너';
+
+
+-- =============================================================================
+-- replans : 재계획 한 건 (여러 시나리오를 묶는 상위 단위)
+--   - 계획 내용은 여기에 없습니다. replan_scenarios 에 있고 저장 후 바뀌지 않습니다.
+--   - 여기서 변하는 것은 applied_* 세 칼럼(적용 사실 기록)뿐입니다.
+--   - 중복 실행 방지는 agent_interactions.executed_at 이 담당합니다. applied_* 는 감사 기록이며,
+--     특히 할 일은 하드 삭제라 "무엇이 왜 사라졌는지"가 이 기록과 operations 에만 남습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS replans (
+    id                    BIGINT       NOT NULL AUTO_INCREMENT,
+    project_id            BIGINT       NOT NULL      COMMENT '대상 프로젝트 FK',
+    created_by            BIGINT       NOT NULL      COMMENT '재계획을 만든 사용자 (users FK)',
+    reason                VARCHAR(500) NULL          COMMENT '재계획이 필요해진 이유',
+    applied_scenario_type VARCHAR(20)  NULL          COMMENT '적용한 시나리오. 미적용이면 NULL',
+    applied_by            BIGINT       NULL          COMMENT '적용한 사용자 (users FK)',
+    applied_at            DATETIME(6)  NULL          COMMENT '적용 시각. NULL이면 아직 적용 전',
+    created_at            DATETIME(6)  NULL          COMMENT '생성 시각',
+    modified_at           DATETIME(6)  NULL          COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 프로젝트별 재계획 이력 조회. 최신순이 기본이라 id 를 함께 둡니다.
+    KEY idx_replans_project (project_id, id),
+    CONSTRAINT fk_replans_project    FOREIGN KEY (project_id) REFERENCES projects (id),
+    CONSTRAINT fk_replans_creator    FOREIGN KEY (created_by) REFERENCES users (id),
+    CONSTRAINT fk_replans_applier    FOREIGN KEY (applied_by) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '재계획';
+
+
+-- =============================================================================
+-- replan_scenarios : 시나리오 한 개 = 사용자가 고를 수 있는 선택지 하나
+--   - **저장 후 절대 UPDATE 하지 않습니다.** 계획이 달라져야 하면 새 재계획을 만듭니다.
+--     적용 요청 본문은 {"scenarioType": "..."} 뿐이라 승인 토큰의 해시가 봉인하는 것은 "어느 시나리오냐"까지고,
+--     실제 변경 내용인 operations 는 그 해시 밖입니다. 여기가 바뀔 수 있으면
+--     사용자가 승인한 것과 다른 변경이 실행돼도 아무 검증에도 걸리지 않습니다.
+--   - operations 를 정규화하지 않는 이유: 종류마다 필요한 필드가 다르고(7종),
+--     조회가 언제나 "이 재계획의 이 시나리오" 단위라 개별 항목을 질의할 일이 없습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS replan_scenarios (
+    id            BIGINT       NOT NULL AUTO_INCREMENT,
+    replan_id     BIGINT       NOT NULL      COMMENT '소속 재계획 FK',
+    scenario_type VARCHAR(20)  NOT NULL      COMMENT 'REALLOCATE(인력 재배치) / EXTEND(일정 조정) / REDUCE_SCOPE(범위 축소)',
+    summary       VARCHAR(500) NOT NULL      COMMENT '사용자에게 보여줄 한 줄 설명 (승인 카드의 근거로는 쓰지 않음)',
+    risk          VARCHAR(10)  NOT NULL      COMMENT 'LOW / MEDIUM / HIGH — 선택을 돕는 라벨. 서버 판정에는 쓰지 않음',
+    operations    TEXT         NOT NULL      COMMENT '변경 목록 JSON 배열. 적용 때 되읽어 그대로 실행',
+    created_at    DATETIME(6)  NULL          COMMENT '생성 시각',
+    modified_at   DATETIME(6)  NULL          COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 적용은 (replan_id, scenario_type) 으로 한 건을 찾습니다. 같은 종류가 둘이면
+    -- 사용자가 고른 것과 다른 쪽이 실행될 수 있습니다.
+    UNIQUE KEY uk_replan_scenarios_replan_type (replan_id, scenario_type),
+    CONSTRAINT fk_replan_scenarios_replan FOREIGN KEY (replan_id) REFERENCES replans (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '재계획 시나리오';

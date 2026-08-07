@@ -120,6 +120,8 @@ public class AgentProjectToolService {
                         .completed(milestone.done())
                         .isOverdue(isOverdue(milestone, today))
                         .isNext(milestone.milestoneId().equals(nextId))
+                        // 순서 판정은 서버(MilestonePolicy)가 이미 했다. 그대로 넘긴다.
+                        .toggleable(milestone.toggleable())
                         .build())
                 .toList();
 

@@ -6,7 +6,9 @@ import HK.PrettyWorks_BE.agent.dto.req.AgentMessageRequest;
 import HK.PrettyWorks_BE.agent.dto.req.AgentQuestionAnswerRequest;
 import HK.PrettyWorks_BE.agent.dto.res.AgentAutoApproveResponse;
 import HK.PrettyWorks_BE.agent.dto.res.AgentCancelResponse;
-import HK.PrettyWorks_BE.agent.dto.res.AgentConversationsResponse;
+import HK.PrettyWorks_BE.agent.dto.res.AgentConversationListResponse;
+import HK.PrettyWorks_BE.agent.dto.res.AgentConversationReadResponse;
+import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.agent.dto.res.AgentMessagesResponse;
 import HK.PrettyWorks_BE.agent.dto.res.AgentPendingInteractionsResponse;
 import io.swagger.v3.oas.annotations.Operation;
@@ -303,9 +305,13 @@ public interface AgentApi {
                     화면을 새로 고치거나 다른 기기에서 들어왔을 때, 답을 기다리는 카드를 복원합니다.
                     홈의 '확인이 필요한 요청'이 이 응답을 씁니다.
                     interactionId를 그대로 승인·질문 응답 API의 경로 변수로 쓰면 됩니다.
+
+                    options[].id는 고른 뒤 그대로 되돌려 보내는 값입니다.
+                    QUESTION은 selectedOptionIds에 담고, APPROVAL은 APPROVE→decision=APPROVED,
+                    REJECT→decision=REJECTED, 그 밖의 id→decision=ALTERNATIVE + alternativeId=id로 보냅니다.
                     """
     )
-    @ApiResponses(@ApiResponse(responseCode = "200", description = "대기 중인 카드 목록(없으면 count=0)",
+    @ApiResponses(@ApiResponse(responseCode = "200", description = "대기 중인 카드 목록(없으면 totalCount=0)",
             content = @Content(mediaType = "application/json",
                     schema = @Schema(implementation = AgentPendingInteractionsResponse.class),
                     examples = @ExampleObject(value = """
@@ -313,18 +319,41 @@ public interface AgentApi {
                               "errorCode": null,
                               "message": "SUCCESS",
                               "result": {
-                                "count": 1,
-                                "interactions": [
+                                "totalCount": 2,
+                                "items": [
                                   {
-                                    "interactionId": 41,
+                                    "kind": "QUESTION",
+                                    "interactionId": 51,
+                                    "label": "휴가 날짜 선택",
+                                    "options": [
+                                      { "id": "2026-03-02", "label": "3/2 (화)" },
+                                      { "id": "2026-03-05", "label": "3/5 (금)" },
+                                      { "id": "__FREE__", "label": "직접 입력" }
+                                    ],
+                                    "multiple": false,
+                                    "conversationId": 15,
+                                    "runId": "run_c02b58",
+                                    "conversationTitle": "8월 휴가 일정 추천",
+                                    "previewText": null,
+                                    "requestedAt": "2026-08-03 14:20:11",
+                                    "expiresAt": "2026-08-03 14:50:11"
+                                  },
+                                  {
                                     "kind": "APPROVAL",
-                                    "label": "할 일 2건 추가",
-                                    "payload": { "approvalId": 41, "tool": "task.create", "access": "WRITE" },
-                                    "runId": "6f0f1f9c-6a1a-4c53-9d6e-2f0b0d9f1a77",
+                                    "interactionId": 42,
+                                    "label": "회의록 저장",
+                                    "options": [
+                                      { "id": "APPROVE", "label": "저장" },
+                                      { "id": "FILL_FORM", "label": "직접 고칠래요" },
+                                      { "id": "REJECT", "label": "취소" }
+                                    ],
+                                    "multiple": false,
                                     "conversationId": 12,
-                                    "conversationTitle": "이번 주 할 일 정리",
-                                    "expiresAt": "2026-08-06T14:35:00",
-                                    "createdAt": "2026-08-06T14:05:00"
+                                    "runId": "run_7f3a91",
+                                    "conversationTitle": "스프린트 리뷰 회의록 작성",
+                                    "previewText": "· 회의명: 스프린트 리뷰 4차\\n· 일시: 2026-08-02\\n· 참석자: 김서준, 이하늘",
+                                    "requestedAt": "2026-08-03 14:31:02",
+                                    "expiresAt": "2026-08-03 15:01:02"
                                   }
                                 ]
                               }
@@ -338,33 +367,66 @@ public interface AgentApi {
             description = """
                     최근 대화를 lastMessageAt 내림차순으로 돌려줍니다.
                     패널 햄버거(☰)의 전체 목록과 '최근 대화' 3건이 size만 달리 해서 같이 씁니다.
-                    activeRunId가 있으면 그 대화에 아직 살아 있는 실행이 있다는 뜻입니다 — 재연결·취소에 쓰세요.
+
+                    status·runId는 그 대화의 **가장 최근 실행** 기준입니다.
+                    status가 WAITING_APPROVAL·WAITING_INPUT·RUNNING이면 아직 살아 있는 실행이라 재연결·취소에 쓸 수 있습니다.
+                    pendingApprovalId가 있으면 목록에 '확인 필요' 배지를 그리고, 그 id를 승인 응답 API의 경로 변수로 쓰면 됩니다.
+
+                    unread가 true면 마지막으로 읽은 뒤에 도착한 에이전트 답변이 있다는 뜻이라 '새 답장' 점을 찍으면 됩니다.
+                    내가 보낸 질문은 세지 않으므로 메시지를 보냈다고 해서 켜지지 않습니다.
+                    끄려면 읽음 처리 API(PATCH /conversations/{conversationId}/read)를 호출하세요 —
+                    **메시지 조회만으로는 꺼지지 않습니다.**
                     """
     )
-    @ApiResponses(@ApiResponse(responseCode = "200", description = "대화 목록",
-            content = @Content(mediaType = "application/json",
-                    schema = @Schema(implementation = AgentConversationsResponse.class),
-                    examples = @ExampleObject(value = """
-                            {
-                              "errorCode": null,
-                              "message": "SUCCESS",
-                              "result": {
-                                "conversations": [
-                                  {
-                                    "conversationId": 12,
-                                    "title": "이번 주 할 일 정리",
-                                    "lastMessageAt": "2026-08-06T14:05:00",
-                                    "autoApprove": false,
-                                    "activeRunId": "6f0f1f9c-6a1a-4c53-9d6e-2f0b0d9f1a77",
-                                    "activeRunStatus": "WAITING_APPROVAL"
-                                  }
-                                ]
-                              }
-                            }
-                            """))))
-    ResponseEntity<AgentConversationsResponse> getConversations(
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "대화 목록",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    {
+                                      "errorCode": null,
+                                      "message": "SUCCESS",
+                                      "result": {
+                                        "content": [
+                                          {
+                                            "conversationId": 15,
+                                            "title": "8월 휴가 일정 추천",
+                                            "status": "WAITING_APPROVAL",
+                                            "runId": "run_c02b58",
+                                            "pendingApprovalId": 44,
+                                            "unread": true,
+                                            "lastMessageAt": "2026-08-02 14:31:02",
+                                            "createdAt": "2026-08-02 14:30:44"
+                                          },
+                                          {
+                                            "conversationId": 12,
+                                            "title": "스프린트 리뷰 회의록 작성",
+                                            "status": "COMPLETED",
+                                            "runId": "run_7f3a91",
+                                            "pendingApprovalId": null,
+                                            "unread": false,
+                                            "lastMessageAt": "2026-08-02 14:25:30",
+                                            "createdAt": "2026-08-02 14:19:02"
+                                          }
+                                        ],
+                                        "page": 0,
+                                        "size": 20,
+                                        "totalElements": 2,
+                                        "totalPages": 1,
+                                        "last": true
+                                      }
+                                    }
+                                    """))),
+            @ApiResponse(responseCode = "400", description = "page/size 범위를 벗어남",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    { "errorCode": "REQUEST_001", "message": "잘못된 요청입니다.", "result": null }
+                                    """)))
+    })
+    ResponseEntity<PageResponse<AgentConversationListResponse>> getConversations(
             @Parameter(hidden = true) Long userId,
-            @Parameter(description = "가져올 대화 수 (1~100). 패널의 '최근 대화'는 3, 전체보기는 기본값을 씁니다. "
+            @Parameter(description = "페이지 번호 (0부터 시작)", example = "0")
+            int page,
+            @Parameter(description = "한 페이지당 개수 (1~100). 패널의 '최근 대화'는 3, 전체보기는 기본값을 씁니다. "
                     + "범위를 벗어나면 400(REQUEST_001).", example = "20")
             int size);
 
@@ -378,6 +440,12 @@ public interface AgentApi {
                     - success: AGENT 행만 값이 있고, false면 실패 안내 말풍선
                     - steps: "참고한 내용 N건" 접이식(없으면 null)
                     - actionType·action: done.action 원문. NAVIGATE/FILL_FORM 버튼 동작에 씁니다.
+
+                    [응답] result.approvals[]
+                    그 대화에서 오간 승인 카드를 오래된 순으로 함께 내려줍니다. 이미 답한 카드도 결과와 함께 남습니다.
+                    - seq: 라이브로 받았던 SSE approval_request 이벤트의 id와 같은 값입니다(실행 안에서만 순서 보장).
+                    - status가 PENDING이면 아직 답을 기다리는 카드라 approvalId로 승인 응답 API를 호출할 수 있습니다.
+                    - messages[]와는 별개 배열입니다. 섞어 그리려면 decidedAt·createdAt으로 정렬하세요.
                     """
     )
     @ApiResponses({
@@ -422,6 +490,21 @@ public interface AgentApi {
                                             },
                                             "createdAt": "2026-08-06T14:05:09"
                                           }
+                                        ],
+                                        "approvals": [
+                                          {
+                                            "approvalId": 42,
+                                            "seq": 5,
+                                            "access": "WRITE",
+                                            "summary": "회의록 저장 · 스프린트 리뷰 4차",
+                                            "previewText": "· 회의명: 스프린트 리뷰 4차\\n· 일시: 2026-08-02",
+                                            "alternatives": [
+                                              { "id": "FILL_FORM", "label": "작성 화면에서 직접 고칠래요" }
+                                            ],
+                                            "status": "ALTERNATIVE",
+                                            "chosenAlternativeId": "FILL_FORM",
+                                            "decidedAt": "2026-08-02 14:25:12"
+                                          }
                                         ]
                                       }
                                     }
@@ -440,6 +523,49 @@ public interface AgentApi {
     ResponseEntity<AgentMessagesResponse> getMessages(
             @Parameter(hidden = true) Long userId,
             @Parameter(description = "조회할 대화 id", example = "12") Long conversationId);
+
+    @Operation(
+            summary = "대화 읽음 처리",
+            description = """
+                    이 대화를 그 시점의 마지막 말풍선까지 읽음으로 표시합니다.
+                    대화 목록의 unread가 false로 바뀌어 '새 답장' 점이 사라집니다.
+
+                    [언제 호출하나]
+                    - 목록에서 대화를 골라 열었을 때 (메시지 조회와 함께)
+                    - 그 대화를 보고 있는 동안 스트림이 done으로 끝났을 때 —
+                      화면에서 답변을 이미 봤는데도 목록에서 안 읽음으로 남는 걸 막습니다.
+                    메시지 조회 API는 읽음을 건드리지 않습니다. 다른 기기에서 열어 둔 목록이
+                    새로고침만으로 꺼지면 안 되기 때문입니다.
+
+                    [응답] lastReadMessageId — 읽음으로 확정된 지점. 말풍선이 하나도 없으면 null입니다.
+                    읽음 지점은 뒤로 가지 않으므로, 늦게 도착한 요청이 이미 읽은 답변을 되돌리지 않습니다.
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "읽음으로 확정된 지점",
+                    content = @Content(mediaType = "application/json",
+                            schema = @Schema(implementation = AgentConversationReadResponse.class),
+                            examples = @ExampleObject(value = """
+                                    {
+                                      "errorCode": null,
+                                      "message": "SUCCESS",
+                                      "result": { "conversationId": 15, "lastReadMessageId": 102 }
+                                    }
+                                    """))),
+            @ApiResponse(responseCode = "403", description = "본인의 대화가 아님",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    { "errorCode": "AGENT_001", "message": "본인의 대화가 아닙니다.", "result": null }
+                                    """))),
+            @ApiResponse(responseCode = "404", description = "없는 conversationId",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    { "errorCode": "AGENT_002", "message": "대화를 찾을 수 없습니다.", "result": null }
+                                    """)))
+    })
+    ResponseEntity<AgentConversationReadResponse> markRead(
+            @Parameter(hidden = true) Long userId,
+            @Parameter(description = "읽음 처리할 대화 id", example = "15") Long conversationId);
 
     @Operation(
             summary = "대화 자동 승인 모드 전환",

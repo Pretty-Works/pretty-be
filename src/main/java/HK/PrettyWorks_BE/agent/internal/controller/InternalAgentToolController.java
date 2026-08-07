@@ -6,6 +6,8 @@ import HK.PrettyWorks_BE.agent.internal.dto.req.AgentLeaveUpdateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentMeetingCreateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentMilestoneStatusRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentPostCreateRequest;
+import HK.PrettyWorks_BE.agent.internal.dto.req.AgentReplanApplyRequest;
+import HK.PrettyWorks_BE.agent.internal.dto.req.AgentReplanCreateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentScheduleUpdateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentTaskCreateRequest;
 import HK.PrettyWorks_BE.agent.internal.dto.req.AgentTaskStatusRequest;
@@ -29,6 +31,7 @@ import HK.PrettyWorks_BE.agent.internal.service.AgentCalendarToolService;
 import HK.PrettyWorks_BE.agent.internal.service.AgentMeetingToolService;
 import HK.PrettyWorks_BE.agent.internal.service.AgentPostToolService;
 import HK.PrettyWorks_BE.agent.internal.service.AgentProjectToolService;
+import HK.PrettyWorks_BE.agent.internal.service.AgentReplanToolService;
 import HK.PrettyWorks_BE.agent.internal.service.AgentTaskToolService;
 import HK.PrettyWorks_BE.agent.internal.service.AgentUserToolService;
 import HK.PrettyWorks_BE.agent.service.AgentWriteExecutor;
@@ -71,6 +74,8 @@ public class InternalAgentToolController implements InternalAgentToolApi {
     private static final String LEAVE_CREATE = "leave.create";
     private static final String LEAVE_UPDATE = "leave.update";
     private static final String MILESTONE_TOGGLE_STATUS = "milestone.toggleStatus";
+    private static final String REPLAN_CREATE = "replan.create";
+    private static final String REPLAN_APPLY = "replan.apply";
 
     private final AgentUserToolService userToolService;
     private final AgentProjectToolService projectToolService;
@@ -78,6 +83,7 @@ public class InternalAgentToolController implements InternalAgentToolApi {
     private final AgentTaskToolService taskToolService;
     private final AgentMeetingToolService meetingToolService;
     private final AgentPostToolService postToolService;
+    private final AgentReplanToolService replanToolService;
     private final AgentWriteExecutor writeExecutor;
 
     // ================================= 조회 (승인 불필요) =================================
@@ -366,5 +372,36 @@ public class InternalAgentToolController implements InternalAgentToolApi {
                 AgentWriteResults.LeaveSaved.class,
                 (request, ignoredIdempotencyKey) ->
                         calendarToolService.updateLeave(userId, request)));
+    }
+
+    // 저장 단계도 승인을 받는다. 프로젝트 데이터는 아직 바뀌지 않지만, 사용자가 어떤 계획이 만들어졌는지
+    // 여기서 한 번 보게 된다 — 에이전트가 외부 텍스트를 읽고 만든 계획이라 그 확인이 필요하다.
+    @Override
+    @PostMapping(value = "/api/internal/agent/projects/{projectId}/replans",
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<AgentWriteResults.ReplanCreated> createReplan(
+            @AgentUser Long userId, @PathVariable Long projectId) {
+        return ResponseEntity.ok(writeExecutor.executeValidated(
+                REPLAN_CREATE,
+                Map.of("projectId", projectId),
+                AgentReplanCreateRequest.class,
+                AgentWriteResults.ReplanCreated.class,
+                (request, ignoredIdempotencyKey) -> replanToolService.create(userId, request)));
+    }
+
+    // 재계획 적용은 여러 도메인을 한 번에 바꾼다. 반드시 이 호출 하나로 끝나야 한다 —
+    // AgentWriteExecutor가 호출 한 번을 트랜잭션 하나로 감싸므로, 도구를 나눠 부르면
+    // 앞의 변경만 커밋되고 뒤가 실패한 상태가 남는다.
+    @Override
+    @PostMapping(value = "/api/internal/agent/projects/{projectId}/replans/{replanId}/apply",
+            consumes = MediaType.APPLICATION_JSON_VALUE)
+    public ResponseEntity<AgentWriteResults.ReplanApplied> applyReplan(
+            @AgentUser Long userId, @PathVariable Long projectId, @PathVariable Long replanId) {
+        return ResponseEntity.ok(writeExecutor.executeValidated(
+                REPLAN_APPLY,
+                Map.of("projectId", projectId, "replanId", replanId),
+                AgentReplanApplyRequest.class,
+                AgentWriteResults.ReplanApplied.class,
+                (request, ignoredIdempotencyKey) -> replanToolService.apply(userId, request)));
     }
 }

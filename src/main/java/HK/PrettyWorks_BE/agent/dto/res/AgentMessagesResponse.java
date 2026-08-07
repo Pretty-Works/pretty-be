@@ -1,7 +1,11 @@
 package HK.PrettyWorks_BE.agent.dto.res;
 
+import HK.PrettyWorks_BE.agent.constant.AgentAccessType;
+import HK.PrettyWorks_BE.agent.constant.AgentInteractionStatus;
 import HK.PrettyWorks_BE.agent.constant.AgentRole;
 import HK.PrettyWorks_BE.agent.constant.AgentRunStatus;
+import com.fasterxml.jackson.annotation.JsonFormat;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Schema;
 import lombok.Builder;
 import tools.jackson.databind.JsonNode;
@@ -21,8 +25,61 @@ public record AgentMessagesResponse(
         AgentRunStatus activeRunStatus,
 
         // 오래된 순. 프론트는 받은 순서대로 위에서 아래로 그리면 된다.
-        List<MessageItem> messages
+        List<MessageItem> messages,
+
+        // 말풍선 사이에 다시 그릴 승인 카드. 오래된 순이며, 이미 답한 카드도 결과와 함께 남는다.
+        List<ApprovalItem> approvals
 ) {
+
+    // 지난 승인 카드 한 장. 라이브로 받았던 approval_request 이벤트를 결과까지 얹어 복원한 것이다.
+    @Builder
+    public record ApprovalItem(
+            @Schema(description = "승인 응답 API의 경로 변수로 그대로 쓴다.", example = "42")
+            Long approvalId,
+
+            @Schema(description = "라이브로 받았던 SSE approval_request 이벤트의 id(seq)와 같은 값. "
+                    + "실행 안에서만 순서가 보장되고, 이벤트가 이미 정리된 오래된 카드는 null이다.",
+                    nullable = true, example = "5")
+            Long seq,
+
+            @Schema(description = "READ · WRITE", example = "WRITE")
+            AgentAccessType access,
+
+            @Schema(description = "카드 제목", example = "회의록 저장 · 스프린트 리뷰 4차")
+            String summary,
+
+            @Schema(description = "카드에 접어 보여줄 요약", nullable = true,
+                    example = "· 회의명: 스프린트 리뷰 4차")
+            String previewText,
+
+            @ArraySchema(arraySchema = @Schema(description = "카드에 떠 있던 대안 버튼. "
+                    + "'항상 허용'(ALWAYS)은 서버가 붙이는 예약 선택지라 목록에 함께 들어 있다."))
+            List<Alternative> alternatives,
+
+            @Schema(description = "PENDING(대기) · APPROVED(승인) · REJECTED(거절) · ALTERNATIVE(대안 선택) · EXPIRED(만료)",
+                    example = "ALTERNATIVE")
+            AgentInteractionStatus status,
+
+            @Schema(description = "ALTERNATIVE일 때 고른 대안 id. 그 밖에는 null이다.",
+                    nullable = true, example = "FILL_FORM")
+            String chosenAlternativeId,
+
+            @JsonFormat(shape = JsonFormat.Shape.STRING, pattern = "yyyy-MM-dd HH:mm:ss",
+                    timezone = "Asia/Seoul")
+            @Schema(description = "답한 시각. 아직 대기 중이면 null이다.",
+                    nullable = true, example = "2026-08-02 14:25:12")
+            LocalDateTime decidedAt
+    ) {
+        public ApprovalItem {
+            alternatives = alternatives == null ? List.of() : List.copyOf(alternatives);
+        }
+    }
+
+    public record Alternative(
+            @Schema(example = "FILL_FORM") String id,
+            @Schema(example = "작성 화면에서 직접 고칠래요") String label
+    ) {
+    }
 
     @Builder
     public record MessageItem(
