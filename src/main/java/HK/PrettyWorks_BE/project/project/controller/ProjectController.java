@@ -2,7 +2,7 @@ package HK.PrettyWorks_BE.project.project.controller;
 
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectStatusRequest;
-import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberSearchResponse;
+import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberResponse;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.global.base.PageRequests;
 import HK.PrettyWorks_BE.global.base.PageResponse;
@@ -88,16 +88,19 @@ public class ProjectController implements ProjectApi {
         return ResponseEntity.ok(response);
     }
 
+    // 명단 표시와 참여자 추가 자동완성이 같은 엔드포인트를 쓴다. 자동완성은 keyword와
+    // excludeSelf=true를 붙이고, 명단은 그대로 호출하면 된다.
     @Override
-    @GetMapping("/api/v1/projects/{projectId}/members/search")
-    public ResponseEntity<List<ProjectMemberSearchResponse>> searchMembers(
+    @GetMapping("/api/v1/projects/{projectId}/members")
+    public ResponseEntity<List<ProjectMemberResponse>> getMembers(
             @AuthenticationPrincipal Long requesterId,
             @PathVariable Long projectId,
             @RequestParam(required = false) String keyword,
-            @RequestParam(defaultValue = "10") int limit
+            @RequestParam(defaultValue = "false") boolean excludeSelf,
+            @RequestParam(defaultValue = "50") int size
     ) {
-        List<ProjectMemberSearchResponse> response =
-                projectMemberService.searchMembers(projectId, requesterId, keyword, limit);
+        List<ProjectMemberResponse> response =
+                projectMemberService.getMembers(projectId, requesterId, keyword, excludeSelf, size);
 
         return ResponseEntity.ok(response);
     }

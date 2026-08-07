@@ -1,6 +1,8 @@
 package HK.PrettyWorks_BE.project.project.dto.res;
 
 import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
+import HK.PrettyWorks_BE.user.constant.DepartmentType;
+import HK.PrettyWorks_BE.user.constant.PositionType;
 import lombok.Builder;
 
 import java.time.LocalDate;
@@ -29,10 +31,16 @@ public record ProjectDetailResponse(
 ) {
 
     // 오너는 참여자 목록과 분리해 내려준다. ownerRole은 수정 요청의 ownerRole과 형태를 맞춘 값.
+    //
+    // department·position은 사용자 검색(UserSearchResponse)과 같은 코드 값이다. 수정 화면의 참여자 카드가
+    // "이름 · 부서"로 표시하는데, 기존 참여자와 방금 검색해 추가한 참여자의 출처가 달라
+    // 여기에 없으면 같은 목록 안에서 표시가 갈린다.
     @Builder
     public record Owner(
             Long userId,
             String name,
+            DepartmentType department,
+            PositionType position,
             String ownerRole
     ) {
     }
@@ -42,6 +50,8 @@ public record ProjectDetailResponse(
     public record Member(
             Long userId,
             String name,
+            DepartmentType department,
+            PositionType position,
             String role
     ) {
     }

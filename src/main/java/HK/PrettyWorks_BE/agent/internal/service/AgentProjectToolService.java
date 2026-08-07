@@ -17,7 +17,7 @@ import HK.PrettyWorks_BE.project.finance.dto.res.BudgetSummaryResponse;
 import HK.PrettyWorks_BE.project.finance.dto.res.ExpenseListResponse;
 import HK.PrettyWorks_BE.project.finance.dto.res.ExpenseResponse;
 import HK.PrettyWorks_BE.project.finance.service.ExpenseService;
-import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberDetailResponse;
+import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberResponse;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.project.dto.res.MilestoneListResponse;
 import HK.PrettyWorks_BE.project.project.dto.res.MilestoneStatusResponse;
@@ -81,8 +81,8 @@ public class AgentProjectToolService {
         int validatedSize = AgentPage.validateSize(size);
 
         // 상한보다 하나 더 받아 본다. 딱 상한만큼 받으면 "마침 그만큼"인지 "잘렸는지" 구분할 수 없다.
-        List<ProjectMemberDetailResponse> rows =
-                projectMemberService.getActiveMembers(projectId, userId, name, validatedSize + 1);
+        List<ProjectMemberResponse> rows =
+                projectMemberService.getMembers(projectId, userId, name, false, validatedSize + 1);
         boolean truncated = rows.size() > validatedSize;
 
         List<AgentMemberListResponse.AgentMember> members = rows.stream()
