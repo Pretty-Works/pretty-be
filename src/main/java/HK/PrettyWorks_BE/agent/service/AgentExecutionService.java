@@ -63,6 +63,7 @@ public class AgentExecutionService {
         try {
             serverRequest = AgentRunRequest.builder()
                     .runId(run.getRunId())
+                    .conversationId(started.conversation().getId())
                     .goal(request.goal())
                     .messages(loadContext(started))
                     .screenContext(screenContext)

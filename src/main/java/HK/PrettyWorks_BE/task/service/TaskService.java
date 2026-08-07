@@ -57,6 +57,10 @@ public class TaskService {
     private final CurrentUserService currentUserService;
     private final NotificationPublisher notificationPublisher;
 
+    // 홈 '내 할 일'에 올릴 프로젝트 상태. 완료·중단·보관 프로젝트의 할 일은 더 손댈 일이 없어 뺀다.
+    private static final List<ProjectStatus> HOME_PROJECT_STATUSES =
+            List.of(ProjectStatus.ONGOING, ProjectStatus.HOLDING);
+
     @Transactional
     public TaskResponse create(Long userId, TaskRequest request) {
         Long projectId = request.projectId();
@@ -296,8 +300,8 @@ public class TaskService {
         LocalDateTime threshold = LocalDateTime.now().minusDays(3);
         LocalDate today = LocalDate.now();
 
-        // 미완료 or 완료 3일 이내, ARCHIVED 프로젝트 제외. 정렬: project_id(널 먼저), due_date
-        List<TaskHomeRow> rows = taskRepository.findTaskHomeRows(userId, threshold, ProjectStatus.ARCHIVED);
+        // 미완료 or 완료 3일 이내, 진행중·보류 프로젝트만. 정렬: project_id(널 먼저), due_date
+        List<TaskHomeRow> rows = taskRepository.findTaskHomeRows(userId, threshold, HOME_PROJECT_STATUSES);
 
         // projectId로 그룹핑 (정렬 순서 유지 → LinkedHashMap)
         Map<Long, List<TaskHomeRow>> byProject = new LinkedHashMap<>();
@@ -324,7 +328,8 @@ public class TaskService {
 
     // TaskHomeRow 묶음을 한 그룹으로 변환. done(completedAt≠null)·dDay(오늘~마감)는 여기서 파생.
     private TaskGroup toGroup(Long projectId, List<TaskHomeRow> rows, LocalDate today, Long userId) {
-        String projectName = rows.get(0).projectName();   // 그룹 내 동일 (개인은 null)
+        String projectName = rows.get(0).projectName();       // 그룹 내 동일 (개인은 null)
+        ProjectStatus status = rows.get(0).projectStatus();   // 그룹 내 동일 (개인은 null)
         List<TaskItem> items = rows.stream()
                 .map(r -> new TaskItem(
                         r.taskId(),
@@ -336,7 +341,7 @@ public class TaskService {
                         r.creatorId().equals(userId)
                 ))
                 .toList();
-        return new TaskGroup(projectId, projectName, items);
+        return new TaskGroup(projectId, projectName, status, items);
     }
 
     // 본인 담당 할 일의 주간 조회. 홈 조회(getTaskHome)는 "완료 3일 이내"라는 다른 경계를 쓰므로

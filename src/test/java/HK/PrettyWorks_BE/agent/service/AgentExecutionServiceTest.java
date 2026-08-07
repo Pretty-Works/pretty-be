@@ -79,6 +79,7 @@ class AgentExecutionServiceTest {
                 new AgentRunRequest.ContextMessage("USER", "첫 번째"),
                 new AgentRunRequest.ContextMessage("AGENT", "두 번째"));
         assertThat(sent.getValue().goal()).isEqualTo("업무를 정리해줘");
+        assertThat(sent.getValue().conversationId()).isEqualTo(10L);
         verify(messageRepository).findRecentContextBeforeMessage(eq(10L), eq(30L), any());
     }
 

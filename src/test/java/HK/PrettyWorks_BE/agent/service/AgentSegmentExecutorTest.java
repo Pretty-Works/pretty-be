@@ -64,7 +64,7 @@ class AgentSegmentExecutorTest {
             return AgentSegmentOutcome.COMPLETED;
         });
 
-        AgentRunRequest request = new AgentRunRequest("run-public-1", "업무 처리",
+        AgentRunRequest request = new AgentRunRequest("run-public-1", 10L, "업무 처리",
                 java.util.List.of(), objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"),
                 "WEB", "ko-KR");
         executor.submitStart(10L, "run-public-1", request);

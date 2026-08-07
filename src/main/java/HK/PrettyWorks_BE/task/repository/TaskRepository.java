@@ -12,18 +12,18 @@ import java.util.List;
 
 public interface TaskRepository extends JpaRepository<TaskEntity, Long> {
 
-    // 홈 조회: 본인 할 일 중 (미완료 OR 완료 3일 이내), ARCHIVED 프로젝트는 제외(개인 할 일은 포함).
+    // 홈 조회: 본인 할 일 중 (미완료 OR 완료 3일 이내). 개인 할 일은 프로젝트 상태와 무관하게 포함.
     // 연관관계 없이 raw FK라 엔티티 조인(ON)으로 프로젝트명을 함께 가져온다. (개인은 LEFT라 안 빠짐)
     @Query("select new HK.PrettyWorks_BE.task.repository.TaskHomeRow(" +
-            "t.id, t.content, t.completedAt, t.dueDate, t.projectId, p.name, t.creatorId) " +
+            "t.id, t.content, t.completedAt, t.dueDate, t.projectId, p.name, p.status, t.creatorId) " +
             "from TaskEntity t left join ProjectEntity p on p.id = t.projectId " +
             "where t.assigneeId = :userId " +
             "and (t.completedAt is null or t.completedAt >= :threshold) " +
-            "and (t.projectId is null or p.status <> :archived) " +
+            "and (t.projectId is null or p.status in :statuses) " +
             "order by t.projectId, t.dueDate")
     List<TaskHomeRow> findTaskHomeRows(@Param("userId") Long userId,
                                     @Param("threshold") LocalDateTime threshold,
-                                    @Param("archived") ProjectStatus archived);
+                                    @Param("statuses") List<ProjectStatus> statuses);
 
     // 개인 주간 조회: 본인 담당 할 일 중 (그 주 범위 OR 지연된 미완료).
     // 홈 조회(findTaskHomeRows)와 대상은 같지만 경계가 "완료 3일 이내"가 아니라 주 단위다 —
@@ -33,7 +33,7 @@ public interface TaskRepository extends JpaRepository<TaskEntity, Long> {
     // 이번 주에만 값을 넘긴다 — 다음 주 목록에 지난 지연이 계속 따라붙으면 "다음 주에 할 일"을
     // 알 수 없고, 지난 주 목록은 그보다 더 오래된 지연까지 섞여 그 주의 기록이 아니게 된다.
     @Query("select new HK.PrettyWorks_BE.task.repository.TaskHomeRow(" +
-            "t.id, t.content, t.completedAt, t.dueDate, t.projectId, p.name, t.creatorId) " +
+            "t.id, t.content, t.completedAt, t.dueDate, t.projectId, p.name, p.status, t.creatorId) " +
             "from TaskEntity t left join ProjectEntity p on p.id = t.projectId " +
             "where t.assigneeId = :userId " +
             "and (t.projectId is null or p.status <> :archived) " +

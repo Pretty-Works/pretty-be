@@ -15,6 +15,7 @@ class AgentRunRequestTest {
     void acceptsRunScopedRequestWithoutUserOrConversationIdentity() {
         AgentRunRequest request = new AgentRunRequest(
                 "run_public_1",
+                1L,
                 "이번 주 할 일을 등록해줘",
                 List.of(new AgentRunRequest.ContextMessage("USER", "이전 요청")),
                 objectMapper.readTree("{\"screen\":\"TASK_LIST\",\"formState\":{}}"),
@@ -30,7 +31,7 @@ class AgentRunRequestTest {
     @Test
     void requiresScreenContextWithNonBlankScreen() {
         assertThatThrownBy(() -> new AgentRunRequest(
-                "run_public_1", "질문", List.of(), objectMapper.readTree("{}"), "WEB", "ko-KR"))
+                "run_public_1", 1L, "질문", List.of(), objectMapper.readTree("{}"), "WEB", "ko-KR"))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("screenContext.screen");
     }
@@ -39,7 +40,7 @@ class AgentRunRequestTest {
     void snapshotsMutableInputs() {
         var screenContext = objectMapper.readTree("{\"screen\":\"HOME\"}");
         AgentRunRequest request = new AgentRunRequest(
-                "run_public_1", "질문", List.of(), screenContext, "WEB", "ko-KR");
+                "run_public_1", 1L, "질문", List.of(), screenContext, "WEB", "ko-KR");
 
         ((tools.jackson.databind.node.ObjectNode) screenContext).put("screen", "PROJECT_LIST");
         ((tools.jackson.databind.node.ObjectNode) request.screenContext()).put("screen", "TASK_LIST");

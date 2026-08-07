@@ -1,5 +1,7 @@
 package HK.PrettyWorks_BE.task.dto.res;
 
+import HK.PrettyWorks_BE.project.project.constant.ProjectStatus;
+
 import java.time.LocalDate;
 import java.util.List;
 
@@ -8,9 +10,11 @@ public record TaskHomeResponse(
         List<TaskGroup> groups
 ) {
 
+    // 홈은 진행중·보류 프로젝트만 담으므로 status도 그 둘 중 하나다 (개인 그룹은 null).
     public record TaskGroup(
             Long projectId,       // 개인 할 일 그룹이면 null
             String projectName,   // 개인 할 일 그룹이면 null
+            ProjectStatus status, // 개인 할 일 그룹이면 null
             List<TaskItem> tasks
     ) {
     }
