@@ -17,7 +17,7 @@ public enum TaskErrorCode implements ErrorCode {
     // TASK_006(완료·보관 프로젝트 변경 불가)은 공용 PROJECT_020으로 통합되어 제거됨.
     DUE_DATE_OUT_OF_RANGE(HttpStatus.BAD_REQUEST, "TASK_007", "마감일이 프로젝트 기간을 벗어났습니다."),
 
-    // 403 — 남에게 배정하려면 그 프로젝트의 오너이거나 역할이 PM이어야 한다(ProjectPolicy.canUpdate).
+    // 403 — 남에게 배정하려면 그 프로젝트의 오너이거나 부서가 PM이어야 한다(ProjectPolicy.canUpdate).
     // 본인에게 만드는 것은 참여자 누구나 할 수 있으므로 MEMBER_001과는 다른 상황이다.
     NO_ASSIGN_PERMISSION(HttpStatus.FORBIDDEN, "TASK_008", "다른 사람에게 할 일을 배정할 권한이 없습니다."),
 

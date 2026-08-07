@@ -25,7 +25,7 @@ public class ReplanAccessGuard {
     /**
      * 프로젝트 존재(PROJECT_004)·참여 여부(MEMBER_001)·관리 권한(REPLAN_003)·호출자 재직(USER_003)을 확인한다.
      *
-     * <p>관리 권한 기준은 프로젝트 수정과 같다(ProjectPolicy.canUpdate) — 오너이거나 프로젝트 내 역할이 PM인 참여자.
+     * <p>관리 권한 기준은 프로젝트 수정과 같다(ProjectPolicy.canUpdate) — 오너이거나 부서가 PM인 참여자.
      * 재계획은 곧 프로젝트 계획을 다시 짜는 일이라, 기준이 갈리면
      * "계획은 바꿀 수 있는데 그 계획대로는 못 바꾸는" 상태가 생긴다.
      */
@@ -34,9 +34,10 @@ public class ReplanAccessGuard {
         // 없는 프로젝트를 403으로 답하지 않도록 존재 확인이 먼저다(ProjectMemberService.validateAccess의 순서 규칙).
         projectMemberService.validateAccess(projectId, actorId);
 
+        // 재직 검증 없이 읽는다 — 퇴사자에게 USER_003보다 403이 먼저 나가야 한다.
         ProjectMemberEntity caller = projectMemberService.getActiveMembership(projectId, actorId)
                 .orElseThrow(() -> BaseException.type(ReplanErrorCode.NO_APPLY_PERMISSION));
-        if (!ProjectPolicy.canUpdate(caller)) {
+        if (!ProjectPolicy.canUpdate(caller, currentUserService.getCurrentUser(actorId))) {
             throw BaseException.type(ReplanErrorCode.NO_APPLY_PERMISSION);
         }
 

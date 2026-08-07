@@ -456,7 +456,7 @@ public class TaskService {
 
         ProjectMemberEntity caller = projectMemberService.getActiveMembership(projectId, creatorId)
                 .orElseThrow(() -> BaseException.type(TaskErrorCode.NO_ASSIGN_PERMISSION));
-        if (!ProjectPolicy.canUpdate(caller)) {
+        if (!ProjectPolicy.canUpdate(caller, currentUserService.getCurrentUser(creatorId))) {
             throw BaseException.type(TaskErrorCode.NO_ASSIGN_PERMISSION);
         }
         // 참여자가 아닌 사람에게 배정하면 그는 볼 수도 없는 할 일을 받는다.

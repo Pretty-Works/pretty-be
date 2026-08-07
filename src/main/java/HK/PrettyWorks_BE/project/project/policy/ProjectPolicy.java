@@ -14,9 +14,6 @@ import java.time.LocalDate;
 // 규칙이 바뀌면 이 클래스만 수정하면 되고, 서비스는 흐름(오케스트레이션)에만 집중합니다.
 public final class ProjectPolicy {
 
-    // 프로젝트 내 직무 역할 중 수정 권한을 가지는 값 (role은 자유 문자열이라 문자열로 비교).
-    private static final String ROLE_PM = "PM";
-
     private ProjectPolicy() {
     }
 
@@ -26,12 +23,11 @@ public final class ProjectPolicy {
                 || user.getDepartment() == DepartmentType.PM;
     }
 
-    // 수정 권한: 회사 직급과 무관하게 "그 프로젝트 안에서의 지위"로 판정합니다.
-    // 대상 프로젝트의 오너(is_owner=true)이거나, 프로젝트 내 직무 역할이 PM인 참여자만 수정할 수 있습니다.
-    // callerMembership: 호출자의 해당 프로젝트 멤버십 행 (DB 조회는 서비스가 담당, 여기선 판정만).
-    public static boolean canUpdate(ProjectMemberEntity callerMembership) {
+    // 수정 권한: 오너이거나 부서가 PM. role은 표시 전용이라 판정에 쓰지 않습니다.
+    // 참여중(ACTIVE) 여부는 호출부의 멤버십 조회가 이미 걸러냅니다.
+    public static boolean canUpdate(ProjectMemberEntity callerMembership, UserEntity caller) {
         return callerMembership.isOwner()
-                || ROLE_PM.equals(callerMembership.getRole());
+                || caller.getDepartment() == DepartmentType.PM;
     }
 
     // 상태 변경도 canUpdate를 그대로 씁니다. 전용 메서드를 따로 두었더니 본문이 같은데도

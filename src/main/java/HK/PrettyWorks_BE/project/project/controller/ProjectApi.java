@@ -38,7 +38,7 @@ public interface ProjectApi {
                     호출자 본인이 퇴사자여도 같은 코드로 차단됩니다.
                     [milestones] targetDate와 goal이 **둘 다** 있어야 합니다(PROJECT_016).
                     milestoneId를 실어 보내도 무시됩니다 — 새 프로젝트라 전부 신규입니다.
-                    [role] 참여자의 role을 "PM"으로 주면 오너가 아니어도 이 프로젝트를 수정할 수 있습니다.
+                    [role] 직무 표시용 문자열입니다. 권한과 무관합니다 — 수정 권한은 오너이거나 부서가 PM인 경우입니다.
 
                     Idempotency-Key 헤더에 UUID를 담아 보내면 연타·재시도해도 프로젝트가 두 개 생기지 않습니다.
                     """
@@ -145,7 +145,7 @@ public interface ProjectApi {
     @Operation(
             summary = "프로젝트 수정",
             description = """
-                    오너 또는 역할이 "PM"인 참여자만 수정할 수 있습니다. 완료·보관된 프로젝트는 수정할 수 없습니다(PROJECT_020).
+                    오너 또는 부서가 PM인 참여자만 수정할 수 있습니다. 완료·보관된 프로젝트는 수정할 수 없습니다(PROJECT_020).
 
                     ⚠️ **전체 상태를 보냅니다(PUT).** members·milestones에서 빠진 항목은 삭제(참여자는 탈퇴 처리)되므로,
                     변경분만 보내면 나머지가 모두 사라집니다.
@@ -182,7 +182,7 @@ public interface ProjectApi {
     @Operation(
             summary = "프로젝트 상태 변경",
             description = """
-                    진행 상태만 변경합니다. 오너 또는 역할이 "PM"인 참여자만 가능합니다(PROJECT_017).
+                    진행 상태만 변경합니다. 오너 또는 부서가 PM인 참여자만 가능합니다(PROJECT_017).
 
                     [status] ONGOING 진행중 / HOLDING 보류 / COMPLETED 완료 / DROPPED 중단 / ARCHIVED 보관(소프트 삭제)
 
