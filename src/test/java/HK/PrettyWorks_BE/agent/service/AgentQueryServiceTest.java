@@ -14,6 +14,7 @@ import HK.PrettyWorks_BE.agent.repository.AgentEventRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentEventSeqRow;
 import HK.PrettyWorks_BE.agent.repository.AgentInteractionRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentLastAgentMessageRow;
+import HK.PrettyWorks_BE.agent.repository.AgentMessageAttachmentRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentMessageRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentMessageStepRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentPendingApprovalRow;
@@ -44,6 +45,8 @@ class AgentQueryServiceTest {
     private final AgentMessageRepository messageRepository = mock(AgentMessageRepository.class);
     private final AgentMessageStepRepository stepRepository =
             mock(AgentMessageStepRepository.class);
+    private final AgentMessageAttachmentRepository attachmentRepository =
+            mock(AgentMessageAttachmentRepository.class);
     private final AgentRunRepository runRepository = mock(AgentRunRepository.class);
     private final AgentEventRepository eventRepository = mock(AgentEventRepository.class);
     private final AgentInteractionRepository interactionRepository =
@@ -51,8 +54,8 @@ class AgentQueryServiceTest {
     private final AgentAccessGuard accessGuard = mock(AgentAccessGuard.class);
     private final CurrentUserService currentUserService = mock(CurrentUserService.class);
     private final AgentQueryService service = new AgentQueryService(
-            conversationRepository, messageRepository, stepRepository, runRepository,
-            eventRepository, interactionRepository, accessGuard,
+            conversationRepository, messageRepository, stepRepository, attachmentRepository,
+            runRepository, eventRepository, interactionRepository, accessGuard,
             new AgentJsonSupport(new ObjectMapper()), currentUserService);
 
     @Test

@@ -118,7 +118,35 @@ public enum AgentErrorCode implements ErrorCode {
     // 이 코드는 "첫 생성이 진행 중이라 아직 보여줄 것이 없다"는 한 가지 경우에만 나간다.
     // 초안 생성(AGENT_024)과 나눈 이유는 화면이 다르기 때문이다 — 이쪽은 배너를 잠시 접어두면 된다.
     SUMMARY_IN_PROGRESS(HttpStatus.TOO_MANY_REQUESTS, "AGENT_028",
-            "요약을 만드는 중입니다. 잠시 후 다시 확인해 주세요.");
+            "요약을 만드는 중입니다. 잠시 후 다시 확인해 주세요."),
+
+    // ── 채팅 첨부 파일 ─────────────────────────────────────────────────────
+    // screenContext(AGENT_009)와 같은 이유로 전용 코드를 둔다. @Size·@Pattern으로 걸면 전부
+    // REQUEST_001("잘못된 요청입니다")이 나가는데, 파일은 사용자가 직접 고를 수 있는 대상이라
+    // "무엇이 잘못됐는지"를 화면에 그대로 띄워 줘야 다시 시도할 수 있다.
+
+    // 400 — 허용 목록(agent.upload.allowed-extensions)에 없는 확장자.
+    // 판정 근거는 확장자 하나뿐이다. 클라이언트가 보낸 Content-Type은 믿지 않는다 —
+    // 정상 .txt가 application/octet-stream으로 오기도 하고, 그 반대도 얼마든지 가능하다.
+    FILE_TYPE_NOT_ALLOWED(HttpStatus.BAD_REQUEST, "AGENT_029", "보낼 수 없는 형식의 파일입니다."),
+
+    // 413 — 파일 하나 또는 합계가 상한을 넘었다. 톰캣의 멀티파트 상한(20MB)보다 훨씬 앞에서 끊는다.
+    // 파일 내용이 그대로 LLM 프롬프트에 실리므로, 여기서 막지 않으면 토큰이 폭발한다.
+    FILE_TOO_LARGE(HttpStatus.PAYLOAD_TOO_LARGE, "AGENT_030", "파일이 너무 큽니다."),
+
+    // 400 — 한 번에 보낼 수 있는 파일 개수 초과.
+    TOO_MANY_FILES(HttpStatus.BAD_REQUEST, "AGENT_031", "한 번에 보낼 수 있는 파일 수를 넘었습니다."),
+
+    // 400 — 빈 파일, 파일명이 없거나 위험한 경우, 그리고 텍스트 파일이 UTF-8이 아닌 경우.
+    // 인코딩을 추측해 고쳐 읽지 않는다. CP949 파일을 UTF-8로 우겨 읽으면 깨진 글자가 그대로
+    // LLM에 전달돼 조용히 엉뚱한 답이 나오는데, 그건 에러보다 나쁘다.
+    FILE_NOT_READABLE(HttpStatus.BAD_REQUEST, "AGENT_032",
+            "파일을 읽지 못했습니다. UTF-8로 저장된 파일인지 확인해 주세요."),
+
+    // 400 — 회의록 초안 생성에 올린 파일이 읽히기는 했으나 알맹이가 없다(공백·개행뿐).
+    // AGENT_032와 나눈 이유는 사용자가 할 일이 다르기 때문이다. 저쪽은 "다른 인코딩으로 저장해
+    // 다시 올려라"지만, 이쪽은 파일 형식이 아니라 내용이 없는 것이라 바꿔 올릴 파일이 따로 있다.
+    TRANSCRIPT_EMPTY(HttpStatus.BAD_REQUEST, "AGENT_033", "회의 기록이 비어 있습니다.");
 
     private final HttpStatus status;
     private final String errorCode;

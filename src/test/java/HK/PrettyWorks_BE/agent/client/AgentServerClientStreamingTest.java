@@ -218,7 +218,8 @@ class AgentServerClientStreamingTest {
                 List.of(),
                 objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"),
                 "WEB",
-                "ko-KR"
+                "ko-KR",
+                List.of()
         );
     }
 

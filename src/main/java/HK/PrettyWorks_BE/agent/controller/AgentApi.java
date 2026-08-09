@@ -14,9 +14,12 @@ import HK.PrettyWorks_BE.agent.dto.res.AgentPendingInteractionsResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
 import io.swagger.v3.oas.annotations.headers.Header;
+import io.swagger.v3.oas.annotations.media.ArraySchema;
 import io.swagger.v3.oas.annotations.media.Content;
+import io.swagger.v3.oas.annotations.media.Encoding;
 import io.swagger.v3.oas.annotations.media.ExampleObject;
 import io.swagger.v3.oas.annotations.media.Schema;
+import io.swagger.v3.oas.annotations.media.SchemaProperty;
 import io.swagger.v3.oas.annotations.parameters.RequestBody;
 import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
@@ -25,18 +28,7 @@ import org.springframework.http.ResponseEntity;
 import org.springframework.security.core.Authentication;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 
-@Tag(name = "에이전트", description = """
-        에이전트 v2 대화 및 실행 API.
-
-        [Swagger로 시험할 때 먼저 읽을 것]
-        - 스트림(SSE)을 여는 4개 API(메시지 전송·승인 응답·질문 응답·재연결)는 Swagger UI로 본문을 볼 수 없습니다.
-          연결이 끊기지 않으니 UI가 계속 기다리다가 "Undocumented / Error: response status is 200"으로 끝납니다.
-          이건 실패가 아니라 UI의 한계입니다 — 실행은 정상 시작됐고, 아래 Response headers의 x-run-id가 그 증거입니다.
-          이벤트를 눈으로 보려면 EventSource(프론트) 또는 `curl -N`을 쓰세요.
-        - 그래서 Swagger에서 연타하면 그 대화에 실행이 살아 있는 채로 남아 다음 요청이 409(AGENT_004)로 막힙니다.
-          진행 중 실행은 사용자당 3건이 상한이라 그 뒤로는 429(AGENT_018)가 납니다.
-          취소 API로 정리하거나, 최대 15분 뒤 서버가 알아서 만료시킵니다.
-        """)
+@Tag(name = "에이전트", description = "에이전트 대화·실행·승인·질문 응답 API")
 public interface AgentApi {
 
     // SSE 응답 4곳이 똑같은 모양이라 예시를 한 벌만 둔다. 인터페이스 상수는 컴파일 타임 상수라
@@ -65,23 +57,14 @@ public interface AgentApi {
     @Operation(
             summary = "에이전트 실행 시작",
             description = """
-                    메시지와 화면 문맥으로 Run을 생성하고 FastAPI 이벤트를 SSE로 전달합니다.
+                    메시지와 화면 문맥으로 Run을 만들고, 에이전트 이벤트를 SSE로 전달합니다.
 
-                    [요청]
-                    - conversationId: 이어갈 대화. 새 대화면 null(또는 생략) — 서버가 만들어 줍니다.
-                    - goal: 사용자 입력 메시지(2~2000자).
-                    - screenContext: 보고 있는 화면. **screen(비어 있지 않은 문자열)은 필수**이고 나머지 키는 자유입니다.
-                      빠뜨리면 400(REQUEST_001)으로 막힙니다. 아래 Example value가 그대로 실행되는 최소 형태입니다.
-
-                    [응답]
-                    - 헤더 X-Run-Id: 이 실행의 id. **취소·재연결에 쓰이니 프론트는 이 값을 받아 두세요.**
-                      CORS 노출 헤더로 등록돼 있어 브라우저 JS에서 읽을 수 있습니다(fetch 응답의 headers.get('X-Run-Id')).
-                      EventSource는 응답 헤더를 읽을 수 없으므로, 헤더가 필요하면 fetch로 열거나
-                      대화 목록·메시지 조회의 activeRunId로 대신 얻으세요.
-                    - 본문: SSE 스트림.
-
-                    [한도]
-                    - 한 대화에 진행 중인 실행이 있으면 409, 사용자당 진행 중 실행 3건을 넘기면 429입니다.
+                    * 요청은 multipart/form-data 입니다. request 파트에 본문을, files 파트에 첨부 파일을 담습니다.
+                    * request 파트의 Content-Type은 application/json 이어야 합니다. (브라우저에서는 Blob으로 감싸 append)
+                    * 첨부는 txt(UTF-8)만, 개당 1MB · 합계 2MB · 최대 3개까지 허용하며 하나라도 어기면 전부 거부됩니다.
+                    * 파일을 첨부하면 goal을 생략할 수 있고, 둘 다 없는 요청은 거부됩니다.
+                    * 첨부 파일은 저장하지 않으므로 대화 기록에는 파일명·크기만 남습니다.
+                    * 진행 중인 실행이 있는 대화(409), 사용자당 실행 3건 초과(429)는 거부됩니다.
                     """
     )
     @ApiResponses({
@@ -91,10 +74,16 @@ public interface AgentApi {
                     content = @Content(mediaType = "text/event-stream",
                             schema = @Schema(type = "string"),
                             examples = @ExampleObject(value = SSE_EXAMPLE))),
-            @ApiResponse(responseCode = "400", description = "screenContext 누락·screen 없음(REQUEST_001) / goal 길이 위반(REQUEST_001) / 화면 정보 과대(AGENT_009)",
+            @ApiResponse(responseCode = "400", description = "요청 형식 오류(REQUEST_001·REQUEST_026) / "
+                    + "화면 정보 과대(AGENT_009) / 파일 형식·개수·인코딩 위반(AGENT_029·031·032)",
                     content = @Content(mediaType = "application/json",
                             examples = @ExampleObject(value = """
                                     { "errorCode": "REQUEST_001", "message": "잘못된 요청입니다.", "result": null }
+                                    """))),
+            @ApiResponse(responseCode = "413", description = "파일 크기 초과(AGENT_030·REQUEST_027)",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    { "errorCode": "AGENT_030", "message": "파일이 너무 큽니다.", "result": null }
                                     """))),
             @ApiResponse(responseCode = "403", description = "본인의 대화가 아님",
                     content = @Content(mediaType = "application/json",
@@ -120,39 +109,40 @@ public interface AgentApi {
     ResponseEntity<SseEmitter> send(
             @Parameter(hidden = true) Long userId,
             @Parameter(hidden = true) Authentication authentication,
-            // 필드별 example을 조립하면 conversationId가 0으로 채워져 그대로 실행하면 404가 난다.
-            // 본문 전체 예시를 주면 Swagger가 이 값을 그대로 채워 주므로 Execute가 한 번에 통과한다.
-            @RequestBody(required = true, content = @Content(mediaType = "application/json",
-                    examples = {
-                            @ExampleObject(name = "새 대화", description = "conversationId를 null로 두면 서버가 새 대화를 만든다.",
-                                    value = """
+            // schemaProperties가 있어야 Swagger UI가 파일 선택 버튼을 그리고,
+            // encoding이 있어야 UI가 request를 JSON으로 보낸다(없으면 text/plain이라 415).
+            // example을 통째로 주는 이유는 기존 JSON 바디 때와 같다 — 필드별로 조립하게 두면
+            // conversationId가 채워져 그대로 실행하면 404가 난다.
+            @RequestBody(required = true, content = @Content(
+                    mediaType = "multipart/form-data",
+                    schemaProperties = {
+                            @SchemaProperty(name = "request", schema = @Schema(
+                                    implementation = AgentMessageRequest.class,
+                                    example = """
                                             {
                                               "conversationId": null,
                                               "goal": "이번 주 내 할 일 정리해 줘",
                                               "screenContext": { "screen": "TASK_LIST", "projectId": 3 }
                                             }
-                                            """),
-                            @ExampleObject(name = "대화 이어가기", description = "직전 응답의 conversationId를 그대로 넣는다.",
-                                    value = """
-                                            {
-                                              "conversationId": 12,
-                                              "goal": "방금 만든 할 일 마감일을 금요일로 바꿔 줘",
-                                              "screenContext": { "screen": "TASK_DETAIL", "taskId": 91 }
-                                            }
-                                            """)
-                    }))
-            AgentMessageRequest request);
+                                            """)),
+                            @SchemaProperty(name = "files", array = @ArraySchema(
+                                    schema = @Schema(type = "string", format = "binary"),
+                                    arraySchema = @Schema(description = "첨부 파일(.txt). 없으면 생략한다.")))
+                    },
+                    encoding = @Encoding(name = "request", contentType = "application/json")))
+            AgentMessageRequest request,
+
+            @Parameter(hidden = true)
+            java.util.List<org.springframework.web.multipart.MultipartFile> files);
+
 
     @Operation(
             summary = "승인 요청 응답 및 실행 재개",
             description = """
-                    승인 카드(approval_request)에 대한 사용자의 결정을 보내고 멈춰 있던 실행을 이어갑니다.
-                    응답은 새 SSE 스트림이며, X-Run-Id는 처음 시작한 실행과 같은 값입니다.
+                    승인 카드에 대한 결정을 보내고 멈춰 있던 실행을 이어갑니다. 응답은 새 SSE 스트림입니다.
 
-                    [요청]
-                    - decision: APPROVED · REJECTED · ALTERNATIVE
-                    - alternativeId: ALTERNATIVE일 때만. 카드의 alternatives[].id를 그대로 보냅니다.
-                      "ALWAYS"를 고르면 이 대화의 자동 승인이 켜집니다.
+                    * decision은 APPROVED · REJECTED · ALTERNATIVE 이며, ALTERNATIVE일 때만 alternativeId를 함께 보냅니다.
+                    * alternativeId로 ALWAYS를 보내면 이 대화의 자동 승인이 켜집니다.
                     """
     )
     @ApiResponses({
@@ -238,10 +228,7 @@ public interface AgentApi {
             description = """
                     끊긴 SSE를 다시 엽니다. 새 실행을 만들지 않으므로 409·429가 나지 않습니다.
 
-                    [요청]
-                    - runId: 실행 시작 응답의 X-Run-Id 헤더 값. 대화 목록·메시지 조회의 activeRunId로도 얻을 수 있습니다.
-                    - Last-Event-ID 헤더: 마지막으로 받은 이벤트 id. 주면 그 다음 이벤트부터 재생하고, 없으면 처음부터 재생합니다.
-                      EventSource는 이 헤더를 브라우저가 자동으로 붙입니다.
+                    * Last-Event-ID 헤더를 주면 그 다음 이벤트부터, 없으면 처음부터 재생합니다. EventSource는 자동으로 붙입니다.
                     """
     )
     @ApiResponses({
@@ -302,13 +289,11 @@ public interface AgentApi {
     @Operation(
             summary = "응답 대기 중인 승인·질문 조회",
             description = """
-                    화면을 새로 고치거나 다른 기기에서 들어왔을 때, 답을 기다리는 카드를 복원합니다.
-                    홈의 '확인이 필요한 요청'이 이 응답을 씁니다.
-                    interactionId를 그대로 승인·질문 응답 API의 경로 변수로 쓰면 됩니다.
+                    답을 기다리는 승인·질문 카드를 돌려줍니다. 홈의 '확인이 필요한 요청'이 이 응답을 씁니다.
 
-                    options[].id는 고른 뒤 그대로 되돌려 보내는 값입니다.
-                    QUESTION은 selectedOptionIds에 담고, APPROVAL은 APPROVE→decision=APPROVED,
-                    REJECT→decision=REJECTED, 그 밖의 id→decision=ALTERNATIVE + alternativeId=id로 보냅니다.
+                    * interactionId를 승인·질문 응답 API의 경로 변수로 그대로 씁니다.
+                    * options[].id는 고른 뒤 되돌려 보내는 값입니다. QUESTION은 selectedOptionIds에 담고,
+                      APPROVAL은 APPROVE→APPROVED, REJECT→REJECTED, 그 밖의 id는 ALTERNATIVE + alternativeId로 보냅니다.
                     """
     )
     @ApiResponses(@ApiResponse(responseCode = "200", description = "대기 중인 카드 목록(없으면 totalCount=0)",
@@ -365,17 +350,11 @@ public interface AgentApi {
     @Operation(
             summary = "에이전트 대화 목록 조회",
             description = """
-                    최근 대화를 lastMessageAt 내림차순으로 돌려줍니다.
-                    패널 햄버거(☰)의 전체 목록과 '최근 대화' 3건이 size만 달리 해서 같이 씁니다.
+                    최근 대화를 lastMessageAt 내림차순으로 돌려줍니다. 패널의 '최근 대화' 3건도 size만 달리 해서 같이 씁니다.
 
-                    status·runId는 그 대화의 **가장 최근 실행** 기준입니다.
-                    status가 WAITING_APPROVAL·WAITING_INPUT·RUNNING이면 아직 살아 있는 실행이라 재연결·취소에 쓸 수 있습니다.
-                    pendingApprovalId가 있으면 목록에 '확인 필요' 배지를 그리고, 그 id를 승인 응답 API의 경로 변수로 쓰면 됩니다.
-
-                    unread가 true면 마지막으로 읽은 뒤에 도착한 에이전트 답변이 있다는 뜻이라 '새 답장' 점을 찍으면 됩니다.
-                    내가 보낸 질문은 세지 않으므로 메시지를 보냈다고 해서 켜지지 않습니다.
-                    끄려면 읽음 처리 API(PATCH /conversations/{conversationId}/read)를 호출하세요 —
-                    **메시지 조회만으로는 꺼지지 않습니다.**
+                    * status·runId는 가장 최근 실행 기준이며, WAITING_APPROVAL·WAITING_INPUT·RUNNING이면 재연결·취소할 수 있습니다.
+                    * pendingApprovalId가 있으면 '확인 필요' 배지를 그리고, 그 id로 승인 응답 API를 호출합니다.
+                    * unread는 읽음 처리 API로만 꺼집니다. 메시지 조회만으로는 꺼지지 않습니다.
                     """
     )
     @ApiResponses({
@@ -435,17 +414,11 @@ public interface AgentApi {
             description = """
                     대화 하나의 말풍선을 오래된 순으로 돌려줍니다.
 
-                    [응답] result.messages[]
-                    - role: USER면 사용자 말풍선, AGENT면 에이전트 말풍선
-                    - success: AGENT 행만 값이 있고, false면 실패 안내 말풍선
-                    - steps: "참고한 내용 N건" 접이식(없으면 null)
-                    - actionType·action: done.action 원문. NAVIGATE/FILL_FORM 버튼 동작에 씁니다.
-
-                    [응답] result.approvals[]
-                    그 대화에서 오간 승인 카드를 오래된 순으로 함께 내려줍니다. 이미 답한 카드도 결과와 함께 남습니다.
-                    - seq: 라이브로 받았던 SSE approval_request 이벤트의 id와 같은 값입니다(실행 안에서만 순서 보장).
-                    - status가 PENDING이면 아직 답을 기다리는 카드라 approvalId로 승인 응답 API를 호출할 수 있습니다.
-                    - messages[]와는 별개 배열입니다. 섞어 그리려면 decidedAt·createdAt으로 정렬하세요.
+                    * messages[]: role로 말풍선 방향을, success로 실패 안내 여부를 가릅니다.
+                      steps는 '참고한 내용' 접이식, action은 NAVIGATE·FILL_FORM 버튼 동작에 씁니다.
+                    * attachments: 그때 붙였던 파일(USER 행에만). 파일명·크기만 그리며 내려받기는 없습니다.
+                    * approvals[]: 그 대화의 승인 카드를 결과까지 함께 돌려줍니다. status가 PENDING이면 아직 답을 기다리는 카드입니다.
+                      messages[]와 별개 배열이라 섞어 그리려면 decidedAt·createdAt으로 정렬합니다.
                     """
     )
     @ApiResponses({
@@ -472,6 +445,9 @@ public interface AgentApi {
                                             "steps": null,
                                             "actionType": null,
                                             "action": null,
+                                            "attachments": [
+                                              { "filename": "회의록.txt", "contentType": "text/plain", "sizeBytes": 20480 }
+                                            ],
                                             "createdAt": "2026-08-06T14:05:00"
                                           },
                                           {
@@ -488,6 +464,7 @@ public interface AgentApi {
                                               "targetScreen": "TASK_LIST",
                                               "params": { "projectId": 3 }
                                             },
+                                            "attachments": [],
                                             "createdAt": "2026-08-06T14:05:09"
                                           }
                                         ],
@@ -527,18 +504,10 @@ public interface AgentApi {
     @Operation(
             summary = "대화 읽음 처리",
             description = """
-                    이 대화를 그 시점의 마지막 말풍선까지 읽음으로 표시합니다.
-                    대화 목록의 unread가 false로 바뀌어 '새 답장' 점이 사라집니다.
+                    이 대화를 마지막 말풍선까지 읽음으로 표시해 목록의 unread를 끕니다. 메시지 조회로는 꺼지지 않습니다.
 
-                    [언제 호출하나]
-                    - 목록에서 대화를 골라 열었을 때 (메시지 조회와 함께)
-                    - 그 대화를 보고 있는 동안 스트림이 done으로 끝났을 때 —
-                      화면에서 답변을 이미 봤는데도 목록에서 안 읽음으로 남는 걸 막습니다.
-                    메시지 조회 API는 읽음을 건드리지 않습니다. 다른 기기에서 열어 둔 목록이
-                    새로고침만으로 꺼지면 안 되기 때문입니다.
-
-                    [응답] lastReadMessageId — 읽음으로 확정된 지점. 말풍선이 하나도 없으면 null입니다.
-                    읽음 지점은 뒤로 가지 않으므로, 늦게 도착한 요청이 이미 읽은 답변을 되돌리지 않습니다.
+                    * 목록에서 대화를 열었을 때, 그리고 보고 있는 동안 스트림이 done으로 끝났을 때 호출합니다.
+                    * 응답의 lastReadMessageId는 읽음으로 확정된 지점이며, 읽음 지점은 뒤로 가지 않습니다.
                     """
     )
     @ApiResponses({

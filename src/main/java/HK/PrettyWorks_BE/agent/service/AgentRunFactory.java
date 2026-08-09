@@ -1,12 +1,15 @@
 package HK.PrettyWorks_BE.agent.service;
 
+import HK.PrettyWorks_BE.agent.client.dto.AgentRunRequest;
 import HK.PrettyWorks_BE.agent.constant.AgentRunStatus;
 import HK.PrettyWorks_BE.agent.domain.AgentConversationEntity;
+import HK.PrettyWorks_BE.agent.domain.AgentMessageAttachmentEntity;
 import HK.PrettyWorks_BE.agent.domain.AgentRunEntity;
 import HK.PrettyWorks_BE.agent.domain.AgentMessageEntity;
 import HK.PrettyWorks_BE.agent.constant.AgentRole;
 import HK.PrettyWorks_BE.agent.exception.AgentErrorCode;
 import HK.PrettyWorks_BE.agent.repository.AgentConversationRepository;
+import HK.PrettyWorks_BE.agent.repository.AgentMessageAttachmentRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentRunRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentMessageRepository;
 import HK.PrettyWorks_BE.global.exception.BaseException;
@@ -16,6 +19,8 @@ import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDateTime;
+import java.util.ArrayList;
+import java.util.List;
 import java.util.UUID;
 
 @Service
@@ -27,11 +32,23 @@ public class AgentRunFactory {
     private final AgentConversationRepository conversationRepository;
     private final AgentRunRepository runRepository;
     private final AgentMessageRepository messageRepository;
+    private final AgentMessageAttachmentRepository attachmentRepository;
     private final AgentAccessGuard accessGuard;
 
+    /**
+     * 실행과 사용자 말풍선을 한 트랜잭션에 만듭니다.
+     *
+     * <p>{@code goal}은 이미 호출부에서 확정된 값입니다 — 사용자가 아무것도 입력하지 않고 파일만
+     * 보낸 경우에도 여기서는 빈 값이 오지 않습니다(AgentExecutionService가 첨부 안내 문구로 채웁니다).
+     * 그 덕분에 goal 이 NOT NULL 인 이 테이블도, 맥락 조회도 첨부 여부를 몰라도 됩니다.</p>
+     *
+     * <p>{@code files}는 메타데이터만 저장합니다. 파일 내용은 이 트랜잭션을 지나 FastAPI로 흘러갈 뿐
+     * DB에 남지 않습니다(AgentMessageAttachmentEntity 주석 참고).</p>
+     */
     @Transactional
     public StartedRun start(Long userId, Long conversationId, String goal,
-                            String screenContext, String sessionId) {
+                            String screenContext, String sessionId,
+                            List<AgentRunRequest.AttachedFile> files) {
         currentUserService.getEmployedUserForUpdate(userId);
 
         LocalDateTime now = LocalDateTime.now();
@@ -69,8 +86,28 @@ public class AgentRunFactory {
                 .role(AgentRole.USER)
                 .content(goal)
                 .build());
+        saveAttachments(userMessage.getId(), files);
         conversation.touch(now);
         return new StartedRun(conversation, run, userMessage);
+    }
+
+    // 첨부는 없는 것이 정상이라 없으면 조용히 지나간다. 순서는 사용자가 고른 순서 그대로 둔다.
+    private void saveAttachments(Long messageId, List<AgentRunRequest.AttachedFile> files) {
+        if (files == null || files.isEmpty()) {
+            return;
+        }
+        List<AgentMessageAttachmentEntity> rows = new ArrayList<>(files.size());
+        for (int seq = 0; seq < files.size(); seq++) {
+            AgentRunRequest.AttachedFile file = files.get(seq);
+            rows.add(AgentMessageAttachmentEntity.builder()
+                    .messageId(messageId)
+                    .seq(seq)
+                    .filename(file.filename())
+                    .contentType(file.contentType())
+                    .sizeBytes(file.sizeBytes())
+                    .build());
+        }
+        attachmentRepository.saveAll(rows);
     }
 
     private String fallbackTitle(String goal) {
