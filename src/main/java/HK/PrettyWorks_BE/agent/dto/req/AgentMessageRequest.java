@@ -1,7 +1,6 @@
 package HK.PrettyWorks_BE.agent.dto.req;
 
 import io.swagger.v3.oas.annotations.media.Schema;
-import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.Size;
 import lombok.Builder;
 import tools.jackson.databind.JsonNode;
@@ -19,10 +18,15 @@ public record AgentMessageRequest(
                 nullable = true, example = "12")
         Long conversationId,
 
-        @Schema(description = "사용자가 입력한 메시지. 2자 이상 2000자 이하.",
-                example = "이번 주 내 할 일 정리해 줘")
-        @NotBlank(message = "메시지를 입력해 주세요.")
-        @Size(min = 2, max = 2000, message = "메시지는 2자 이상 2000자 이하로 입력해 주세요.")
+        // 파일만 보내는 것도 허용하므로 @NotBlank·@Size(min)을 두지 않는다.
+        //
+        // 파일이 왔는지는 바디가 아니라 멀티파트 파트에 있어, 이 DTO만 보고는 "메시지를 생략해도
+        // 되는 요청인지" 알 수 없다. 빈 검증으로 표현할 수 없는 규칙("goal 과 파일 중 하나는 필수",
+        // 그리고 최소 2자)은 AgentExecutionService.resolveGoal 이 지킨다.
+        // 상한만 여기 남긴다 — 길이는 첨부 여부와 무관하고, 큰 본문은 컨트롤러 앞에서 끊는 편이 싸다.
+        @Schema(description = "사용자가 입력한 메시지. 2자 이상 2000자 이하. 파일을 붙였다면 생략할 수 있다.",
+                nullable = true, example = "이번 주 내 할 일 정리해 줘")
+        @Size(max = 2000, message = "메시지는 2000자 이하로 입력해 주세요.")
         String goal,
 
         // 사용자가 보고 있는 화면 정보. 서버는 열어보지 않고 그대로 에이전트 서버에 전달한다.

@@ -16,6 +16,8 @@ import HK.PrettyWorks_BE.agent.repository.AgentEventRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentEventSeqRow;
 import HK.PrettyWorks_BE.agent.repository.AgentInteractionRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentLastAgentMessageRow;
+import HK.PrettyWorks_BE.agent.repository.AgentMessageAttachmentRepository;
+import HK.PrettyWorks_BE.agent.repository.AgentMessageAttachmentRow;
 import HK.PrettyWorks_BE.agent.repository.AgentMessageRepository;
 import HK.PrettyWorks_BE.agent.repository.AgentMessageRow;
 import HK.PrettyWorks_BE.agent.repository.AgentMessageStepRepository;
@@ -56,6 +58,7 @@ public class AgentQueryService {
     private final AgentConversationRepository conversationRepository;
     private final AgentMessageRepository messageRepository;
     private final AgentMessageStepRepository messageStepRepository;
+    private final AgentMessageAttachmentRepository messageAttachmentRepository;
     private final AgentRunRepository runRepository;
     private final AgentEventRepository eventRepository;
     private final AgentInteractionRepository interactionRepository;
@@ -147,6 +150,8 @@ public class AgentQueryService {
 
         List<AgentMessageRow> rows = messageRepository.findMessageRows(conversationId);
         Map<Long, List<String>> stepPayloadsByMessage = loadStepPayloads(rows);
+        Map<Long, List<AgentMessagesResponse.AttachmentItem>> attachmentsByMessage =
+                loadAttachments(rows);
 
         return AgentMessagesResponse.builder()
                 .conversationId(conversation.getId())
@@ -164,6 +169,7 @@ public class AgentQueryService {
                                 .steps(json.readArray(stepPayloadsByMessage.get(row.messageId())))
                                 .actionType(row.actionType())
                                 .action(json.read(row.actionJson()))
+                                .attachments(attachmentsByMessage.get(row.messageId()))
                                 .createdAt(row.createdAt())
                                 .build())
                         .toList())
@@ -296,6 +302,25 @@ public class AgentQueryService {
             throw new IllegalStateException("한 대화에 활성 에이전트 Run이 둘 이상 존재합니다.");
         }
         return runs.isEmpty() ? null : runs.getFirst();
+    }
+
+    // step과 같은 방식으로 한 번에 모은다. 첨부는 대부분의 말풍선에 없으므로 조회 결과도 대개 비어 있다.
+    private Map<Long, List<AgentMessagesResponse.AttachmentItem>> loadAttachments(
+            List<AgentMessageRow> messages) {
+        List<Long> messageIds = messages.stream()
+                .map(AgentMessageRow::messageId)
+                .toList();
+        if (messageIds.isEmpty()) {
+            return Map.of();
+        }
+        Map<Long, List<AgentMessagesResponse.AttachmentItem>> grouped = new LinkedHashMap<>();
+        for (AgentMessageAttachmentRow row
+                : messageAttachmentRepository.findRowsByMessageIdIn(messageIds)) {
+            grouped.computeIfAbsent(row.messageId(), ignored -> new ArrayList<>())
+                    .add(new AgentMessagesResponse.AttachmentItem(
+                            row.filename(), row.contentType(), row.sizeBytes()));
+        }
+        return grouped;
     }
 
     private Map<Long, List<String>> loadStepPayloads(List<AgentMessageRow> messages) {

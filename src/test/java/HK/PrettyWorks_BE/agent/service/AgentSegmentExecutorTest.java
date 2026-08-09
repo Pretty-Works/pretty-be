@@ -66,7 +66,7 @@ class AgentSegmentExecutorTest {
 
         AgentRunRequest request = new AgentRunRequest("run-public-1", 10L, "업무 처리",
                 java.util.List.of(), objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"),
-                "WEB", "ko-KR");
+                "WEB", "ko-KR", java.util.List.of());
         executor.submitStart(10L, "run-public-1", request);
 
         assertThat(resumed.await(2, TimeUnit.SECONDS)).isTrue();

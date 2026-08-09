@@ -1,6 +1,7 @@
 package HK.PrettyWorks_BE.agent.service;
 
 import HK.PrettyWorks_BE.agent.client.dto.AgentRunRequest;
+import HK.PrettyWorks_BE.agent.constant.AgentFileEncoding;
 import HK.PrettyWorks_BE.agent.constant.AgentRole;
 import HK.PrettyWorks_BE.agent.domain.AgentConversationEntity;
 import HK.PrettyWorks_BE.agent.domain.AgentMessageEntity;
@@ -13,10 +14,13 @@ import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.multipart.MultipartFile;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import tools.jackson.databind.ObjectMapper;
 
+import java.nio.charset.StandardCharsets;
 import java.time.LocalDateTime;
 import java.util.List;
 
@@ -37,12 +41,17 @@ class AgentExecutionServiceTest {
     private final AgentSegmentExecutor segmentExecutor = mock(AgentSegmentExecutor.class);
     private final ObjectMapper objectMapper = new ObjectMapper();
 
+    // 인테이크는 진짜 객체를 쓴다. "파일만 보내기"의 동작이 검증 규칙과 맞물려 있어,
+    // 목으로 대체하면 정작 확인하고 싶은 조합(파일 통과 → goal 생성)이 검증되지 않는다.
+    private final AgentAttachmentIntake attachmentIntake =
+            new AgentAttachmentIntake(new String[]{"txt"}, 3, 1024, 2048);
+
     private AgentExecutionService service;
 
     @BeforeEach
     void setUp() {
         service = new AgentExecutionService(runFactory, messageRepository, streamService,
-                segmentExecutor, objectMapper, 20, 4_096);
+                segmentExecutor, attachmentIntake, objectMapper, 20, 4_096);
     }
 
     @Test
@@ -50,7 +59,7 @@ class AgentExecutionServiceTest {
         AgentMessageRequest request = new AgentMessageRequest(
                 null, "업무를 정리해줘", objectMapper.createObjectNode());
 
-        assertThatThrownBy(() -> service.start(1L, "session-1", request))
+        assertThatThrownBy(() -> service.start(1L, "session-1", request, List.of()))
                 .isInstanceOfSatisfying(BaseException.class,
                         error -> assertThat(error.getCode())
                                 .isEqualTo(GlobalErrorCode.VALIDATION_ERROR));
@@ -61,7 +70,7 @@ class AgentExecutionServiceTest {
     void persistsRunFirstAndRelaysOnlyPreviousConversationContext() throws Exception {
         AgentRunFactory.StartedRun started = startedRun();
         when(runFactory.start(eq(1L), eq(10L), eq("업무를 정리해줘"),
-                anyString(), eq("session-1"))).thenReturn(started);
+                anyString(), eq("session-1"), eq(List.of()))).thenReturn(started);
         when(messageRepository.findRecentContextBeforeMessage(eq(10L), eq(30L), any()))
                 .thenReturn(List.of(
                         new AgentContextRow(AgentRole.AGENT, "두 번째"),
@@ -70,7 +79,7 @@ class AgentExecutionServiceTest {
         AgentMessageRequest request = new AgentMessageRequest(10L, "업무를 정리해줘",
                 objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"));
         AgentStartedStream response =
-                service.start(1L, "session-1", request);
+                service.start(1L, "session-1", request, List.of());
 
         assertThat(response.runId()).isEqualTo("run-public-1");
         ArgumentCaptor<AgentRunRequest> sent = ArgumentCaptor.forClass(AgentRunRequest.class);
@@ -80,7 +89,86 @@ class AgentExecutionServiceTest {
                 new AgentRunRequest.ContextMessage("AGENT", "두 번째"));
         assertThat(sent.getValue().goal()).isEqualTo("업무를 정리해줘");
         assertThat(sent.getValue().conversationId()).isEqualTo(10L);
+        assertThat(sent.getValue().files()).isEmpty();
         verify(messageRepository).findRecentContextBeforeMessage(eq(10L), eq(30L), any());
+    }
+
+    // 파일과 메시지를 함께 보낸 경우. 파일 내용은 해석하지 않고 그대로 실려 나가야 한다.
+    @Test
+    void relaysAttachedTextFileAlongsideTheMessage() {
+        AgentRunFactory.StartedRun started = startedRun();
+        when(runFactory.start(eq(1L), eq(10L), eq("이 파일 요약해줘"),
+                anyString(), eq("session-1"), any())).thenReturn(started);
+        when(messageRepository.findRecentContextBeforeMessage(eq(10L), eq(30L), any()))
+                .thenReturn(List.of());
+        when(streamService.connect(1L, "run-public-1", null)).thenReturn(new SseEmitter());
+        AgentMessageRequest request = new AgentMessageRequest(10L, "이 파일 요약해줘",
+                objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"));
+
+        service.start(1L, "session-1", request, List.of(textFile("회의록.txt", "회의 내용입니다")));
+
+        ArgumentCaptor<AgentRunRequest> sent = ArgumentCaptor.forClass(AgentRunRequest.class);
+        verify(segmentExecutor).submitStart(eq(20L), eq("run-public-1"), sent.capture());
+        assertThat(sent.getValue().goal()).isEqualTo("이 파일 요약해줘");
+        assertThat(sent.getValue().files()).singleElement().satisfies(file -> {
+            assertThat(file.filename()).isEqualTo("회의록.txt");
+            assertThat(file.contentType()).isEqualTo("text/plain");
+            assertThat(file.encoding()).isEqualTo(AgentFileEncoding.TEXT);
+            assertThat(file.content()).isEqualTo("회의 내용입니다");
+        });
+    }
+
+    // 파일만 보낸 경우. 저장·전달 계약이 전부 goal 을 필수로 보므로 여기서 문구가 채워져야 한다.
+    @Test
+    void fillsGoalFromFilenamesWhenOnlyFilesAreSent() {
+        AgentRunFactory.StartedRun started = startedRun();
+        when(runFactory.start(eq(1L), eq(10L), eq("(첨부 파일: 회의록.txt)"),
+                anyString(), eq("session-1"), any())).thenReturn(started);
+        when(messageRepository.findRecentContextBeforeMessage(eq(10L), eq(30L), any()))
+                .thenReturn(List.of());
+        when(streamService.connect(1L, "run-public-1", null)).thenReturn(new SseEmitter());
+        AgentMessageRequest request = new AgentMessageRequest(10L, "   ",
+                objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"));
+
+        service.start(1L, "session-1", request, List.of(textFile("회의록.txt", "회의 내용입니다")));
+
+        ArgumentCaptor<AgentRunRequest> sent = ArgumentCaptor.forClass(AgentRunRequest.class);
+        verify(segmentExecutor).submitStart(eq(20L), eq("run-public-1"), sent.capture());
+        assertThat(sent.getValue().goal()).isEqualTo("(첨부 파일: 회의록.txt)");
+        assertThat(sent.getValue().files()).hasSize(1);
+        verify(runFactory).start(eq(1L), eq(10L), eq("(첨부 파일: 회의록.txt)"),
+                anyString(), eq("session-1"), any());
+    }
+
+    @Test
+    void rejectsRequestWithNeitherMessageNorFile() {
+        AgentMessageRequest request = new AgentMessageRequest(10L, "  ",
+                objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"));
+
+        assertThatThrownBy(() -> service.start(1L, "session-1", request, List.of()))
+                .isInstanceOfSatisfying(BaseException.class,
+                        error -> assertThat(error.getCode())
+                                .isEqualTo(GlobalErrorCode.VALIDATION_ERROR));
+        verifyNoInteractions(runFactory, streamService, segmentExecutor);
+    }
+
+    // 파일이 있어도 한 글자짜리 요청은 그대로 막는다(첨부 도입 전 규칙 유지).
+    @Test
+    void keepsMinimumLengthRuleForNonBlankMessages() {
+        AgentMessageRequest request = new AgentMessageRequest(10L, "ㅇ",
+                objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"));
+
+        assertThatThrownBy(() -> service.start(1L, "session-1", request,
+                List.of(textFile("회의록.txt", "내용"))))
+                .isInstanceOfSatisfying(BaseException.class,
+                        error -> assertThat(error.getCode())
+                                .isEqualTo(GlobalErrorCode.VALIDATION_ERROR));
+        verifyNoInteractions(runFactory, streamService, segmentExecutor);
+    }
+
+    private MultipartFile textFile(String filename, String content) {
+        return new MockMultipartFile("files", filename, "text/plain",
+                content.getBytes(StandardCharsets.UTF_8));
     }
 
     private AgentRunFactory.StartedRun startedRun() {

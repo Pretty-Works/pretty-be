@@ -113,7 +113,29 @@ public record AgentMessagesResponse(
                             + "\"targetScreen\": \"TASK_LIST\", \"params\": {\"projectId\": 3}}")
             JsonNode action,
 
+            // 이 말풍선에 붙었던 파일. USER 행에만 값이 있고, 없으면 빈 배열이다.
+            @ArraySchema(arraySchema = @Schema(
+                    description = "붙였던 파일(사용자가 고른 순서). 내용은 보관하지 않아 내려받을 수 없다."))
+            List<AttachmentItem> attachments,
+
             LocalDateTime createdAt
+    ) {
+        public MessageItem {
+            attachments = attachments == null ? List.of() : List.copyOf(attachments);
+        }
+    }
+
+    // 첨부 파일 한 개. 다시 내려받을 URL이 없는 것이 의도다 —
+    // BE는 파일을 에이전트로 넘기는 게이트일 뿐 저장소가 아니다(AgentMessageAttachmentEntity 주석 참고).
+    public record AttachmentItem(
+            @Schema(description = "업로드 당시 파일명", example = "회의록.txt")
+            String filename,
+
+            @Schema(description = "MIME 타입", example = "text/plain")
+            String contentType,
+
+            @Schema(description = "원본 바이트 크기", example = "20480")
+            long sizeBytes
     ) {
     }
 }

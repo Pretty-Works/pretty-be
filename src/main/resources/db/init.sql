@@ -477,6 +477,32 @@ CREATE TABLE IF NOT EXISTS agent_message_steps (
 
 
 -- =============================================================================
+-- agent_message_attachments : 사용자가 채팅창에 붙인 파일의 메타데이터
+--   - 파일 내용은 저장하지 않습니다. BE는 받아서 에이전트로 넘기는 게이트일 뿐이라,
+--     내용까지 보관하면 저장소 수명·삭제·용량이 전부 우리 책임이 됩니다.
+--     여기 남기는 것은 대화를 다시 열었을 때 "무엇을 붙였는지"를 그리기 위한 최소 정보입니다.
+--   - content_type 은 클라이언트가 보낸 값이 아니라 확장자를 보고 서버가 정한 값입니다.
+--     업로드 시 판정 근거를 그대로 남겨야 나중에 "왜 이 파일이 통과했나"를 되짚을 수 있습니다.
+--   - AGENT 행에는 붙지 않습니다(첨부는 사용자만 보냅니다). 별도 role 컬럼을 두지 않는 이유입니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_message_attachments (
+    id           BIGINT       NOT NULL AUTO_INCREMENT,
+    message_id   BIGINT       NOT NULL COMMENT '소속 USER 메시지 FK',
+    seq          INT          NOT NULL COMMENT '한 메시지 안에서의 표시 순서 (0부터)',
+    filename     VARCHAR(255) NOT NULL COMMENT '업로드 당시 파일명 (경로 제거·검증 후)',
+    content_type VARCHAR(100) NOT NULL COMMENT '확장자로 서버가 결정한 MIME 타입',
+    size_bytes   BIGINT       NOT NULL COMMENT '원본 바이트 크기 (인코딩 전)',
+    created_at   DATETIME(6)  NULL     COMMENT '생성 시각',
+    modified_at  DATETIME(6)  NULL     COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 같은 메시지에 같은 순서가 두 번 저장되는 일을 막습니다. 상세 조회의 정렬 키이기도 합니다.
+    UNIQUE KEY uk_agent_message_attachments_message_seq (message_id, seq),
+    CONSTRAINT fk_agent_message_attachments_message
+        FOREIGN KEY (message_id) REFERENCES agent_messages (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 메시지 첨부 파일 메타데이터';
+
+
+-- =============================================================================
 -- agent_runs : 에이전트 실행 (요청 하나를 처리하는 단위)
 --   - 상태를 갖는 건 대화가 아니라 이쪽입니다. 대화 1 : 실행 N (규격 v2 §3).
 --     done 은 그 요청이 끝난 것일 뿐이라, 사용자는 같은 대화에 계속 이어 말할 수 있습니다.
