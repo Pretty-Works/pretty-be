@@ -43,6 +43,10 @@ public class SecurityConfig {
     // 인증 정보가 없는 사용자가 보호된 API에 접근했을 때 401 응답을 만드는 진입점입니다.
     private final JwtAuthenticationEntryPoint jwtAuthenticationEntryPoint;
 
+    // 배포 환경별 프론트 주소
+    @Value("${cors.allowed-origins:http://localhost:3000}")
+    private String[] allowedOrigins;
+
     @Bean
     public InternalAgentFilter internalAgentFilter(
             @Value("${agent.internal.api-key}") String internalApiKey,
@@ -139,7 +143,7 @@ public class SecurityConfig {
         CorsConfiguration configuration = new CorsConfiguration();
 
         // 허용할 Origin을 지정합니다.
-        configuration.setAllowedOrigins(List.of("http://localhost:3000"));
+        configuration.setAllowedOrigins(List.of(allowedOrigins));
         // 허용할 HTTP 메서드를 지정합니다.
         configuration.setAllowedMethods(List.of("GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"));
         // 요청 헤더를 모두 허용합니다. (Authorization 포함)
