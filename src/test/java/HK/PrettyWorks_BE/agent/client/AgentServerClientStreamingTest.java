@@ -57,7 +57,9 @@ class AgentServerClientStreamingTest {
         assertThat(outcome).isEqualTo(AgentSegmentOutcome.COMPLETED);
         assertThat(capturedRequest.get().get("runId").textValue()).isEqualTo("run_public_1");
         assertThat(capturedRequest.get().has("userId")).isFalse();
-        assertThat(capturedRequest.get().has("conversationId")).isFalse();
+        // conversationId는 FastAPI RunRequest의 필수 필드라 그대로 실어 보낸다(AgentRunRequest 주석).
+        // userId와 달리 신원이 아니라서 빼지 않는다.
+        assertThat(capturedRequest.get().get("conversationId").longValue()).isEqualTo(1L);
     }
 
     @Test
@@ -203,7 +205,8 @@ class AgentServerClientStreamingTest {
         server.createContext("/api/agent/runs", handler);
         server.start();
 
-        AgentServerEventDecoder decoder = new AgentServerEventDecoder(objectMapper);
+        AgentServerEventDecoder decoder =
+                new AgentServerEventDecoder(objectMapper, "https://agent.example.com");
         AgentServerSseParser parser = new AgentServerSseParser(decoder);
         client = new AgentServerClient(
                 "http://127.0.0.1:" + server.getAddress().getPort(),
