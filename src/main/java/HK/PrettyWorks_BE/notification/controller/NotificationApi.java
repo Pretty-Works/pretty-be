@@ -38,7 +38,7 @@ public interface NotificationApi {
             @ApiResponse(responseCode = "200", description = "조회 성공 (알림이 없으면 items가 빈 배열)"),
             @ApiResponse(responseCode = "400", description = "size 범위 위반 (1~100)")
     })
-    ResponseEntity<CursorResponse<NotificationResponse>> getNotifications(
+    ResponseEntity<CursorResponse<NotificationResponse, Long>> getNotifications(
             Long userId,
             @Parameter(description = "이전 응답의 nextCursor. 첫 페이지는 생략합니다.", example = "1043") Long cursor,
             @Parameter(description = "가져올 알림 수 (1~100)", example = "20") int size

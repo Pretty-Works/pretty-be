@@ -377,6 +377,10 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
 --   - 제목은 사용자가 붙이지 않고 LLM 요약(실패 시 첫 질문 앞부분)을 저장합니다.
 --   - last_read_message_id 로 안 읽음을 판정합니다. 시각이 아니라 id인 이유는 notifications 의
 --     last_seen_notification_id 와 같습니다 — 같은 초에 여러 건이 들어와도 경계가 흔들리지 않습니다.
+--   - 소프트 삭제: 목록에서 지워도 행은 남고 deleted_at 만 채웁니다. 자식(agent_messages·agent_runs)은
+--     건드리지 않으므로 진행 중이던 실행 스레드가 사라진 행을 만나는 일이 없습니다.
+--     조회 제외는 엔티티의 @SQLRestriction("deleted_at IS NULL") 이 전담합니다 — 쿼리마다 조건을
+--     적지 않으므로 새 쿼리를 추가하다 빠뜨릴 수 없습니다.
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS agent_conversations (
     id              BIGINT       NOT NULL AUTO_INCREMENT,
@@ -390,11 +394,18 @@ CREATE TABLE IF NOT EXISTS agent_conversations (
     -- 승인 게이트를 없애는 게 아니라 "버튼을 누르는 주체"만 바뀌므로 params_hash 결합은 그대로입니다.
     -- 기본값이 FALSE인 것이 중요합니다 — 안전한 쪽이 기본이어야 합니다.
     auto_approve    BOOLEAN      NOT NULL DEFAULT FALSE COMMENT '자동 승인 모드 (대화 단위)',
+    deleted_at      DATETIME(6)  NULL               COMMENT '소프트 삭제 시각 (조회에서 IS NULL 제외)',
     created_at      DATETIME(6)  NULL               COMMENT '생성 시각',
     modified_at     DATETIME(6)  NULL               COMMENT '수정 시각',
     PRIMARY KEY (id),
     -- 내 스레드를 최신순으로 조회합니다(패널 최근 3건 · 전체보기가 같은 쿼리).
-    KEY idx_agent_conversations_user_recent (user_id, last_message_at),
+    -- 목록은 커서(스크롤) 방식이라 (last_message_at, id) 순으로 끊습니다. id를 따로 넣지 않은 것은
+    -- InnoDB 보조 인덱스가 PK를 뒤에 달고 있어 (user_id, deleted_at, last_message_at, id) 와 같기 때문입니다.
+    --
+    -- deleted_at 이 가운데 있는 이유는 expenses 의 idx_expenses_project_deleted_date 와 같습니다 —
+    -- user_id = ? 와 deleted_at IS NULL 이 둘 다 동등 조건이라 앞에 모아야 뒤의 last_message_at 이
+    -- 범위 스캔과 정렬을 함께 해결합니다. 맨 뒤에 두면 정렬이 filesort 로 떨어집니다.
+    KEY idx_agent_conversations_user_recent (user_id, deleted_at, last_message_at),
     CONSTRAINT fk_agent_conversations_user FOREIGN KEY (user_id) REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 대화 스레드';
 

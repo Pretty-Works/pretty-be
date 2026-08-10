@@ -1,6 +1,6 @@
 package HK.PrettyWorks_BE.global.config;
 
-import HK.PrettyWorks_BE.agent.internal.AgentUserArgumentResolver;
+import HK.PrettyWorks_BE.agent.tool.security.AgentUserArgumentResolver;
 import lombok.RequiredArgsConstructor;
 import org.springframework.context.annotation.Configuration;
 import org.springframework.web.servlet.config.annotation.ResourceHandlerRegistry;
