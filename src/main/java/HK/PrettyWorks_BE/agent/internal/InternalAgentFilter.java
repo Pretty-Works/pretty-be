@@ -15,6 +15,8 @@ import jakarta.servlet.http.HttpServletResponse;
 import lombok.NonNull;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.http.HttpMethod;
+import org.springframework.util.AntPathMatcher;
+import org.springframework.util.PathMatcher;
 import org.springframework.web.filter.OncePerRequestFilter;
 import org.springframework.web.util.ContentCachingRequestWrapper;
 
@@ -32,6 +34,15 @@ public class InternalAgentFilter extends OncePerRequestFilter {
     // 큰 본문 하나로 힙을 밀어버릴 수 있다. 도구 인자는 회의록 본문이 길어도 수 KB 수준이라
     // 64KB면 넉넉하다(비교: screenContext 상한 32KB).
     private static final int MAX_WRITE_BODY_BYTES = 64 * 1024;
+
+    // run→user 조회 경로. 실행 중 도구 호출이 아니라 run 리소스 조회라서 아래 doFilterInternal에서
+    // API 키만 보고 통과시킨다.
+    //
+    // prefix+suffix 문자열 비교가 아니라 패턴으로 맞춘다. 전자는 세그먼트 경계를 모르기 때문에
+    // 나중에 /runs/{id}/messages/user 같은 경로가 생기면 그것까지 조용히 검사를 건너뛴다.
+    // '*'는 세그먼트 하나만 먹으므로 runId 자리에 경로가 끼어들 수 없다.
+    private static final String RUN_USER_PATTERN = "/api/internal/agent/runs/*/user";
+    private static final PathMatcher PATH_MATCHER = new AntPathMatcher();
 
     private final String expectedApiKey;
     private final AgentRunRepository runRepository;
@@ -62,6 +73,15 @@ public class InternalAgentFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         try {
             verifyApiKey(request.getHeader(INTERNAL_KEY_HEADER));
+
+            // run→user 조회만 여기서 갈린다. runId를 경로로 받으므로 X-Run-Id 역산이 필요 없고,
+            // 툴콜 예산(실행당 20회)도 깎지 않는다 — 신원 확인은 에이전트가 한 작업이 아니라서
+            // 여기서 세면 진짜 도구 호출이 쓸 예산이 줄어든다. 재직 검증은 조회 서비스가 한다.
+            if (isRunUserLookup(request)) {
+                filterChain.doFilter(request, response);
+                return;
+            }
+
             AgentRunEntity run = activeRun(request.getHeader(RUN_ID_HEADER));
             verifyEmployed(run.getUserId());
 
@@ -137,6 +157,13 @@ public class InternalAgentFilter extends OncePerRequestFilter {
         if (contentLength < 0 || contentLength > MAX_WRITE_BODY_BYTES) {
             throw BaseException.type(AgentErrorCode.WRITE_BODY_TOO_LARGE);
         }
+    }
+
+    private boolean isRunUserLookup(HttpServletRequest request) {
+        if (!HttpMethod.GET.matches(request.getMethod())) {
+            return false;
+        }
+        return PATH_MATCHER.match(RUN_USER_PATTERN, request.getRequestURI());
     }
 
     private boolean isWrite(HttpServletRequest request) {
