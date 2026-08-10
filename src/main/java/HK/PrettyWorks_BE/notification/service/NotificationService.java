@@ -60,7 +60,7 @@ public class NotificationService {
 
     // 종 아이콘 드롭다운 목록. 읽은 알림도 계속 보이고 화면이 안 읽은 것만 강조한다.
     @Transactional(readOnly = true)
-    public CursorResponse<NotificationResponse> getNotifications(Long userId, Long cursor, int size) {
+    public CursorResponse<NotificationResponse, Long> getNotifications(Long userId, Long cursor, int size) {
         // 범위 검증만 재사용한다(REQUEST_001). 조회는 hasNext를 판정하려고 한 건 더 가져오므로
         // 여기서 만든 PageRequest는 쓰지 않는다 — size가 상한이면 size+1이 상한을 넘어 거부된다.
         PageRequests.of(0, size);

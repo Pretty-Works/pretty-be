@@ -1,9 +1,9 @@
 package HK.PrettyWorks_BE.security.config;
 
-import HK.PrettyWorks_BE.agent.internal.InternalAgentFilter;
-import HK.PrettyWorks_BE.agent.repository.AgentRunRepository;
-import HK.PrettyWorks_BE.agent.service.AgentRunEventService;
-import HK.PrettyWorks_BE.agent.service.ApprovalTokenService;
+import HK.PrettyWorks_BE.agent.execution.application.AgentRunEventService;
+import HK.PrettyWorks_BE.agent.execution.persistence.AgentRunRepository;
+import HK.PrettyWorks_BE.agent.interaction.application.ApprovalTokenService;
+import HK.PrettyWorks_BE.agent.tool.security.InternalAgentFilter;
 import HK.PrettyWorks_BE.auth.constant.AuthConstant;
 import HK.PrettyWorks_BE.global.exception.ErrorResponseWriter;
 import HK.PrettyWorks_BE.security.filter.JwtAuthenticationFilter;
