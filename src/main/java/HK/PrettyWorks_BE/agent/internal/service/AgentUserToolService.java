@@ -1,14 +1,19 @@
 package HK.PrettyWorks_BE.agent.internal.service;
 
+import HK.PrettyWorks_BE.agent.domain.AgentRunEntity;
 import HK.PrettyWorks_BE.agent.dto.res.AgentPage;
+import HK.PrettyWorks_BE.agent.exception.AgentErrorCode;
 import HK.PrettyWorks_BE.agent.internal.dto.res.AgentMeResponse;
+import HK.PrettyWorks_BE.agent.internal.dto.res.AgentRunUserResponse;
 import HK.PrettyWorks_BE.agent.internal.dto.res.AgentUserSearchResponse;
+import HK.PrettyWorks_BE.agent.repository.AgentRunRepository;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.global.util.WeekRange;
 import HK.PrettyWorks_BE.user.constant.DepartmentType;
 import HK.PrettyWorks_BE.user.dto.res.MyProfileResponse;
 import HK.PrettyWorks_BE.user.dto.res.UserSearchResponse;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import HK.PrettyWorks_BE.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
@@ -18,7 +23,8 @@ import java.time.LocalDate;
 import java.time.ZoneId;
 import java.util.List;
 
-// user.me · user.search. 검증·조회는 전부 UserService가 하고, 여기서는 응답을 에이전트용으로 좁힌다.
+// user.me · user.search · run→user 해석. 검증·조회는 전부 UserService가 하고,
+// 여기서는 응답을 에이전트용으로 좁힌다.
 @Service
 @RequiredArgsConstructor
 public class AgentUserToolService {
@@ -28,6 +34,8 @@ public class AgentUserToolService {
     private static final int MAX_USER_SEARCH_SIZE = 20;
 
     private final UserService userService;
+    private final AgentRunRepository runRepository;
+    private final CurrentUserService currentUserService;
 
     public AgentMeResponse me(Long userId) {
         MyProfileResponse profile = userService.getMyProfile(userId);
@@ -81,6 +89,21 @@ public class AgentUserToolService {
                 .users(users)
                 .totalCount(users.size())
                 .truncated(truncated)
+                .build();
+    }
+
+    // runId → 그 실행의 주인. InternalAgentFilter가 X-Run-Id로 하는 역산과 같은 일이지만,
+    // 도구 호출이 아니라 조회라서 run 상태는 보지 않는다 — 끝난 실행이어도 주인은 그대로다.
+    //
+    // 재직 검증은 여기서 반드시 한다. gmail-mcp는 메일 작업을 MCP 안에서 끝내고 BE를 거치지
+    // 않으므로, userId를 내주는 이 지점이 퇴사자를 막을 수 있는 유일한 곳이다.
+    public AgentRunUserResponse runUser(String runId) {
+        AgentRunEntity run = runRepository.findByRunId(runId)
+                .orElseThrow(() -> BaseException.type(AgentErrorCode.RUN_NOT_FOUND));
+        currentUserService.getEmployedUser(run.getUserId());
+
+        return AgentRunUserResponse.builder()
+                .userId(run.getUserId())
                 .build();
     }
 
