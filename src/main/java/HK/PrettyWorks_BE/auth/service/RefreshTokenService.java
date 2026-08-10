@@ -97,13 +97,29 @@ public class RefreshTokenService {
                 revokeSession(stored.getSessionId(), RevokeReason.THEFT);
             }
             // 로그아웃 등으로 이미 끊긴 세션의 뒤늦은 요청은 도난이 아니므로 경보 없이 거부만 합니다.
-            throw BaseException.type(GlobalErrorCode.REFRESH_TOKEN_MISMATCH);
+            throw BaseException.type(toErrorCode(stored.getRevokeReason()));
         }
 
         stored.revoke(now, RevokeReason.ROTATED);
         stored.markUsed(now);
 
         return stored.getSessionId();
+    }
+
+    // 폐기 사유를 화면이 읽을 에러코드로 옮깁니다. 화면은 이 코드로 안내 문구를 고릅니다.
+    // ROTATED(=도난 판정)는 바로 위에서 세션을 끊은 직후라 보안 사유로 함께 묶습니다.
+    private GlobalErrorCode toErrorCode(RevokeReason reason) {
+        if (reason == null) {
+            return GlobalErrorCode.REFRESH_TOKEN_MISMATCH;
+        }
+
+        return switch (reason) {
+            case SESSION_LIMIT -> GlobalErrorCode.SESSION_EVICTED;
+            case ROTATED, THEFT -> GlobalErrorCode.SESSION_REVOKED_FOR_SECURITY;
+            case NOT_EMPLOYED -> GlobalErrorCode.SESSION_NOT_EMPLOYED;
+            // 로그아웃은 사용자가 스스로 한 일이라 따로 알릴 것이 없습니다.
+            case LOGOUT -> GlobalErrorCode.REFRESH_TOKEN_MISMATCH;
+        };
     }
 
     // 세션 무효화: DB의 refresh token을 모두 폐기하고, 블랙리스트로 access token까지 즉시 차단합니다.

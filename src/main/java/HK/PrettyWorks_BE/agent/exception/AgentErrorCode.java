@@ -71,7 +71,8 @@ public enum AgentErrorCode implements ErrorCode {
     STREAM_INTERRUPTED(HttpStatus.BAD_GATEWAY, "AGENT_017", "에이전트 응답이 중단되었습니다."),
 
     // ── 한도 ──────────────────────────────────────────────────────────────
-    // 429 — 동시 진행 실행 3건 초과. 메시지가 빠져나갈 길을 알려준다.
+    // 429 — 내 동시 진행 실행이 한도(agent.run.max-active-per-user)를 넘음.
+    //       내가 정리하면 풀리는 상황이라 빠져나갈 길을 알려준다.
     TOO_MANY_RUNS(HttpStatus.TOO_MANY_REQUESTS, "AGENT_018",
             "진행 중인 작업이 너무 많습니다. 홈의 '확인이 필요한 요청'을 먼저 정리해 주세요."),
 
@@ -146,7 +147,13 @@ public enum AgentErrorCode implements ErrorCode {
     // 400 — 회의록 초안 생성에 올린 파일이 읽히기는 했으나 알맹이가 없다(공백·개행뿐).
     // AGENT_032와 나눈 이유는 사용자가 할 일이 다르기 때문이다. 저쪽은 "다른 인코딩으로 저장해
     // 다시 올려라"지만, 이쪽은 파일 형식이 아니라 내용이 없는 것이라 바꿔 올릴 파일이 따로 있다.
-    TRANSCRIPT_EMPTY(HttpStatus.BAD_REQUEST, "AGENT_033", "회의 기록이 비어 있습니다.");
+    TRANSCRIPT_EMPTY(HttpStatus.BAD_REQUEST, "AGENT_033", "회의 기록이 비어 있습니다."),
+
+    // 429 — 서버 전체의 동시 실행이 한도(agent.run.max-active-total)를 넘음.
+    // AGENT_018과 나눈 이유는 사용자가 할 일이 다르기 때문이다. 저쪽은 내 작업을 정리하면 풀리지만
+    // 이쪽은 남들이 끝나기를 기다리는 수밖에 없다.
+    SERVER_BUSY(HttpStatus.TOO_MANY_REQUESTS, "AGENT_034",
+            "지금은 처리 중인 작업이 많습니다. 잠시 후 다시 시도해 주세요.");
 
     private final HttpStatus status;
     private final String errorCode;
