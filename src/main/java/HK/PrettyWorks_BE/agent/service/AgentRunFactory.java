@@ -15,6 +15,7 @@ import HK.PrettyWorks_BE.agent.repository.AgentMessageRepository;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -26,7 +27,13 @@ import java.util.UUID;
 @Service
 @RequiredArgsConstructor
 public class AgentRunFactory {
-    private static final long MAX_ACTIVE_RUNS_PER_USER = 3;
+
+    // 한 사람이 한도를 안 넘어도 여럿이 겹치면 FastAPI·LLM 쪽이 먼저 무너져 총량도 함께 막습니다.
+    @Value("${agent.run.max-active-per-user}")
+    private long maxActiveRunsPerUser;
+
+    @Value("${agent.run.max-active-total}")
+    private long maxActiveRunsTotal;
 
     private final CurrentUserService currentUserService;
     private final AgentConversationRepository conversationRepository;
@@ -67,8 +74,12 @@ public class AgentRunFactory {
             throw BaseException.type(AgentErrorCode.RUN_IN_PROGRESS);
         }
         if (runRepository.countByUserIdAndStatusIn(userId, AgentRunStatus.activeStatuses())
-                >= MAX_ACTIVE_RUNS_PER_USER) {
+                >= maxActiveRunsPerUser) {
             throw BaseException.type(AgentErrorCode.TOO_MANY_RUNS);
+        }
+        if (runRepository.countByStatusIn(AgentRunStatus.activeStatuses())
+                >= maxActiveRunsTotal) {
+            throw BaseException.type(AgentErrorCode.SERVER_BUSY);
         }
 
         AgentRunEntity run = runRepository.save(AgentRunEntity.builder()

@@ -21,6 +21,9 @@ public interface AgentRunRepository extends JpaRepository<AgentRunEntity, Long> 
 
     boolean existsByConversationIdAndStatusIn(Long conversationId, Collection<AgentRunStatus> statuses);
     long countByUserIdAndStatusIn(Long userId, Collection<AgentRunStatus> statuses);
+
+    // 서버 전체의 동시 실행 수. 한 사람이 한도를 안 넘어도 여럿이 겹치면 FastAPI·LLM 쪽이 먼저 무너진다.
+    long countByStatusIn(Collection<AgentRunStatus> statuses);
     List<AgentRunEntity> findByConversationIdAndStatusIn(
             Long conversationId, Collection<AgentRunStatus> statuses);
 

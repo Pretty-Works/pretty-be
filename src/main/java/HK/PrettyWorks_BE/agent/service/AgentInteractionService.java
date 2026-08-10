@@ -10,6 +10,7 @@ import HK.PrettyWorks_BE.agent.exception.AgentErrorCode;
 import HK.PrettyWorks_BE.agent.repository.AgentInteractionRepository;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.transaction.PlatformTransactionManager;
@@ -22,8 +23,12 @@ import java.nio.charset.StandardCharsets;
 
 @Service
 public class AgentInteractionService {
-    private static final long INTERACTION_TTL_MINUTES = 30;
     private static final String ALWAYS_ID = "ALWAYS";
+
+    // 답을 기다리는 시간. 이 시간을 넘기면 실행도 EXPIRED로 함께 닫힌다.
+    // 실행 수명(agent.run.max-duration-minutes)보다 짧아야 한다 — 길게 두면 실행이 먼저 죽어
+    // 답할 수 없는 카드만 남는다.
+    private final long interactionTtlMinutes;
 
     private final AgentInteractionRepository interactionRepository;
     private final ParamsCanonicalizer canonicalizer;
@@ -35,12 +40,14 @@ public class AgentInteractionService {
                                    ParamsCanonicalizer canonicalizer,
                                    ApprovalPreviewRegistry previewRegistry,
                                    ObjectMapper objectMapper,
-                                   PlatformTransactionManager transactionManager) {
+                                   PlatformTransactionManager transactionManager,
+                                   @Value("${agent.interaction.ttl-minutes}") long interactionTtlMinutes) {
         this.interactionRepository = interactionRepository;
         this.canonicalizer = canonicalizer;
         this.previewRegistry = previewRegistry;
         this.objectMapper = objectMapper;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.interactionTtlMinutes = interactionTtlMinutes;
     }
 
     public AgentInteractionEntity createApproval(Long internalRunId, String toolCallId,
@@ -83,7 +90,7 @@ public class AgentInteractionService {
                             .paramsCanonical(canonical.value())
                             .paramsHash(canonical.hash())
                             .autoApproved(autoApproved)
-                            .expiresAt(now.plusMinutes(INTERACTION_TTL_MINUTES))
+                            .expiresAt(now.plusMinutes(interactionTtlMinutes))
                             .resolvedAt(now)
                             .build());
                     }));
@@ -110,7 +117,7 @@ public class AgentInteractionService {
                     .payloadJson(payloadJson)
                     .questionText(questionText)
                     .autoApproved(false)
-                    .expiresAt(now.plusMinutes(INTERACTION_TTL_MINUTES))
+                    .expiresAt(now.plusMinutes(interactionTtlMinutes))
                     .build());
         });
     }
