@@ -23,12 +23,12 @@ public class NotificationController implements NotificationApi {
 
     @Override
     @GetMapping("/api/v1/notifications")
-    public ResponseEntity<CursorResponse<NotificationResponse>> getNotifications(
+    public ResponseEntity<CursorResponse<NotificationResponse, Long>> getNotifications(
             @AuthenticationPrincipal Long userId,
             @RequestParam(required = false) Long cursor,
             @RequestParam(defaultValue = "20") int size
     ) {
-        CursorResponse<NotificationResponse> response =
+        CursorResponse<NotificationResponse, Long> response =
                 notificationService.getNotifications(userId, cursor, size);
 
         return ResponseEntity.ok(response);

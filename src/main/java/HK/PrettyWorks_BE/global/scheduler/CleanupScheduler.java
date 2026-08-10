@@ -1,8 +1,8 @@
 package HK.PrettyWorks_BE.global.scheduler;
 
-import HK.PrettyWorks_BE.agent.constant.AgentRunStatus;
-import HK.PrettyWorks_BE.agent.repository.AgentEventRepository;
-import HK.PrettyWorks_BE.agent.repository.AgentRunRepository;
+import HK.PrettyWorks_BE.agent.execution.domain.AgentRunStatus;
+import HK.PrettyWorks_BE.agent.execution.persistence.AgentEventRepository;
+import HK.PrettyWorks_BE.agent.execution.persistence.AgentRunRepository;
 import HK.PrettyWorks_BE.auth.repository.RefreshTokenRepository;
 import HK.PrettyWorks_BE.idempotency.repository.IdempotencyKeyRepository;
 import HK.PrettyWorks_BE.notification.repository.NotificationRepository;
