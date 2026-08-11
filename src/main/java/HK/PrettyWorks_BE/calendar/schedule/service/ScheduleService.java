@@ -20,6 +20,9 @@ import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleParticipantReposit
 import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleRepository;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
+import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationType;
+import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.exception.UserErrorCode;
 import HK.PrettyWorks_BE.user.policy.UserPolicy;
@@ -33,6 +36,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.time.LocalDate;
 import java.time.LocalDateTime;
+import java.time.format.DateTimeFormatter;
 import java.util.ArrayList;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
@@ -53,6 +57,10 @@ public class ScheduleService {
     private final IdempotencyService idempotencyService;
     private final CurrentUserService currentUserService;
     private final UserService userService;
+    private final NotificationPublisher notificationPublisher;
+
+    private static final DateTimeFormatter NOTIFICATION_DATE = DateTimeFormatter.ofPattern("yyyy-MM-dd");
+    private static final DateTimeFormatter NOTIFICATION_DATE_TIME = DateTimeFormatter.ofPattern("yyyy-MM-dd HH:mm");
 
     // ================================= 공개 API =================================
 
@@ -204,12 +212,30 @@ public class ScheduleService {
             throw BaseException.type(ScheduleErrorCode.INVALID_PERIOD);
         }
 
+        // 3-3) 시간 변경 여부는 갱신 '전에' 판정한다. schedule.update 이후엔 이전 값을 알 수 없다.
+        boolean timeChanged = !startAt.equals(schedule.getStartAt()) || !endAt.equals(schedule.getEndAt());
+
         // 4) 일정 필드 갱신 — 더티 체킹으로 커밋 시 UPDATE (save 불필요)
         schedule.update(title, startAt, endAt, allDay, type);
 
-        // 5) 참가자 교체(diff) — participantUserIds가 '전달된 경우에만'. null이면 기존 참가자 그대로 유지.
-        if (request.participantUserIds() != null) {
-            syncParticipants(scheduleId, userId, request.participantUserIds());
+        // 5) 참가자 교체(diff) — participantUserIds가 '전달된 경우에만'. null이면 기존 참가자 그대로 유지(빈 diff).
+        ParticipantDiff diff = syncParticipants(scheduleId, userId, request.participantUserIds());
+        notificationPublisher.publish(NotificationType.SCHEDULE_PARTICIPANT_ADDED,
+                diff.added(), userId, NotificationTargetType.SCHEDULE, scheduleId, title);
+        notificationPublisher.publish(NotificationType.SCHEDULE_PARTICIPANT_REMOVED,
+                diff.removed(), userId, NotificationTargetType.SCHEDULE, scheduleId, title);
+
+        // 5-1) 시간이 바뀌었으면 남아 있는 참가자에게 알린다.
+        //      방금 추가된 사람은 제외 — 추가 알림에서 이미 현재 시간을 보게 되므로 두 번 받을 이유가 없다.
+        if (timeChanged) {
+            List<Long> timeChangeRecipients = scheduleParticipantRepository
+                    .findByScheduleIdInAndLeftAtIsNull(List.of(scheduleId)).stream()
+                    .map(ScheduleParticipantEntity::getUserId)
+                    .filter(id -> !diff.added().contains(id))
+                    .toList();
+            notificationPublisher.publish(NotificationType.SCHEDULE_TIME_CHANGED,
+                    timeChangeRecipients, userId, NotificationTargetType.SCHEDULE, scheduleId,
+                    title, formatWhen(startAt, allDay), formatWhen(endAt, allDay));
         }
 
         // 6) 병합된 최종값을 반환. 부분 수정이라 요청만으로는 최종 상태를 알 수 없다.
@@ -310,7 +336,14 @@ public class ScheduleService {
         participants.addAll(toParticipantEntities(schedule.getId(), participantIds));
         scheduleParticipantRepository.saveAll(participants);
 
-        // 6) 생성된 일정 id 반환
+        // 6) 참가자에게 추가 알림. 수정으로 추가하든 생성 때 넣든 당사자에겐 같은 일이라 문구도 같다.
+        //    멱등 재시도는 저장을 건너뛰고 첫 응답을 재생하므로 이 안에 둔다 — 바깥이면 일정은 하나인데 알림만 여러 번 나간다.
+        //    participantIds는 resolveValidParticipantIds가 작성자를 이미 빼둔 목록이다.
+        notificationPublisher.publish(NotificationType.SCHEDULE_PARTICIPANT_ADDED,
+                participantIds, writerId, NotificationTargetType.SCHEDULE, schedule.getId(),
+                schedule.getTitle());
+
+        // 7) 생성된 일정 id 반환
         return schedule.getId();
     }
 
@@ -376,7 +409,14 @@ public class ScheduleService {
 
     // 참가자 목록 동기화(diff) — 요청 목록을 최종 상태로 맞춘다. project 도메인 updateParticipants와 동일 패턴.
     // 신규 insert / 나갔던 사람 재활성화 / 빠진 활성 참가자 soft-delete. 안 바뀐 행은 손대지 않아 left_at 이력을 보존한다.
-    private void syncParticipants(Long scheduleId, Long ownerId, List<Long> requestedRawIds) {
+    // 참가 여부가 실제로 바뀐 사람만 돌려준다 — 알림은 그 사람들에게만 나가야 한다.
+    private ParticipantDiff syncParticipants(Long scheduleId, Long ownerId, List<Long> requestedRawIds) {
+        // 0) 참가자 목록이 전달되지 않았으면(null) 기존 참가자를 그대로 둔다 — 바뀐 사람이 없으니 빈 diff.
+        //    resolveValidParticipantIds는 null을 '빈 목록'으로 보므로, 그 앞에서 갈라야 전원 제외를 막는다.
+        if (requestedRawIds == null) {
+            return new ParticipantDiff(Set.of(), Set.of());
+        }
+
         // 1) 유효한 요청 참가자 정리·검증(작성자 제외·중복 제거 + 존재/재직)
         Set<Long> requestedIds = resolveValidParticipantIds(ownerId, requestedRawIds);
 
@@ -388,13 +428,17 @@ public class ScheduleService {
         }
 
         // 3) 요청에 있는 사람: 없으면 신규 insert / 나갔던(left_at) 사람이면 재활성화 / 활성이면 그대로 둔다.
+        //    신규·재활성화 둘 다 당사자에겐 '추가'라 added로 함께 모은다. 이미 활성인 사람은 바뀐 게 없다.
         Set<Long> toInsert = new LinkedHashSet<>();
+        Set<Long> added = new LinkedHashSet<>();
         for (Long reqId : requestedIds) {
             ScheduleParticipantEntity existing = current.get(reqId);
             if (existing == null) {
                 toInsert.add(reqId);
+                added.add(reqId);
             } else if (!existing.isActive()) {
                 existing.reactivate();
+                added.add(reqId);
             }
         }
         if (!toInsert.isEmpty()) {
@@ -402,11 +446,27 @@ public class ScheduleService {
         }
 
         // 4) 요청에서 빠진 '활성' 참가자: soft-delete(left_at). 이미 나간 사람은 그대로 둔다.
+        Set<Long> removed = new LinkedHashSet<>();
         for (ScheduleParticipantEntity p : current.values()) {
             if (p.isActive() && !requestedIds.contains(p.getUserId())) {
                 p.leave();
+                removed.add(p.getUserId());
             }
         }
         // 기존 엔티티(reactivate/leave)는 영속 상태라 커밋 시 dirty checking으로 자동 UPDATE.
+
+        return new ParticipantDiff(added, removed);
+    }
+
+    // 참가 여부가 바뀐 사람들. 알림 수신자를 고르는 데만 쓴다.
+    private record ParticipantDiff(Set<Long> added, Set<Long> removed) {
+    }
+
+    // --- 알림 ---
+
+    // 알림 문구용 시각 표기. LocalDateTime을 그대로 넘기면 "2026-08-11T14:00"처럼 ISO 형식이 문구에 박힌다.
+    // 종일 일정은 시각(00:00~23:59)이 의미 없어 날짜만 보여준다.
+    private String formatWhen(LocalDateTime at, boolean allDay) {
+        return allDay ? at.format(NOTIFICATION_DATE) : at.format(NOTIFICATION_DATE_TIME);
     }
 }

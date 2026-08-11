@@ -3,6 +3,9 @@ package HK.PrettyWorks_BE.project.post.service;
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
+import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationType;
+import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
 import HK.PrettyWorks_BE.project.post.constant.PostPriority;
 import HK.PrettyWorks_BE.project.post.domain.PostEntity;
@@ -43,6 +46,7 @@ public class PostService {
     private final UserRepository userRepository;
     private final IdempotencyService idempotencyService;
     private final CurrentUserService currentUserService;
+    private final NotificationPublisher notificationPublisher;
 
     // 멱등 처리 진입점
     // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않음
@@ -87,7 +91,16 @@ public class PostService {
                 .content(request.content())
                 .build();
 
-        return postRepository.save(post).getId();
+        postRepository.save(post);
+
+        // HIGH 우선순위 게시글만 프로젝트 멤버 전원에게 알림(전체 발행하면 스팸이라 팀 결정으로 제한).
+        if (post.getPriority() == PostPriority.HIGH) {
+            notificationPublisher.publish(NotificationType.POST_CREATED,
+                    projectMemberService.getActiveMemberIds(projectId), authorId, NotificationTargetType.PROJECT, projectId,
+                    project.getName(), post.getTitle());
+        }
+
+        return post.getId();
     }
 
     // 게시글 목록 조회
@@ -173,6 +186,13 @@ public class PostService {
         }
 
         post.update(request.title(), request.priority(), request.content());
+
+        // HIGH 우선순위 게시글만 프로젝트 멤버 전원에게 알림(생성과 동일 기준 — 스팸 방지).
+        if (post.getPriority() == PostPriority.HIGH) {
+            notificationPublisher.publish(NotificationType.POST_UPDATED,
+                    projectMemberService.getActiveMemberIds(projectId), userId, NotificationTargetType.PROJECT, projectId,
+                    post.getTitle());
+        }
 
         return toDetailResponse(post);
     }
