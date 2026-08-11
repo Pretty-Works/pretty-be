@@ -3,6 +3,9 @@ package HK.PrettyWorks_BE.project.meeting.service;
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
+import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationType;
+import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.meeting.constant.MeetingRole;
 import HK.PrettyWorks_BE.project.meeting.domain.MeetingAttendeeEntity;
 import HK.PrettyWorks_BE.project.meeting.domain.MeetingEntity;
@@ -47,6 +50,7 @@ public class MeetingService {
     private final ProjectMemberService projectMemberService;
     private final IdempotencyService idempotencyService;
     private final CurrentUserService currentUserService;
+    private final NotificationPublisher notificationPublisher;
 
     // 멱등 처리 진입점
     // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않음
@@ -116,6 +120,11 @@ public class MeetingService {
 
         // 작성자 + 참석자 저장
         saveAttendees(savedMeeting.getId(), authorId, request.attendeeIds());
+
+        // 참석자 전원에게 알림. 작성자 본인은 NotificationPublisher가 걸러낸다.
+        notificationPublisher.publish(NotificationType.MEETING_CREATED,
+                request.attendeeIds(), authorId, NotificationTargetType.PROJECT, projectId,
+                project.getName(), savedMeeting.getTitle());
 
         return savedMeeting.getId();
     }
@@ -257,6 +266,14 @@ public class MeetingService {
 
         // 작성자/참석자 다시 저장
         saveAttendees(meetingId, meeting.getAuthorId(), request.attendeeIds());
+
+        // 작성자 + 참석자 전원에게 알림. 참석자가 수정했으면 작성자도 받아야 하므로 둘 다 후보에 넣는다.
+        // 행위자 본인은 NotificationPublisher가 걸러낸다.
+        List<Long> recipients = new ArrayList<>(request.attendeeIds());
+        recipients.add(meeting.getAuthorId());
+        notificationPublisher.publish(NotificationType.MEETING_UPDATED,
+                recipients, userId, NotificationTargetType.PROJECT, projectId,
+                meeting.getTitle());
 
         // 수정된 최신 상세를 반환
         return toDetailResponse(meeting);
