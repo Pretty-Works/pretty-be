@@ -1,5 +1,6 @@
 package HK.PrettyWorks_BE.project.meeting.repository;
 
+import HK.PrettyWorks_BE.project.meeting.constant.MeetingRole;
 import HK.PrettyWorks_BE.project.meeting.domain.MeetingAttendeeEntity;
 import org.springframework.data.jpa.repository.JpaRepository;
 
@@ -15,6 +16,6 @@ public interface MeetingAttendeeRepository extends JpaRepository<MeetingAttendee
     // 특정 사용자가 이 회의록 참석자인지 (수정 권한 판정용)
     boolean existsByMeetingIdAndUserId(Long meetingId, Long userId);
 
-    // 회의록 참석자 전체 삭제 (수정 시 명단 교체)
-    void deleteByMeetingId(Long meetingId);
+    // 역할별 참석자 조회. 수정 시 명단 diff에서 ATTENDEE 행만 대상으로 삼는다 (WRITER 행은 건드리지 않는다).
+    List<MeetingAttendeeEntity> findByMeetingIdAndRole(Long meetingId, MeetingRole role);
 }

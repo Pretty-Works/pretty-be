@@ -7,6 +7,7 @@ import jakarta.validation.ConstraintViolation;
 import jakarta.validation.ConstraintViolationException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.context.MessageSourceResolvable;
 import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.orm.ObjectOptimisticLockingFailureException;
 import org.springframework.http.ResponseEntity;
@@ -19,6 +20,7 @@ import org.springframework.web.bind.MethodArgumentNotValidException;
 import org.springframework.web.bind.MissingRequestHeaderException;
 import org.springframework.web.bind.annotation.ExceptionHandler;
 import org.springframework.web.bind.annotation.RestControllerAdvice;
+import org.springframework.web.method.annotation.HandlerMethodValidationException;
 import org.springframework.web.method.annotation.MethodArgumentTypeMismatchException;
 import org.springframework.web.multipart.MaxUploadSizeExceededException;
 import org.springframework.web.multipart.support.MissingServletRequestPartException;
@@ -184,6 +186,27 @@ public class GlobalExceptionHandler {
                 .findFirst()
                 .map(ConstraintViolation::getMessage)
                 .orElse(GlobalErrorCode.VALIDATION_ERROR.getMessage());
+
+        return convert(GlobalErrorCode.VALIDATION_ERROR, errorMessage);
+    }
+
+    /**
+     * 컨트롤러 메서드 파라미터 유효성 검사 실패 전용 ExceptionHandler (Spring 6.1+ 내장 메서드 검증)
+     * 파라미터 제약(@Size 등)이 있는 메서드는 @RequestBody의 @Valid 실패도
+     * MethodArgumentNotValidException 대신 이 예외로 들어오므로 함께 400으로 변환해야 합니다.
+     */
+    @ExceptionHandler(HandlerMethodValidationException.class)
+    public ResponseEntity<CustomErrorResponse> handleHandlerMethodValidation(HandlerMethodValidationException e) {
+        List<String> messages = e.getAllErrors().stream()
+                .map(MessageSourceResolvable::getDefaultMessage)
+                .toList();
+
+        String errorMessage = messages.size() == 1
+                ? messages.get(0)
+                : String.join("\n", messages);
+        if (messages.isEmpty()) {
+            errorMessage = GlobalErrorCode.VALIDATION_ERROR.getMessage();
+        }
 
         return convert(GlobalErrorCode.VALIDATION_ERROR, errorMessage);
     }
