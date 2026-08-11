@@ -54,7 +54,8 @@ INSERT INTO users (employee_no, password_hash, name, email, phone_number, birth_
 ('DT22-0013', @PWHASH, '조민석', 'minseok.jo@daontech.co.kr', '010-4013-0925', '1979-09-25', 'MALE', 'FINANCE', 'TEAM_LEADER', 'ACTIVE', '2022-03-02', '2022-03-02 00:00:00', '2022-03-02 00:00:00'),
 ('DT22-0034', @PWHASH, '윤소정', 'sojeong.yun@daontech.co.kr', '010-4034-0319', '1988-03-19', 'FEMALE', 'FINANCE', 'PART_LEADER', 'ACTIVE', '2022-03-02', '2022-03-02 00:00:00', '2022-03-02 00:00:00'),
 ('DT22-0035', @PWHASH, '하은채', 'eunchae.ha@daontech.co.kr', '010-4035-1105', '1993-11-05', 'FEMALE', 'FINANCE', 'SENIOR', 'ACTIVE', '2022-03-02', '2022-03-02 00:00:00', '2022-03-02 00:00:00'),
-('DT23-0007', @PWHASH, '민지수', 'jisu.min@daontech.co.kr', '010-4007-0821', '1995-08-21', 'FEMALE', 'FINANCE', 'SENIOR', 'ACTIVE', '2023-09-01', '2023-09-01 00:00:00', '2023-09-01 00:00:00'),
+('' ||
+ '', @PWHASH, '민지수', 'jisu.min@daontech.co.kr', '010-4007-0821', '1995-08-21', 'FEMALE', 'FINANCE', 'SENIOR', 'ACTIVE', '2023-09-01', '2023-09-01 00:00:00', '2023-09-01 00:00:00'),
 ('DT22-0037', @PWHASH, '오수빈', 'subin.oh@daontech.co.kr', '010-4037-0530', '1985-05-30', 'FEMALE', 'FINANCE', 'PART_LEADER', 'ACTIVE', '2022-03-02', '2022-03-02 00:00:00', '2022-03-02 00:00:00'),
 ('DT22-0038', @PWHASH, '임소연', 'soyeon.im@daontech.co.kr', '010-4038-0122', '1994-01-22', 'FEMALE', 'FINANCE', 'SENIOR', 'ACTIVE', '2022-03-02', '2022-03-02 00:00:00', '2022-03-02 00:00:00'),
 ('DT23-0008', @PWHASH, '곽서윤', 'seoyun.gwak@daontech.co.kr', '010-4008-0908', '1996-09-08', 'FEMALE', 'FINANCE', 'SENIOR', 'ACTIVE', '2023-04-16', '2023-04-16 00:00:00', '2023-04-16 00:00:00'),
