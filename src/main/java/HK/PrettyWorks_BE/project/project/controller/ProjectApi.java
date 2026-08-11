@@ -1,7 +1,7 @@
 package HK.PrettyWorks_BE.project.project.controller;
 
 import HK.PrettyWorks_BE.global.base.PageResponse;
-import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberSearchResponse;
+import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberResponse;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectRequest;
 import HK.PrettyWorks_BE.project.project.dto.req.ProjectStatusRequest;
 import HK.PrettyWorks_BE.project.project.dto.res.ProjectDetailResponse;
@@ -38,7 +38,7 @@ public interface ProjectApi {
                     호출자 본인이 퇴사자여도 같은 코드로 차단됩니다.
                     [milestones] targetDate와 goal이 **둘 다** 있어야 합니다(PROJECT_016).
                     milestoneId를 실어 보내도 무시됩니다 — 새 프로젝트라 전부 신규입니다.
-                    [role] 참여자의 role을 "PM"으로 주면 오너가 아니어도 이 프로젝트를 수정할 수 있습니다.
+                    [role] 직무 표시용 문자열입니다. 권한과 무관합니다 — 수정 권한은 오너이거나 부서가 PM인 경우입니다.
 
                     Idempotency-Key 헤더에 UUID를 담아 보내면 연타·재시도해도 프로젝트가 두 개 생기지 않습니다.
                     """
@@ -83,6 +83,10 @@ public interface ProjectApi {
 
                     [owner] 오너는 members와 분리해 내려주며 members에는 포함되지 않습니다.
                     [members] 참여중인 참여자만. 프로젝트를 떠난 사람은 나오지 않습니다.
+                    [owner·members[].department·position] 참여자 카드를 "이름 · 부서"로 표시할 때 씁니다.
+                    사용자 검색(`GET /users/search`)과 **같은 코드 값**이라, 기존 참여자와 방금 검색해 추가한
+                    참여자를 같은 방식으로 그리면 됩니다. 한글 라벨 변환은 화면이 담당합니다.
+                    [members[].role] 프로젝트 내 직무 역할(자유 문자열)입니다. 회사 직급인 position과 다릅니다.
                     [milestones[].milestoneId] **영구 식별자입니다.** 수정(PUT) 요청에 그대로 실어 보내야 완료 상태가 보존됩니다.
                     [milestones[].done] 완료 여부. 사용자가 완료된 마일스톤을 지우려 할 때 확인을 띄우는 데 쓰세요.
                     [budget] 원 단위 정수. 0은 '예산 제한 없음'.
@@ -105,31 +109,43 @@ public interface ProjectApi {
     ResponseEntity<ProjectDetailResponse> getDetail(Long userId, Long projectId);
 
     @Operation(
-            summary = "프로젝트 멤버 이름 자동완성 검색",
+            summary = "프로젝트 참여자 조회",
             description = """
-                    회의 참석자·할 일 담당자 등 프로젝트 하위 기능의 사용자 선택 드롭다운에 사용합니다.
-                    호출자가 해당 프로젝트의 참여중 멤버여야 하며, 프로젝트에 참여중인 재직자(ACTIVE)만
-                    이름 일부로 검색합니다. 로그인한 사용자 본인과 프로젝트를 떠난 멤버·휴직자·퇴사자는 제외합니다.
-                    검색어는 최대 20자이며 한글·영문과 단어 사이 공백만 사용할 수 있습니다.
+                    참여중인 재직자를 반환합니다. **참여자 명단 표시와 사용자 선택 자동완성이 같은 API**를 씁니다.
+                    호출자가 해당 프로젝트의 참여중 멤버여야 합니다(MEMBER_001).
+
+                    [명단 용도] 파라미터 없이 호출하세요. 회의 참석자 선택, 할 일 담당자 목록 등에 씁니다.
+                    [자동완성 용도] `keyword`로 이름 일부를 넘기고 `excludeSelf=true`를 붙이세요.
+                    이미 참여 중인 본인이 "참여자 추가" 후보로 뜨는 것을 막습니다.
+
+                    [정렬] 오너가 항상 맨 앞, 그 뒤는 이름순입니다. 서버 고정입니다.
+                    [범위] 휴직자(ON_LEAVE)는 포함하고 프로젝트를 떠난 멤버·퇴사자는 제외합니다.
+                    사내 사용자 검색(`GET /users/search`)과 재직 기준이 같습니다.
+                    [status] 재직 상태입니다. 휴직자를 화면에 표시할 때 쓰세요.
+                    [role] 프로젝트 내 직무 역할(자유 문자열)입니다. 회사 직급인 position과 다릅니다.
+                    [isOwner] 오너 여부. 명단에서 오너 배지를 붙일 때 씁니다.
+
+                    keyword는 최대 20자이며 한글·영문과 단어 사이 공백만 사용할 수 있습니다.
                     """
     )
     @ApiResponses({
-            @ApiResponse(responseCode = "200", description = "검색 성공 (검색 결과가 없으면 빈 배열)"),
-            @ApiResponse(responseCode = "400", description = "검색어·limit 범위 위반 또는 퇴사한 사용자의 요청(USER_003)"),
+            @ApiResponse(responseCode = "200", description = "조회 성공 (결과가 없으면 빈 배열)"),
+            @ApiResponse(responseCode = "400", description = "keyword·size 범위 위반 또는 퇴사한 사용자의 요청(USER_003)"),
             @ApiResponse(responseCode = "403", description = "해당 프로젝트의 참여중 멤버가 아님(MEMBER_001)"),
             @ApiResponse(responseCode = "404", description = "프로젝트를 찾을 수 없음(PROJECT_004)")
     })
-    ResponseEntity<List<ProjectMemberSearchResponse>> searchMembers(
+    ResponseEntity<List<ProjectMemberResponse>> getMembers(
             Long requesterId,
             Long projectId,
-            @Parameter(description = "이름 부분 검색어", example = "하늘") String keyword,
-            @Parameter(description = "최대 검색 결과 수 (1~20)", example = "10") int limit
+            @Parameter(description = "이름 부분 검색어. 비우면 전체", example = "하늘") String keyword,
+            @Parameter(description = "요청자 본인 제외 여부. 자동완성은 true", example = "false") boolean excludeSelf,
+            @Parameter(description = "최대 조회 수 (1~100)", example = "50") int size
     );
 
     @Operation(
             summary = "프로젝트 수정",
             description = """
-                    오너 또는 역할이 "PM"인 참여자만 수정할 수 있습니다. 완료·보관된 프로젝트는 수정할 수 없습니다(PROJECT_020).
+                    오너 또는 부서가 PM인 참여자만 수정할 수 있습니다. 완료·보관된 프로젝트는 수정할 수 없습니다(PROJECT_020).
 
                     ⚠️ **전체 상태를 보냅니다(PUT).** members·milestones에서 빠진 항목은 삭제(참여자는 탈퇴 처리)되므로,
                     변경분만 보내면 나머지가 모두 사라집니다.
@@ -166,7 +182,7 @@ public interface ProjectApi {
     @Operation(
             summary = "프로젝트 상태 변경",
             description = """
-                    진행 상태만 변경합니다. 오너 또는 역할이 "PM"인 참여자만 가능합니다(PROJECT_017).
+                    진행 상태만 변경합니다. 오너 또는 부서가 PM인 참여자만 가능합니다(PROJECT_017).
 
                     [status] ONGOING 진행중 / HOLDING 보류 / COMPLETED 완료 / DROPPED 중단 / ARCHIVED 보관(소프트 삭제)
 

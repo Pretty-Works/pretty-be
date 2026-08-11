@@ -14,9 +14,6 @@ import java.time.LocalDate;
 // 규칙이 바뀌면 이 클래스만 수정하면 되고, 서비스는 흐름(오케스트레이션)에만 집중합니다.
 public final class ProjectPolicy {
 
-    // 프로젝트 내 직무 역할 중 수정 권한을 가지는 값 (role은 자유 문자열이라 문자열로 비교).
-    private static final String ROLE_PM = "PM";
-
     private ProjectPolicy() {
     }
 
@@ -26,20 +23,16 @@ public final class ProjectPolicy {
                 || user.getDepartment() == DepartmentType.PM;
     }
 
-    // 수정 권한: 회사 직급과 무관하게 "그 프로젝트 안에서의 지위"로 판정합니다.
-    // 대상 프로젝트의 오너(is_owner=true)이거나, 프로젝트 내 직무 역할이 PM인 참여자만 수정할 수 있습니다.
-    // callerMembership: 호출자의 해당 프로젝트 멤버십 행 (DB 조회는 서비스가 담당, 여기선 판정만).
-    public static boolean canUpdate(ProjectMemberEntity callerMembership) {
+    // 수정 권한: 오너이거나 부서가 PM. role은 표시 전용이라 판정에 쓰지 않습니다.
+    // 참여중(ACTIVE) 여부는 호출부의 멤버십 조회가 이미 걸러냅니다.
+    public static boolean canUpdate(ProjectMemberEntity callerMembership, UserEntity caller) {
         return callerMembership.isOwner()
-                || ROLE_PM.equals(callerMembership.getRole());
+                || caller.getDepartment() == DepartmentType.PM;
     }
 
-    // 상태 변경 권한: 수정 권한과 동일하게 오너이거나 프로젝트 내 역할이 PM인 참여자만 변경할 수 있습니다.
-    // 오너 단독으로 두면 오너가 퇴사했을 때 아무도 완료·보관 처리를 못 해 프로젝트가 영구히 묶이므로 PM을 대체자로 둡니다.
-    public static boolean canChangeStatus(ProjectMemberEntity callerMembership) {
-        return callerMembership.isOwner()
-                || ROLE_PM.equals(callerMembership.getRole());
-    }
+    // 상태 변경도 canUpdate를 그대로 씁니다. 전용 메서드를 따로 두었더니 본문이 같은데도
+    // 규칙이 다른 것처럼 읽혀, 실제로 "상태 변경은 오너만"이라는 오해가 주석과 문서에 남았습니다.
+    // 오너 단독으로 두지 않는 이유: 오너가 퇴사하면 아무도 완료·보관 처리를 못 해 프로젝트가 영구히 묶입니다.
 
     // 날짜가 프로젝트 기간(startDate ~ targetDate) 안인지 판정합니다. 양끝(시작일·목표일 당일) 포함.
     // 할 일 마감일·회의 일자·지출 사용일 등 "프로젝트 소속 날짜"의 공통 검증 규칙입니다.
@@ -55,7 +48,12 @@ public final class ProjectPolicy {
     // 프로젝트가 콘텐츠(회의록·게시글 등) 추가/수정을 받을 수 있는 상태인지 확인합니다.
     // 완료·보관이면 닫힌 것으로 봅니다.
     public static boolean isOpenForContent(ProjectEntity project) {
-        ProjectStatus status = project.getStatus();
+        return isOpenForContent(project.getStatus());
+    }
+
+    // 상태 값만 가진 쪽(조회 응답으로 받은 경우)을 위한 형태. 엔티티를 다시 읽지 않으려고 둡니다.
+    // 판정 규칙은 위 메서드와 같아야 하므로 한 곳에 둡니다.
+    public static boolean isOpenForContent(ProjectStatus status) {
         return status != ProjectStatus.COMPLETED && status != ProjectStatus.ARCHIVED;
     }
 

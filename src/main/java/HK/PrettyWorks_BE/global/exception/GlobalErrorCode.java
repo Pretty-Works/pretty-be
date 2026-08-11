@@ -48,6 +48,12 @@ public enum GlobalErrorCode implements ErrorCode{
     IDEMPOTENCY_KEY_CONFLICT(HttpStatus.CONFLICT, "REQUEST_028", "동일한 요청 키로 다른 내용의 요청이 접수되었습니다."),
     CONCURRENT_MODIFICATION(HttpStatus.CONFLICT, "REQUEST_029", "다른 사용자가 먼저 수정했습니다. 최신 내용을 다시 불러온 뒤 시도해 주세요."),
 
+    // 세션이 끊긴 이유. 전부 REFRESH_TOKEN_MISMATCH로 묶으면 화면이 "왜 튕겼는지"를 알려줄 수 없다.
+    // 폐기 사유(RevokeReason)는 이미 refresh_tokens 행에 남아 있어 그대로 옮겨 준다.
+    SESSION_EVICTED(HttpStatus.UNAUTHORIZED, "REQUEST_030", "다른 기기에서 로그인하여 이 기기의 세션이 종료되었습니다."),
+    SESSION_REVOKED_FOR_SECURITY(HttpStatus.UNAUTHORIZED, "REQUEST_031", "보안을 위해 세션이 종료되었습니다."),
+    SESSION_NOT_EMPLOYED(HttpStatus.UNAUTHORIZED, "REQUEST_032", "재직 상태가 아니어서 세션이 종료되었습니다."),
+
 
     /**
      * 500 : 응답 실패

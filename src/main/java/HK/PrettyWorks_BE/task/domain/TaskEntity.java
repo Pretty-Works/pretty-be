@@ -25,9 +25,14 @@ public class TaskEntity extends BaseTimeEntity {
     @Column(name = "project_id")
     private Long projectId;
 
-    // 담당자 (현재는 작성자 본인). FK는 raw Long 컬럼으로 유지(기존 컨벤션).
+    // 담당자 — 이 할 일을 실제로 하는 사람. FK는 raw Long 컬럼으로 유지(기존 컨벤션).
     @Column(name = "assignee_id", nullable = false)
     private Long assigneeId;
+
+    // 작성자 — 이 할 일을 만든 사람. 오너·PM이 팀원에게 배정하면 담당자와 달라진다.
+    // 권한이 갈린다: 완료 토글은 담당자만, 삭제는 작성자만, 수정은 둘 다(TaskPolicy).
+    @Column(name = "creator_id", nullable = false)
+    private Long creatorId;
 
     @Column(name = "content", nullable = false, length = 100)
     private String content;
@@ -41,12 +46,19 @@ public class TaskEntity extends BaseTimeEntity {
     private LocalDate dueDate;
 
     @Builder
-    public TaskEntity(Long projectId, Long assigneeId, String content, LocalDate dueDate) {
+    public TaskEntity(Long projectId, Long assigneeId, Long creatorId,
+                      String content, LocalDate dueDate) {
         this.projectId = projectId;
         this.assigneeId = assigneeId;
+        this.creatorId = creatorId;
         this.content = content;
         this.dueDate = dueDate;
         // 생성 시 completedAt은 null(미완료) — 별도 세팅 불필요
+    }
+
+    // 담당자 = 작성자인지. 개인 할 일과 스스로 만든 할 일이 여기 해당한다.
+    public boolean isSelfAssigned() {
+        return assigneeId.equals(creatorId);
     }
 
     // 수정 API: 내용·소속(projectId)·마감일을 갱신합니다. (완료 상태·assignee는 이 API로 바꾸지 않음)

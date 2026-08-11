@@ -30,14 +30,23 @@ public interface TaskApi {
                     마감일이 프로젝트 기간 안이어야 하며(TASK_007), 완료·보관된 프로젝트에는 만들 수 없습니다(PROJECT_020).
                     개인 할 일에는 이 세 제약이 모두 적용되지 않습니다.
 
+                    [assigneeId] 담당자입니다. **비우면 본인이 담당합니다.**
+                    남을 지정하려면 그 프로젝트의 오너이거나 부서가 PM이어야 하고(TASK_008),
+                    대상도 그 프로젝트의 참여중 멤버여야 합니다(TASK_009).
+                    개인 할 일에는 지정할 수 없습니다(TASK_010).
+
+                    배정된 담당자에게는 알림이 갑니다. 본인에게 만든 할 일은 알림이 없습니다.
+
                     단 퇴사자 차단(USER_003)은 개인 할 일에도 걸립니다. 휴직자는 가능합니다.
                     """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "생성 성공"),
             @ApiResponse(responseCode = "400",
-                    description = "입력값 검증 실패 / 마감일이 프로젝트 기간을 벗어남(TASK_007) / 퇴사한 사용자(USER_003)"),
-            @ApiResponse(responseCode = "403", description = "해당 프로젝트의 참여자가 아님",
+                    description = "입력값 검증 실패 / 마감일이 프로젝트 기간을 벗어남(TASK_007) / "
+                            + "담당자가 참여자가 아님(TASK_009) / 개인 할 일에 담당자 지정(TASK_010) / 퇴사한 사용자(USER_003)"),
+            @ApiResponse(responseCode = "403", description = "해당 프로젝트의 참여자가 아님(MEMBER_001) / "
+                    + "타인에게 배정할 권한 없음(TASK_008)",
                     content = @Content(mediaType = "application/json",
                             examples = @ExampleObject(value = """
                                     { "errorCode": "MEMBER_001", "message": "해당 프로젝트에 참여하고 있지 않습니다.", "result": null }
@@ -50,17 +59,24 @@ public interface TaskApi {
     @Operation(
             summary = "할 일 수정",
             description = """
-                    작성자 본인만 수정할 수 있습니다(TASK_004). 프로젝트 오너라도 남의 할 일은 수정할 수 없습니다.
+                    **담당자와 작성자 모두 수정할 수 있습니다(TASK_004).** 둘 다 이해관계자이기 때문입니다.
+                    그 외에는 프로젝트 오너라도 남의 할 일을 수정할 수 없습니다.
 
                     ⚠️ **전체 상태를 보냅니다(PUT).** projectId를 빼면 개인 할 일로 바뀌고,
                     다른 projectId를 넣으면 그 프로젝트로 옮겨집니다.
+
+                    ⚠️ **담당자는 이 API로 바꿀 수 없습니다.** assigneeId를 보내도 무시됩니다.
+                    잘못 배정했다면 삭제 후 다시 만드세요. 또한 담당자가 남인 할 일은 개인 할 일로 바꿀 수 없습니다(TASK_010).
+
+                    마감일이 실제로 바뀌면 담당자에게 알림이 갑니다. 내용만 고치면 알림은 없습니다.
                     """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "수정 성공"),
             @ApiResponse(responseCode = "400",
-                    description = "입력값 검증 실패 / 마감일이 프로젝트 기간을 벗어남(TASK_007) / 퇴사한 사용자(USER_003)"),
-            @ApiResponse(responseCode = "403", description = "작성자가 아님(TASK_004) / 프로젝트 참여자가 아님(MEMBER_001)"),
+                    description = "입력값 검증 실패 / 마감일이 프로젝트 기간을 벗어남(TASK_007) / "
+                            + "담당자가 남인데 개인 할 일로 전환(TASK_010) / 퇴사한 사용자(USER_003)"),
+            @ApiResponse(responseCode = "403", description = "담당자도 작성자도 아님(TASK_004) / 프로젝트 참여자가 아님(MEMBER_001)"),
             @ApiResponse(responseCode = "404", description = "할 일(TASK_003) 또는 프로젝트(PROJECT_004)를 찾을 수 없음"),
             @ApiResponse(responseCode = "409", description = "완료·보관된 프로젝트(PROJECT_020)")
     })
@@ -69,7 +85,10 @@ public interface TaskApi {
     @Operation(
             summary = "할 일 삭제",
             description = """
-                    작성자 본인만 삭제할 수 있습니다(TASK_005).
+                    **작성자만 삭제할 수 있습니다(TASK_005).** 담당자는 삭제할 수 없습니다 —
+                    열어 주면 배정받은 일을 "하기 싫으면 삭제"할 수 있게 됩니다.
+
+                    남에게 배정한 할 일을 지우면 담당자에게 알림이 갑니다.
 
                     ⚠️ 소프트 삭제가 아니라 **완전 삭제**입니다. 복구할 수 없습니다.
                     """
@@ -77,7 +96,7 @@ public interface TaskApi {
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "삭제 성공"),
             @ApiResponse(responseCode = "400", description = "퇴사한 사용자(USER_003)"),
-            @ApiResponse(responseCode = "403", description = "작성자가 아님(TASK_005)"),
+            @ApiResponse(responseCode = "403", description = "작성자가 아님(TASK_005). 담당자여도 삭제 불가"),
             @ApiResponse(responseCode = "404", description = "할 일을 찾을 수 없음(TASK_003)")
     })
     ResponseEntity<TaskResponse> delete(Long userId, Long taskId);
@@ -85,14 +104,17 @@ public interface TaskApi {
     @Operation(
             summary = "할 일 완료 토글",
             description = """
-                    작성자 본인만 변경할 수 있습니다(TASK_004). done=true면 완료, false면 완료 취소입니다.
+                    **담당자만 변경할 수 있습니다(TASK_004).** 작성자라도 남의 일을 완료 처리할 수 없습니다 —
+                    완료율이 실제 진척과 어긋나기 때문입니다.
+
+                    done=true면 완료, false면 완료 취소입니다.
                     같은 값을 여러 번 보내도 결과가 같습니다(멱등). result는 null입니다.
                     """
     )
     @ApiResponses({
             @ApiResponse(responseCode = "200", description = "변경 성공"),
             @ApiResponse(responseCode = "400", description = "done 미입력 / 퇴사한 사용자(USER_003)"),
-            @ApiResponse(responseCode = "403", description = "작성자가 아님(TASK_004)"),
+            @ApiResponse(responseCode = "403", description = "담당자가 아님(TASK_004)"),
             @ApiResponse(responseCode = "404", description = "할 일을 찾을 수 없음(TASK_003)")
     })
     ResponseEntity<Void> toggleStatus(Long userId, Long taskId, TaskStatusRequest request);
@@ -106,6 +128,8 @@ public interface TaskApi {
                     [groups] 개인 할 일 그룹은 projectId·projectName이 null이며 항상 마지막에 옵니다.
                     [dDay] 오늘~마감일 일수. 음수면 마감이 지난 것입니다.
                     [done] 저장된 값이 아니라 완료 시각 유무에서 파생한 값입니다.
+                    [canDelete] 삭제 버튼 노출 여부입니다. 여기 나오는 할 일은 모두 본인이 담당자라
+                    수정·완료 토글은 항상 가능하지만, 삭제는 작성자만 할 수 있어 남이 배정한 항목은 false입니다.
                     """
     )
     @ApiResponses({

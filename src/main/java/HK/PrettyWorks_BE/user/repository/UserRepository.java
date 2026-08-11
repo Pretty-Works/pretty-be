@@ -2,8 +2,10 @@ package HK.PrettyWorks_BE.user.repository;
 
 import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.domain.Pageable;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
@@ -31,4 +33,8 @@ public interface UserRepository extends JpaRepository<UserEntity, Long> {
                                   @Param("keyword") String keyword,
                                   @Param("employedStatuses") Collection<StatusType> employedStatuses,
                                   Pageable pageable);
+
+    @Lock(LockModeType.PESSIMISTIC_WRITE)
+    @Query("select u from UserEntity u where u.id = :id")
+    Optional<UserEntity> findByIdForUpdate(@Param("id") Long id);
 }

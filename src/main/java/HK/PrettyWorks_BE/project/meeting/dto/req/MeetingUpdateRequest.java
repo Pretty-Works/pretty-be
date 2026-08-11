@@ -18,6 +18,7 @@ public record MeetingUpdateRequest(
 
         @Schema(example = "2026-07-21", description = "회의 일자")
         @NotNull(message = "회의 일자(meetingDate)는 필수입니다.")
+        @PastOrPresent(message = "회의 일자(meetingDate)는 오늘이거나 과거여야 합니다.")
         LocalDate meetingDate,
 
         @Schema(example = "회의실 B", description = "장소")
@@ -26,7 +27,7 @@ public record MeetingUpdateRequest(
 
         @Schema(example = "[2, 5]", description = "참석자 id 목록")
         @NotEmpty(message = "참석자(attendeeIds)는 최소 1명 이상이어야 합니다.")
-        List<Long> attendeeIds,
+        List<@NotNull(message = "참석자 id는 null일 수 없습니다.") Long> attendeeIds,
 
         @Schema(example = "일정 재논의", description = "회의 목적")
         @Size(max = 500, message = "회의 목적(purpose)은 500자 이하여야 합니다.")

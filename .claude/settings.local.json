@@ -33,7 +33,31 @@
       "Bash(curl -sL -o proj041.png \"https://www.figma.com/api/mcp/asset/be0c9ef9-e2cd-4add-81ee-dd1992916aeb\")",
       "Bash(grep -oE '<frame id=\\\\\\\\\"[0-9]+:[0-9]+\\\\\\\\\" name=\\\\\\\\\"[^\\\\\\\\]*\\(팝업|모달|modal|popup|새 창|dropdown|dd_|switch|목록\\)[^\\\\\\\\]*\\\\\\\\\"' \"C:/Users/tnals/.claude/projects/C--Users-tnals-Desktop-PrettyWorks-BE/1bebb959-adad-47cf-aeb0-d6098dc6ab4f/tool-results/mcp-ffbe0a75-a3af-4026-bb4d-8710117111ff-get_metadata-1785203612335.txt\")",
       "Bash(curl -sL -o finance.png \"https://www.figma.com/api/mcp/asset/903e3b89-5efa-450f-868e-64c31965c76b\")",
-      "PowerShell(.\\\\gradlew.bat compileJava --console=plain -q)"
+      "PowerShell(.\\\\gradlew.bat compileJava --console=plain -q)",
+      "Bash(py --version)",
+      "Bash(python check_seed.py)"
+      "PowerShell(.\\\\gradlew.bat compileJava --console=plain -q)",
+      "mcp__43f00aa3-43ea-4039-a4ee-56d478bed2fe__notion-update-page",
+      "mcp__43f00aa3-43ea-4039-a4ee-56d478bed2fe__notion-fetch",
+      "mcp__43f00aa3-43ea-4039-a4ee-56d478bed2fe__notion-query-data-sources",
+      "mcp__43f00aa3-43ea-4039-a4ee-56d478bed2fe__notion-create-pages",
+      "mcp__43f00aa3-43ea-4039-a4ee-56d478bed2fe__notion-query-database-view",
+      "mcp__43f00aa3-43ea-4039-a4ee-56d478bed2fe__notion-update-data-source",
+      "Bash(gh issue *)",
+      "mcp__43f00aa3-43ea-4039-a4ee-56d478bed2fe__notion-search",
+      "mcp__43f00aa3-43ea-4039-a4ee-56d478bed2fe__notion-get-users",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\\\\src\\\\main\\\\resources\" -Recurse -File | ForEach-Object { $_.FullName.Replace\\(\"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\\\\src\\\\main\\\\resources\\\\\",\"\"\\) + \"  \\(\" + [math]::Round\\($_.Length/1KB,1\\) + \" KB\\)\" })",
+      "PowerShell(Get-ChildItem -Path \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_FE\\\\src\" -Recurse -Directory -ErrorAction SilentlyContinue | ForEach-Object { $_.FullName.Replace\\(\"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_FE\\\\src\\\\\",\"\"\\) } | Sort-Object)",
+      "PowerShell(git -C \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\" branch --show-current)",
+      "PowerShell(git -C \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\" status --short)",
+      "PowerShell(git -C \"C:\\\\Users\\\\tnals\\\\Desktop\\\\PrettyWorks_BE\" log --oneline -12)",
+      "Bash(cd /c/Users/tnals/Desktop/PrettyWorks_BE/src/main/java/HK/PrettyWorks_BE *)",
+      "Bash(cd /c/Users/tnals/Desktop/PrettyWorks_BE *)",
+      "Bash(grep -n \"\\\\\\\\\\\\\\\\'\\\\|''\" src/main/resources/db/seed.sql)",
+      "Read(//c//**)",
+      "Read(//c/Users/resources/db/**)",
+      "Bash(python -)",
+      "WebSearch"
     ]
   }
 }

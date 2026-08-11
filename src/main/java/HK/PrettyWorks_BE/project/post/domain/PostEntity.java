@@ -9,12 +9,15 @@ import lombok.Getter;
 import lombok.NoArgsConstructor;
 import org.hibernate.annotations.SQLDelete;
 import org.hibernate.annotations.SQLRestriction;
+import org.hibernate.jdbc.Expectation;
 
 import java.time.LocalDateTime;
 
 @Entity
 @Table(name = "project_posts")
-@SQLDelete(sql = "UPDATE project_posts SET deleted_at = NOW() WHERE id = ?")
+@SQLDelete(sql = "UPDATE project_posts SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL",
+        verify = Expectation.RowCount.class
+)
 @SQLRestriction("deleted_at IS NULL")
 @Getter
 @NoArgsConstructor(access = AccessLevel.PROTECTED)

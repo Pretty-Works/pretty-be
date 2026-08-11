@@ -19,6 +19,7 @@ public record PostCreateRequest(
         @Schema(example = "프로젝트 일정이 변경되어 공유드립니다. 기존 7월 25일 예정이었던 API 개발 일정이 7월 30일로 변경되었습니다.",
                 description = "게시글 내용")
         @NotBlank(message = "게시글 내용은 필수입니다.")
+        @Size(max = 10_000, message = "게시글 내용은 10,000자 이하여야 합니다.")
         String content
 ) {
 }

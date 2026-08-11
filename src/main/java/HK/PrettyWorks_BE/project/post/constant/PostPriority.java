@@ -1,6 +1,9 @@
 package HK.PrettyWorks_BE.project.post.constant;
 
+import lombok.Getter;
+
 // 게시글 중요도. @Enumerated(EnumType.STRING)으로 저장하며 ORDINAL 저장은 금지.
+@Getter
 public enum PostPriority {
     HIGH("높음"),
     MID("중간"),
@@ -12,7 +15,4 @@ public enum PostPriority {
         this.description = description;
     }
 
-    public String getDescription() {
-        return description;
-    }
 }

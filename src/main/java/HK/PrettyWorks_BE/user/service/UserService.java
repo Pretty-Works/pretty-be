@@ -1,8 +1,8 @@
 package HK.PrettyWorks_BE.user.service;
 
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
-import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
+import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.user.dto.res.MyProfileResponse;
 import HK.PrettyWorks_BE.user.dto.res.UserSearchResponse;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
@@ -20,9 +20,6 @@ import java.util.stream.Collectors;
 @Service
 @RequiredArgsConstructor
 public class UserService {
-
-    private static final List<StatusType> EMPLOYED_STATUSES =
-            List.of(StatusType.ACTIVE, StatusType.ON_LEAVE);
 
     private final UserRepository userRepository;
     private final CurrentUserService currentUserService;
@@ -46,7 +43,7 @@ public class UserService {
         }
 
         return userRepository.searchByName(
-                        requesterId, condition.keyword(), EMPLOYED_STATUSES,
+                        requesterId, condition.keyword(), UserPolicy.EMPLOYED_STATUSES,
                         PageRequest.of(0, condition.limit()))
                 .stream()
                 .map(UserSearchResponse::from)
@@ -63,5 +60,18 @@ public class UserService {
 
         return userRepository.findAllById(userIds).stream()
                 .collect(Collectors.toMap(UserEntity::getId, UserEntity::getName));
+    }
+
+    // 이름 말고 부서·직급까지 필요한 화면용(프로젝트 상세의 참여자 카드 등).
+    // getNameMap과 나눠 둔 이유: 이름만 쓰는 쪽이 훨씬 많은데 전부 엔티티를 들고 다니면
+    // 호출부가 필요 이상으로 많은 필드에 접근할 수 있게 된다.
+    @Transactional(readOnly = true)
+    public Map<Long, UserEntity> getUserMap(Collection<Long> userIds) {
+        if (userIds.isEmpty()) {
+            return Map.of();
+        }
+
+        return userRepository.findAllById(userIds).stream()
+                .collect(Collectors.toMap(UserEntity::getId, user -> user));
     }
 }

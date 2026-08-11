@@ -14,6 +14,8 @@ import io.swagger.v3.oas.annotations.responses.ApiResponse;
 import io.swagger.v3.oas.annotations.responses.ApiResponses;
 import io.swagger.v3.oas.annotations.tags.Tag;
 import org.springframework.http.ResponseEntity;
+import jakarta.validation.Valid;
+import jakarta.validation.constraints.Size;
 
 @Tag(name = "회의록", description = "회의록 관련 API")
 public interface MeetingApi {
@@ -60,8 +62,13 @@ public interface MeetingApi {
     ResponseEntity<MeetingCreateResponse> createMeeting(
             Long projectId,
             Long authorId,
+            @Size(
+                    max = 64,
+                    message = "Idempotency-Key는 64자 이하여야 합니다."
+            )
             String idempotencyKey,
-            MeetingCreateRequest request);
+            @Valid MeetingCreateRequest request
+    );
 
     // 회의록 목록 조회
     @Operation(summary = "회의록 목록 조회", description = "프로젝트의 회의록 목록을 검색·페이징하여 조회합니다. (조회는 해당 프로젝트의 참여중 멤버만 가능)")
@@ -228,7 +235,8 @@ public interface MeetingApi {
             Long projectId,
             Long meetingId,
             Long userId,
-            MeetingUpdateRequest request);
+            @Valid MeetingUpdateRequest request
+    );
 
     // 회의록 삭제
     @Operation(summary = "회의록 삭제", description = "회의록을 소프트 삭제합니다. (작성자만 가능)")

@@ -25,6 +25,10 @@ CREATE TABLE IF NOT EXISTS users (
     position      VARCHAR(30)  NOT NULL              COMMENT '직책',
     status        VARCHAR(20)  NOT NULL              COMMENT '재직 상태',
     hire_date     DATE         NOT NULL              COMMENT '입사일',
+    -- 알림 뱃지 기준점. 이 id보다 큰 알림이 있으면 종 아이콘에 빨간 점이 켜집니다.
+    -- notifications 에 "봤음"을 행마다 남기지 않는 이유는 값이 사용자당 하나면 충분하기 때문입니다.
+    -- 물리 FK를 두지 않습니다 — 정리 배치가 오래된 알림을 지워도 이 값은 남아야 합니다.
+    last_seen_notification_id BIGINT NULL            COMMENT '마지막으로 알림함을 연 시점의 최신 알림 id',
     created_at    DATETIME(6)  NULL                  COMMENT '생성 시각',
     modified_at   DATETIME(6)  NULL                  COMMENT '수정 시각',
     PRIMARY KEY (id),
@@ -141,7 +145,11 @@ CREATE TABLE IF NOT EXISTS milestones (
 CREATE TABLE IF NOT EXISTS tasks (
     id          BIGINT       NOT NULL AUTO_INCREMENT,
     project_id  BIGINT       NULL                   COMMENT '프로젝트 FK (개인 할 일이면 NULL)',
-    assignee_id BIGINT       NOT NULL               COMMENT '담당자 (users FK, 현재는 작성자 본인)',
+    -- 담당자와 작성자를 나눕니다. 오너·PM이 팀원에게 할 일을 배정할 수 있어 둘이 달라질 수 있습니다.
+    -- 권한이 갈립니다 — 완료 토글은 담당자만, 삭제는 작성자만, 수정은 둘 다.
+    -- 개인 할 일(project_id IS NULL)은 배정할 상대가 없어 항상 두 값이 같습니다.
+    assignee_id BIGINT       NOT NULL               COMMENT '담당자 (users FK)',
+    creator_id  BIGINT       NOT NULL               COMMENT '작성자 (users FK). 개인 할 일이면 담당자와 같음',
     content     VARCHAR(100) NOT NULL               COMMENT '할 일 내용 (한 줄)',
     completed_at DATETIME(6) NULL                   COMMENT '완료 시각 (null이면 미완료)',
     due_date    DATE         NOT NULL               COMMENT '마감일',
@@ -151,7 +159,10 @@ CREATE TABLE IF NOT EXISTS tasks (
     KEY idx_tasks_assignee_project_due (assignee_id, project_id, due_date),
     KEY idx_tasks_project_due (project_id, due_date),
     CONSTRAINT fk_tasks_project  FOREIGN KEY (project_id)  REFERENCES projects (id),
-    CONSTRAINT fk_tasks_assignee FOREIGN KEY (assignee_id) REFERENCES users (id)
+    CONSTRAINT fk_tasks_assignee FOREIGN KEY (assignee_id) REFERENCES users (id),
+    -- creator_id 전용 인덱스는 두지 않습니다. "내가 만든 할 일" 목록 API가 없고,
+    -- FK 제약이 인덱스를 자동 생성하므로 삭제 권한 판정에는 그것으로 충분합니다.
+    CONSTRAINT fk_tasks_creator  FOREIGN KEY (creator_id)  REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '할 일';
 
 
@@ -159,21 +170,19 @@ CREATE TABLE IF NOT EXISTS tasks (
 -- project_posts : 프로젝트 게시판 (제목 + 내용만 있는 자유 게시판)
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS project_posts (
-    id          BIGINT       NOT NULL AUTO_INCREMENT,
-    project_id  BIGINT       NOT NULL          COMMENT '프로젝트 FK',
-    author_id   BIGINT       NOT NULL          COMMENT '작성자 (users FK)',
-    title       VARCHAR(200) NOT NULL          COMMENT '제목',
-    priority    VARCHAR(10)  NOT NULL          COMMENT '중요도 (HIGH / MID / LOW)',
+   id          BIGINT       NOT NULL AUTO_INCREMENT,
+   project_id  BIGINT       NOT NULL          COMMENT '프로젝트 FK',
+   author_id   BIGINT       NOT NULL          COMMENT '작성자 (users FK)',
+   title       VARCHAR(200) NOT NULL          COMMENT '제목',
+    priority    ENUM('HIGH', 'MID', 'LOW') NOT NULL COMMENT '우선순위',
     content     TEXT         NOT NULL          COMMENT '내용',
     created_at  DATETIME(6)  NULL              COMMENT '작성 시각',
     modified_at DATETIME(6)  NULL              COMMENT '수정 시각',
-    deleted_at    DATETIME(6)  NULL            COMMENT '삭제 시각',
-    PRIMARY KEY (id),
-    KEY idx_project_posts_project_created (project_id, created_at),
+    deleted_at  DATETIME(6)  NULL              COMMENT '삭제 시각',
+    PRIMARY KEY (id), KEY idx_project_posts_project_created (project_id, created_at),
     CONSTRAINT fk_project_posts_project FOREIGN KEY (project_id) REFERENCES projects (id),
-    CONSTRAINT fk_project_posts_author  FOREIGN KEY (author_id)  REFERENCES users (id)
-    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 게시판';
-
+    CONSTRAINT fk_project_posts_author  FOREIGN KEY (author_id)  REFERENCES users (id)) ENGINE=InnoDB
+    DEFAULT CHARSET=utf8mb4 COLLATE=utf8mb4_unicode_ci COMMENT='프로젝트 게시판';
 
 -- =============================================================================
 -- meetings : 회의록 (기록 문서)
@@ -182,7 +191,7 @@ CREATE TABLE IF NOT EXISTS project_posts (
 -- =============================================================================
 CREATE TABLE IF NOT EXISTS meetings (
     id            BIGINT       NOT NULL AUTO_INCREMENT,
-    project_id    BIGINT       NULL              COMMENT '프로젝트 FK (없을 수 있음)',
+    project_id    BIGINT       NOT NULL          COMMENT '프로젝트 FK (없을 수 있음)',
     document_no   VARCHAR(30)  NOT NULL          COMMENT '문서번호',
     title         VARCHAR(200) NOT NULL          COMMENT '회의명',
     author_id     BIGINT       NOT NULL          COMMENT '작성자 (users FK)',
@@ -359,3 +368,377 @@ CREATE TABLE IF NOT EXISTS idempotency_keys (
     KEY idx_idempotency_created (created_at),
     CONSTRAINT fk_idempotency_user FOREIGN KEY (user_id) REFERENCES users (id)
     ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '멱등 키';
+
+
+-- =============================================================================
+-- agent_conversations : AI 에이전트 대화 스레드
+--   - last_message_at 을 따로 둡니다. 메시지 추가는 agent_messages INSERT라 이 행이 바뀌지 않아
+--     modified_at 으로는 목록 정렬이 되지 않습니다.
+--   - 제목은 사용자가 붙이지 않고 LLM 요약(실패 시 첫 질문 앞부분)을 저장합니다.
+--   - last_read_message_id 로 안 읽음을 판정합니다. 시각이 아니라 id인 이유는 notifications 의
+--     last_seen_notification_id 와 같습니다 — 같은 초에 여러 건이 들어와도 경계가 흔들리지 않습니다.
+--   - 소프트 삭제: 목록에서 지워도 행은 남고 deleted_at 만 채웁니다. 자식(agent_messages·agent_runs)은
+--     건드리지 않으므로 진행 중이던 실행 스레드가 사라진 행을 만나는 일이 없습니다.
+--     조회 제외는 엔티티의 @SQLRestriction("deleted_at IS NULL") 이 전담합니다 — 쿼리마다 조건을
+--     적지 않으므로 새 쿼리를 추가하다 빠뜨릴 수 없습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_conversations (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    user_id         BIGINT       NOT NULL           COMMENT '대화 소유자 (users FK)',
+    title           VARCHAR(100) NOT NULL           COMMENT '스레드 제목 (LLM 요약 또는 첫 질문 앞부분)',
+    last_message_at DATETIME(6)  NOT NULL           COMMENT '마지막 메시지 시각 — 대화 목록 정렬 기준',
+    -- 사용자가 이 대화를 마지막으로 열어 본 지점. 이보다 큰 AGENT 메시지가 있으면 "안 읽음"입니다.
+    -- NULL은 한 번도 읽지 않은 대화라 AGENT 답변이 하나라도 있으면 안 읽음이 됩니다.
+    last_read_message_id BIGINT  NULL               COMMENT '마지막으로 읽은 메시지 id (agent_messages soft reference)',
+    -- 켜면 쓰기 승인 카드를 띄우지 않고 BE가 사용자 대신 즉시 토큰을 발급합니다(규격 v2 §5-1).
+    -- 승인 게이트를 없애는 게 아니라 "버튼을 누르는 주체"만 바뀌므로 params_hash 결합은 그대로입니다.
+    -- 기본값이 FALSE인 것이 중요합니다 — 안전한 쪽이 기본이어야 합니다.
+    auto_approve    BOOLEAN      NOT NULL DEFAULT FALSE COMMENT '자동 승인 모드 (대화 단위)',
+    deleted_at      DATETIME(6)  NULL               COMMENT '소프트 삭제 시각 (조회에서 IS NULL 제외)',
+    created_at      DATETIME(6)  NULL               COMMENT '생성 시각',
+    modified_at     DATETIME(6)  NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 내 스레드를 최신순으로 조회합니다(패널 최근 3건 · 전체보기가 같은 쿼리).
+    -- 목록은 커서(스크롤) 방식이라 (last_message_at, id) 순으로 끊습니다. id를 따로 넣지 않은 것은
+    -- InnoDB 보조 인덱스가 PK를 뒤에 달고 있어 (user_id, deleted_at, last_message_at, id) 와 같기 때문입니다.
+    --
+    -- deleted_at 이 가운데 있는 이유는 expenses 의 idx_expenses_project_deleted_date 와 같습니다 —
+    -- user_id = ? 와 deleted_at IS NULL 이 둘 다 동등 조건이라 앞에 모아야 뒤의 last_message_at 이
+    -- 범위 스캔과 정렬을 함께 해결합니다. 맨 뒤에 두면 정렬이 filesort 로 떨어집니다.
+    KEY idx_agent_conversations_user_recent (user_id, deleted_at, last_message_at),
+    CONSTRAINT fk_agent_conversations_user FOREIGN KEY (user_id) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 대화 스레드';
+
+
+-- =============================================================================
+-- agent_messages : 에이전트 대화 메시지 (말풍선 1건)
+--   - success: USER 행은 NULL(해당 없음). FastAPI 호출 실패 시 false이며, 그 행은 다음 턴 맥락에서 제외합니다.
+--   - action_type 은 enum이 아니라 문자열입니다. LLM팀이 타입을 추가해도 BE 배포가 필요 없게 하기 위함입니다.
+--   - raw_json 은 LONGTEXT라 목록 조회에 끌고 오면 무겁습니다 — 조회는 DTO 프로젝션으로 필요한 컬럼만 읽습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_messages (
+    id              BIGINT      NOT NULL AUTO_INCREMENT,
+    conversation_id BIGINT      NOT NULL           COMMENT '소속 스레드 FK',
+    -- 한 대화에 실행(Run)이 여러 개 쌓이므로, 타임라인에 구분선을 그으려면 소속 실행을 알아야 합니다.
+    -- v1 시절 메시지는 실행 개념이 없어 NULL입니다. 실행 이력을 지워도 대화 기록은 남겨야 하므로
+    -- 물리 FK를 두지 않는 nullable soft reference입니다.
+    run_id          BIGINT      NULL               COMMENT '소속 실행 ID (nullable soft reference)',
+    role            VARCHAR(10) NOT NULL           COMMENT '작성 주체 (AgentRole, STRING)',
+    content         LONGTEXT    NOT NULL           COMMENT '말풍선 본문',
+    success         BOOLEAN     NULL               COMMENT '에이전트 처리 성공 여부. USER 행은 NULL',
+    action_type     VARCHAR(30) NULL               COMMENT '액션 종류 (FILL_FORM/NAVIGATE/CHOICE 등, 문자열 저장)',
+    action_json     LONGTEXT    NULL               COMMENT '액션 원문 — 서버는 열어보지 않고 그대로 저장·반환',
+    raw_json        LONGTEXT    NULL               COMMENT 'FastAPI 응답 원본 (연동 디버깅용)',
+    created_at      DATETIME(6) NULL               COMMENT '생성 시각',
+    modified_at     DATETIME(6) NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 스레드 상세(id 오름차순)와 맥락 조회(id 내림차순)가 함께 사용합니다.
+    KEY idx_agent_messages_conversation (conversation_id, id),
+    CONSTRAINT fk_agent_messages_conversation
+    FOREIGN KEY (conversation_id) REFERENCES agent_conversations (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 대화 메시지';
+
+
+-- =============================================================================
+-- notifications : 인앱 알림 (상단바 종 아이콘)
+--   - 수신자 1명당 1행. 읽음 여부가 사람마다 달라 이벤트를 공유할 수 없다.
+--   - title은 발생 시점 문구를 그대로 저장한다. 프로젝트명이 나중에 바뀌어도 그때의 기록이 남고,
+--     조회할 때마다 원본을 조인하지 않아도 된다.
+--   - target_type/target_id 는 클릭 시 이동할 대상. URL은 화면 구조가 소유하므로 서버는 조립하지 않는다.
+--   - 목록은 id 기준 커서 페이지네이션. 계속 쌓이는 목록이라 offset은 경계가 밀린다.
+--   - 외부 발송(이메일·푸시)이 생기면 delivered_at 컬럼을 추가해 이 테이블을 그대로 아웃박스로 쓴다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS notifications (
+    id          BIGINT       NOT NULL AUTO_INCREMENT,
+    user_id     BIGINT       NOT NULL          COMMENT '수신자 (users FK)',
+    type        VARCHAR(40)  NOT NULL          COMMENT '알림 종류 (NotificationType, STRING) — 화면 아이콘 분기',
+    title       VARCHAR(200) NOT NULL          COMMENT '발생 시점에 완성한 문구',
+    actor_id    BIGINT       NULL              COMMENT '행위자. 시간이 원인인 알림(마감 임박 등)은 NULL',
+    target_type VARCHAR(20)  NULL              COMMENT '이동 대상 종류 (NotificationTargetType, STRING)',
+    target_id   BIGINT       NULL              COMMENT '이동 대상 ID',
+    read_at     DATETIME(6)  NULL              COMMENT '읽은 시각. NULL이면 안 읽음',
+    created_at  DATETIME(6)  NULL              COMMENT '생성 시각',
+    modified_at DATETIME(6)  NULL              COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 목록 조회: WHERE user_id = ? AND id < ? ORDER BY id DESC
+    KEY idx_notifications_user_id (user_id, id),
+    -- 뱃지 카운트: WHERE user_id = ? AND read_at IS NULL. 30초마다 호출되므로 전용 인덱스를 둔다.
+    KEY idx_notifications_user_unread (user_id, read_at),
+    CONSTRAINT fk_notifications_user  FOREIGN KEY (user_id)  REFERENCES users (id),
+    CONSTRAINT fk_notifications_actor FOREIGN KEY (actor_id) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '인앱 알림';
+
+
+-- =============================================================================
+-- agent_message_steps : 메시지에 영구 보관할 근거 step
+--   - agent_events는 SSE 재생용이라 종료 1시간 뒤 삭제됩니다.
+--   - 단발 응답과 v2 모두 한 행씩 보관해 전체 JSON을 JVM에서 합치지 않습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_message_steps (
+    id         BIGINT      NOT NULL AUTO_INCREMENT,
+    message_id BIGINT      NOT NULL COMMENT '표시할 AGENT 메시지 FK',
+    seq        BIGINT      NOT NULL COMMENT '원래 Run 이벤트 순서',
+    payload    TEXT        NOT NULL COMMENT 'step 이벤트 JSON 원문. 수신 시 최대 4KB',
+    created_at DATETIME(6) NULL     COMMENT '원래 step 생성 시각',
+    PRIMARY KEY (id),
+    UNIQUE KEY uk_agent_message_steps_message_seq (message_id, seq),
+    CONSTRAINT fk_agent_message_steps_message
+        FOREIGN KEY (message_id) REFERENCES agent_messages (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 메시지 근거 step';
+
+
+-- =============================================================================
+-- agent_message_attachments : 사용자가 채팅창에 붙인 파일의 메타데이터
+--   - 파일 내용은 저장하지 않습니다. BE는 받아서 에이전트로 넘기는 게이트일 뿐이라,
+--     내용까지 보관하면 저장소 수명·삭제·용량이 전부 우리 책임이 됩니다.
+--     여기 남기는 것은 대화를 다시 열었을 때 "무엇을 붙였는지"를 그리기 위한 최소 정보입니다.
+--   - content_type 은 클라이언트가 보낸 값이 아니라 확장자를 보고 서버가 정한 값입니다.
+--     업로드 시 판정 근거를 그대로 남겨야 나중에 "왜 이 파일이 통과했나"를 되짚을 수 있습니다.
+--   - AGENT 행에는 붙지 않습니다(첨부는 사용자만 보냅니다). 별도 role 컬럼을 두지 않는 이유입니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_message_attachments (
+    id           BIGINT       NOT NULL AUTO_INCREMENT,
+    message_id   BIGINT       NOT NULL COMMENT '소속 USER 메시지 FK',
+    seq          INT          NOT NULL COMMENT '한 메시지 안에서의 표시 순서 (0부터)',
+    filename     VARCHAR(255) NOT NULL COMMENT '업로드 당시 파일명 (경로 제거·검증 후)',
+    content_type VARCHAR(100) NOT NULL COMMENT '확장자로 서버가 결정한 MIME 타입',
+    size_bytes   BIGINT       NOT NULL COMMENT '원본 바이트 크기 (인코딩 전)',
+    created_at   DATETIME(6)  NULL     COMMENT '생성 시각',
+    modified_at  DATETIME(6)  NULL     COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 같은 메시지에 같은 순서가 두 번 저장되는 일을 막습니다. 상세 조회의 정렬 키이기도 합니다.
+    UNIQUE KEY uk_agent_message_attachments_message_seq (message_id, seq),
+    CONSTRAINT fk_agent_message_attachments_message
+        FOREIGN KEY (message_id) REFERENCES agent_messages (id) ON DELETE CASCADE
+) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 메시지 첨부 파일 메타데이터';
+
+
+-- =============================================================================
+-- agent_runs : 에이전트 실행 (요청 하나를 처리하는 단위)
+--   - 상태를 갖는 건 대화가 아니라 이쪽입니다. 대화 1 : 실행 N (규격 v2 §3).
+--     done 은 그 요청이 끝난 것일 뿐이라, 사용자는 같은 대화에 계속 이어 말할 수 있습니다.
+--   - run_id 를 id 와 따로 두는 이유: 이 값은 FE 응답 헤더와 FastAPI 헤더로 외부에 나갑니다.
+--     연번을 노출하면 남의 실행 번호를 추측할 수 있으므로 난수 문자열을 씁니다.
+--   - user_id 는 내부 도구 API가 X-Run-Id 로 역산하는 값입니다. 이 한 칼럼이 에이전트 권한의 뿌리입니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_runs (
+    id              BIGINT       NOT NULL AUTO_INCREMENT,
+    run_id          VARCHAR(40)  NOT NULL           COMMENT '외부 노출용 실행 ID (BE 발급). FastAPI 체크포인트 키이자 X-Run-Id 값',
+    conversation_id BIGINT       NOT NULL           COMMENT '소속 대화 FK',
+    user_id         BIGINT       NOT NULL           COMMENT '실행 소유자 (users FK). 내부 도구가 X-Run-Id로 역산하는 값',
+    -- JWT의 sid. v1에서는 저장만 하고 검증에 쓰지 않습니다(규격 v2 §3).
+    -- 도난 세션 무효화 시 진행 중 실행을 끊는 연동은 다음 버전 과제입니다.
+    session_id      VARCHAR(64)  NULL               COMMENT '실행을 시작한 로그인 세션 (감사·추적용)',
+    status          VARCHAR(20)  NOT NULL           COMMENT 'RUNNING/WAITING_APPROVAL/WAITING_INPUT/COMPLETED/FAILED/EXPIRED',
+    goal            TEXT         NOT NULL           COMMENT '이 실행을 시작시킨 사용자 입력',
+    screen_context  TEXT         NULL               COMMENT 'FE가 보낸 화면 정보 원본 (직렬화 32KB 이하). 서버는 해석하지 않음',
+    -- 재접속 시 Last-Event-ID 이후만 다시 흘려보내기 위한 채번기입니다.
+    last_event_seq  BIGINT       NOT NULL DEFAULT 0 COMMENT '마지막으로 발행한 이벤트 번호',
+    -- 폭주 차단용 카운터. 사람이 끼지 않는 자동 승인 모드에서 특히 중요합니다.
+    question_count  INT          NOT NULL DEFAULT 0 COMMENT '되물은 횟수. 5회 초과 시 AGENT_022',
+    tool_call_count INT          NOT NULL DEFAULT 0 COMMENT '도구 호출 횟수. 20회 상한',
+    error_code      VARCHAR(20)  NULL               COMMENT '실패 시 남기는 에러코드 (AGENT_0XX)',
+    started_at      DATETIME(6)  NOT NULL           COMMENT '실행 시작 시각 — 총 상한 15분 판정 기준',
+    -- 대기 만료(30분)와 BE 재시작 후 유령 RUNNING 정리가 모두 이 값을 봅니다.
+    last_active_at  DATETIME(6)  NOT NULL           COMMENT '마지막 진행 시각',
+    finished_at     DATETIME(6)  NULL               COMMENT '종료 시각 (COMPLETED/FAILED/EXPIRED)',
+    created_at      DATETIME(6)  NULL               COMMENT '생성 시각',
+    modified_at     DATETIME(6)  NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 내부 도구 호출마다 이 인덱스로 조회합니다. 에이전트 경로에서 가장 뜨거운 조회입니다.
+    UNIQUE KEY uk_agent_runs_run_id (run_id),
+    -- 대화 상세에서 실행 이력을 순서대로 읽습니다.
+    KEY idx_agent_runs_conversation (conversation_id, id),
+    -- "이 대화에 진행 중인 Run이 있나"(AGENT_004)와 동시 실행 3건 제한(AGENT_018) 검사.
+    KEY idx_agent_runs_user_status (user_id, status),
+    -- 만료 정리 배치와 기동 시 유령 실행 정리가 함께 사용합니다.
+    KEY idx_agent_runs_sweep (status, started_at),
+    -- 종료 후 1시간이 지난 SSE 이벤트 정리 대상 실행을 찾습니다.
+    KEY idx_agent_runs_terminal (status, finished_at),
+    CONSTRAINT fk_agent_runs_conversation
+    FOREIGN KEY (conversation_id) REFERENCES agent_conversations (id) ON DELETE CASCADE,
+    CONSTRAINT fk_agent_runs_user FOREIGN KEY (user_id) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 실행';
+
+
+-- =============================================================================
+-- agent_events : SSE 이벤트 적재 (재접속 리플레이 전용)
+--   - 브라우저가 끊겨도 서버는 계속 진행하므로, 다시 붙었을 때 놓친 구간을 돌려줘야 합니다.
+--   - done·error 뒤에도 1시간 보존합니다. 종료 직전 연결이 끊긴 브라우저가 Last-Event-ID로
+--     재접속해 마지막 종료 이벤트까지 받을 수 있게 한 뒤 CleanupScheduler가 정리합니다.
+--   - append-only 라 modified_at 이 없습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_events (
+    id         BIGINT      NOT NULL AUTO_INCREMENT,
+    run_id     BIGINT      NOT NULL            COMMENT '소속 실행 FK (agent_runs.id)',
+    seq        BIGINT      NOT NULL            COMMENT '실행 내 이벤트 번호. SSE 의 id: 값이며 Last-Event-ID 기준',
+    event_type VARCHAR(20) NOT NULL            COMMENT 'step / approval_request / question / done / error',
+    payload    LONGTEXT    NOT NULL            COMMENT 'data: 한 줄에 실릴 JSON 원문',
+    created_at DATETIME(6) NULL                COMMENT '생성 시각',
+    PRIMARY KEY (id),
+    -- 재접속은 WHERE run_id = ? AND seq > ? 로 읽습니다. 채번 중복도 이 제약이 막습니다.
+    UNIQUE KEY uk_agent_events_run_seq (run_id, seq),
+    KEY idx_agent_events_run_type_seq (run_id, event_type, seq),
+    CONSTRAINT fk_agent_events_run FOREIGN KEY (run_id) REFERENCES agent_runs (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 SSE 이벤트';
+
+
+-- =============================================================================
+-- agent_interactions : 사용자 응답을 기다리는 것 (승인 + 질문)
+--   - 둘을 한 테이블에 둔 이유: 홈 「확인이 필요한 요청」이 둘을 함께 보여주고, 30분 만료·중복 처리
+--     차단 로직이 동일합니다. 나누면 목록이 UNION이 되고 만료 배치가 둘로 늘어납니다.
+--   - kind 로 갈리며, 반대쪽 칼럼은 NULL입니다.
+--   - 승인 토큰은 원문을 저장하지 않습니다. 해시만 두면 DB 덤프나 로그가 새도 복원할 수 없습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS agent_interactions (
+    id               BIGINT       NOT NULL AUTO_INCREMENT,
+    run_id           BIGINT       NOT NULL         COMMENT '소속 실행 FK (agent_runs.id)',
+    kind             VARCHAR(20)  NOT NULL         COMMENT 'APPROVAL 또는 QUESTION',
+    status           VARCHAR(20)  NOT NULL         COMMENT 'PENDING/APPROVED/REJECTED/ALTERNATIVE/ANSWERED/EXPIRED',
+    -- 홈 카드에 뜨는 한 줄. 승인은 summary, 질문은 label 이 여기 들어갑니다.
+    -- 대화 제목이 아니라 "지금 묻는 것"을 가리켜야 합니다(규격 v2 §4-4).
+    label            VARCHAR(60)  NOT NULL         COMMENT '한 줄 제목 (홈 카드 표시용)',
+    -- FE에 그대로 내려보낼 원문. 승인이면 alternatives, 질문이면 options·multiple·allowFreeText.
+    -- BE가 해석하지 않으므로 통째로 보관합니다.
+    payload_json     LONGTEXT     NULL             COMMENT 'FE 렌더용 원문 (BE 미해석)',
+
+    -- ── APPROVAL 전용 ──────────────────────────────────────────────
+    tool_call_id     VARCHAR(64)  NULL             COMMENT 'LLM이 발급한 도구 호출 식별자. resume 로 되돌려준다',
+    tool             VARCHAR(50)  NULL             COMMENT '도구 이름 (예: task.create)',
+    access           VARCHAR(10)  NULL             COMMENT 'READ 또는 WRITE. BE가 해석하는 유일한 필드',
+    -- LLM이 보낸 previewText 는 무시하고 BE가 params 에서 렌더한 값을 저장합니다.
+    -- 둘 다 LLM이 만들면 "보여준 것과 저장되는 것"이 달라도 검증을 통과합니다(규격 v2 §5).
+    preview_text     LONGTEXT     NULL             COMMENT '승인 카드 본문 — BE가 params에서 렌더',
+    -- path/query/body로 변환될 ID까지 포함한 전체 논리 인자입니다. FastAPI는 URL 생성에 쓴 값을 제거하지 않고
+    -- 이 문자열 전체를 내부 WRITE 요청 바디로 되돌려줍니다. 양쪽이 각자 재직렬화하면 해시가 깨집니다.
+    params_canonical LONGTEXT     NULL             COMMENT '전체 논리 인자를 정규화한 문자열. resume 및 내부 WRITE 바디로 그대로 전달',
+    params_hash      CHAR(64)     NULL             COMMENT 'SHA-256(params_canonical). 저장 요청 바디와 대조 (AGENT_015)',
+    auto_approved    BOOLEAN      NOT NULL DEFAULT FALSE COMMENT 'BE가 자동 승인 모드로 즉시 승인한 건',
+    token_hash       CHAR(64)     NULL             COMMENT 'SHA-256(승인 토큰). 원문은 저장하지 않음',
+    token_expires_at DATETIME(6)  NULL             COMMENT '토큰 만료 시각 (발급 +10분)',
+    token_used_at    DATETIME(6)  NULL             COMMENT '토큰 소진 시각. 성공 결과가 있으면 재실행 대신 결과 재생',
+    token_revoked_at DATETIME(6)  NULL             COMMENT '업무 4xx로 폐기한 시각. 파라미터 수정 후 새 승인을 받아야 함',
+
+    -- 성공 응답을 잃은 FastAPI가 같은 호출을 재시도하면 서비스를 다시 실행하지 않고 이 결과를 재생합니다.
+    -- null 응답도 구분할 수 있도록 executed_at을 별도로 둡니다.
+    executed_at      DATETIME(6)  NULL             COMMENT '내부 쓰기 도구 실행 성공 시각',
+    result_json      LONGTEXT     NULL             COMMENT '성공한 내부 도구의 result JSON. 멱등 재생용',
+
+    -- ── QUESTION 전용 ──────────────────────────────────────────────
+    question_text    VARCHAR(200) NULL             COMMENT '채팅 패널에 보일 질문 문장. label 과 별개',
+
+    -- ── 사용자 응답 ────────────────────────────────────────────────
+    decision         VARCHAR(20)  NULL             COMMENT 'APPROVED / REJECTED / ALTERNATIVE',
+    alternative_id   VARCHAR(40)  NULL             COMMENT '고른 선택지 id. ALWAYS 는 BE가 소비하므로 저장되지 않음',
+    response_json    LONGTEXT     NULL             COMMENT '질문 답변 원문 (selectedIds + text)',
+    reason           VARCHAR(200) NULL             COMMENT '거절 사유. resume 로 에이전트에 전달',
+
+    expires_at       DATETIME(6)  NOT NULL         COMMENT '대기 만료 시각 (생성 +30분). 초과 시 AGENT_019',
+    resolved_at      DATETIME(6)  NULL             COMMENT '응답 처리 시각',
+    created_at       DATETIME(6)  NULL             COMMENT '생성 시각',
+    modified_at      DATETIME(6)  NULL             COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- LLM이 같은 WRITE 승인 체크포인트를 중복 전송해도 승인 행은 하나만 생깁니다.
+    UNIQUE KEY uk_agent_interactions_run_tool_call (run_id, tool_call_id),
+    -- 토큰 원문을 해시한 뒤 이 인덱스로 승인 행을 찾습니다. NULL은 질문과 미발급 승인에 여러 건 허용됩니다.
+    UNIQUE KEY uk_agent_interactions_token_hash (token_hash),
+    -- 대화 상세에서 타임라인에 섞어 그리기 위해 실행별로 읽습니다.
+    KEY idx_agent_interactions_run (run_id, id),
+    -- 한 실행의 현재 대기 건 조회와 조건부 상태 변경에 사용합니다.
+    KEY idx_agent_interactions_run_status (run_id, status),
+    -- 홈 「확인이 필요한 요청」 조회와 만료 정리 배치가 함께 사용합니다.
+    KEY idx_agent_interactions_pending (status, expires_at),
+    CONSTRAINT fk_agent_interactions_run FOREIGN KEY (run_id) REFERENCES agent_runs (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = 'AI 에이전트 승인·질문';
+
+
+-- =============================================================================
+-- project_summaries : 프로젝트 탭 상단 AI 요약 배너
+--   - 프로젝트 하나가 섹션 수만큼 행을 갖습니다(overview·board·budget·meeting).
+--     4장을 한 행에 몰아넣지 않은 이유는 조회가 ?section=budget 처럼 한 장 단위로 들어오기 때문입니다.
+--   - section 을 enum 이 아니라 문자열로 둡니다. BE는 게이트라서 섹션의 의미를 알지 않고 저장 키로만
+--     쓰며, LLM팀이 섹션을 하나 더 만들어도 BE 배포 없이 그대로 저장·조회됩니다.
+--   - payload_json 은 배너 한 장의 원문(section·headline·detail·stats)입니다. 서버는 열어보지 않고
+--     그대로 저장했다가 프론트에 돌려줍니다. 필드를 컬럼으로 펼치면 LLM팀이 칩 하나를 추가할 때마다
+--     마이그레이션이 필요해집니다.
+--   - display_order 는 FastAPI 응답 배열의 순서입니다. 섹션 이름을 해석하지 않고도
+--     overview → board → budget → meeting 순서를 유지하려면 순번을 받아 적어 두는 수밖에 없습니다.
+--   - generated_at 을 created_at 과 따로 둡니다. created_at 은 이 행이 처음 만들어진 시각이라
+--     재생성해도 그대로인데, 화면은 "언제 기준 요약인지"를 말해야 합니다.
+--   - source_stamp 은 만들 때의 재료 상태를 나타내는 지문입니다(최근 수정 시각 + 행 수).
+--     조회할 때 지금 값과 비교해 "그사이 바뀌었나"를 판정합니다. 이 칼럼 덕분에 할 일·지출·게시글 등
+--     도메인 곳곳에 캐시 무효화 호출을 심지 않아도 됩니다.
+--     행 수를 함께 담는 이유는 삭제 때문입니다 — 할 일·마일스톤은 하드 삭제라 행이 사라지고,
+--     게시글·회의록은 @SQLDelete 가 네이티브 UPDATE 로 지워 modified_at 이 갱신되지 않습니다.
+--     서버는 이 값을 해석하지 않고 같은지만 봅니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS project_summaries (
+    id            BIGINT      NOT NULL AUTO_INCREMENT,
+    project_id    BIGINT      NOT NULL           COMMENT '프로젝트 FK',
+    section       VARCHAR(20) NOT NULL           COMMENT '탭 구분 (overview / board / budget / meeting). BE는 해석하지 않음',
+    display_order INT         NOT NULL           COMMENT 'FastAPI 응답 배열의 순서. 조회 시 이 순서로 내려감',
+    payload_json  LONGTEXT    NOT NULL           COMMENT '배너 원문 — headline·detail·stats. 서버 미해석',
+    generated_at  DATETIME(6) NOT NULL           COMMENT '이 배너를 만든 시각. 최소 재생성 간격 판정 기준',
+    source_stamp  VARCHAR(64) NULL               COMMENT '생성 시점 재료의 지문(최근 수정 시각/행 수). 변경 감지용, 서버 미해석',
+    created_at    DATETIME(6) NULL               COMMENT '생성 시각',
+    modified_at   DATETIME(6) NULL               COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 재생성은 섹션 단위 맞바꾸기입니다. 같은 섹션이 두 행이 되면 배너가 두 번 그려집니다.
+    UNIQUE KEY uk_project_summaries_project_section (project_id, section),
+    -- 조회는 WHERE project_id = ? ORDER BY display_order 하나뿐입니다.
+    KEY idx_project_summaries_project_order (project_id, display_order),
+    CONSTRAINT fk_project_summaries_project
+    FOREIGN KEY (project_id) REFERENCES projects (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '프로젝트 탭 AI 요약 배너';
+
+
+-- =============================================================================
+-- replans : 재계획 한 건 (여러 시나리오를 묶는 상위 단위)
+--   - 계획 내용은 여기에 없습니다. replan_scenarios 에 있고 저장 후 바뀌지 않습니다.
+--   - 여기서 변하는 것은 applied_* 세 칼럼(적용 사실 기록)뿐입니다.
+--   - 중복 실행 방지는 agent_interactions.executed_at 이 담당합니다. applied_* 는 감사 기록이며,
+--     특히 할 일은 하드 삭제라 "무엇이 왜 사라졌는지"가 이 기록과 operations 에만 남습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS replans (
+    id                    BIGINT       NOT NULL AUTO_INCREMENT,
+    project_id            BIGINT       NOT NULL      COMMENT '대상 프로젝트 FK',
+    created_by            BIGINT       NOT NULL      COMMENT '재계획을 만든 사용자 (users FK)',
+    reason                VARCHAR(500) NULL          COMMENT '재계획이 필요해진 이유',
+    applied_scenario_type VARCHAR(20)  NULL          COMMENT '적용한 시나리오. 미적용이면 NULL',
+    applied_by            BIGINT       NULL          COMMENT '적용한 사용자 (users FK)',
+    applied_at            DATETIME(6)  NULL          COMMENT '적용 시각. NULL이면 아직 적용 전',
+    created_at            DATETIME(6)  NULL          COMMENT '생성 시각',
+    modified_at           DATETIME(6)  NULL          COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 프로젝트별 재계획 이력 조회. 최신순이 기본이라 id 를 함께 둡니다.
+    KEY idx_replans_project (project_id, id),
+    CONSTRAINT fk_replans_project    FOREIGN KEY (project_id) REFERENCES projects (id),
+    CONSTRAINT fk_replans_creator    FOREIGN KEY (created_by) REFERENCES users (id),
+    CONSTRAINT fk_replans_applier    FOREIGN KEY (applied_by) REFERENCES users (id)
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '재계획';
+
+
+-- =============================================================================
+-- replan_scenarios : 시나리오 한 개 = 사용자가 고를 수 있는 선택지 하나
+--   - **저장 후 절대 UPDATE 하지 않습니다.** 계획이 달라져야 하면 새 재계획을 만듭니다.
+--     적용 요청 본문은 {"scenarioType": "..."} 뿐이라 승인 토큰의 해시가 봉인하는 것은 "어느 시나리오냐"까지고,
+--     실제 변경 내용인 operations 는 그 해시 밖입니다. 여기가 바뀔 수 있으면
+--     사용자가 승인한 것과 다른 변경이 실행돼도 아무 검증에도 걸리지 않습니다.
+--   - operations 를 정규화하지 않는 이유: 종류마다 필요한 필드가 다르고(7종),
+--     조회가 언제나 "이 재계획의 이 시나리오" 단위라 개별 항목을 질의할 일이 없습니다.
+-- =============================================================================
+CREATE TABLE IF NOT EXISTS replan_scenarios (
+    id            BIGINT       NOT NULL AUTO_INCREMENT,
+    replan_id     BIGINT       NOT NULL      COMMENT '소속 재계획 FK',
+    scenario_type VARCHAR(20)  NOT NULL      COMMENT 'REALLOCATE(인력 재배치) / EXTEND(일정 조정) / REDUCE_SCOPE(범위 축소)',
+    summary       VARCHAR(500) NOT NULL      COMMENT '사용자에게 보여줄 한 줄 설명 (승인 카드의 근거로는 쓰지 않음)',
+    risk          VARCHAR(10)  NOT NULL      COMMENT 'LOW / MEDIUM / HIGH — 선택을 돕는 라벨. 서버 판정에는 쓰지 않음',
+    operations    TEXT         NOT NULL      COMMENT '변경 목록 JSON 배열. 적용 때 되읽어 그대로 실행',
+    created_at    DATETIME(6)  NULL          COMMENT '생성 시각',
+    modified_at   DATETIME(6)  NULL          COMMENT '수정 시각',
+    PRIMARY KEY (id),
+    -- 적용은 (replan_id, scenario_type) 으로 한 건을 찾습니다. 같은 종류가 둘이면
+    -- 사용자가 고른 것과 다른 쪽이 실행될 수 있습니다.
+    UNIQUE KEY uk_replan_scenarios_replan_type (replan_id, scenario_type),
+    CONSTRAINT fk_replan_scenarios_replan FOREIGN KEY (replan_id) REFERENCES replans (id) ON DELETE CASCADE
+    ) ENGINE = InnoDB DEFAULT CHARSET = utf8mb4 COLLATE = utf8mb4_unicode_ci COMMENT = '재계획 시나리오';

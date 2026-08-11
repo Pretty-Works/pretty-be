@@ -21,7 +21,6 @@ import HK.PrettyWorks_BE.project.project.domain.ProjectEntity;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
-import HK.PrettyWorks_BE.user.constant.StatusType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.exception.UserErrorCode;
 import HK.PrettyWorks_BE.user.policy.UserPolicy;
@@ -55,7 +54,7 @@ public class MeetingService {
             Long projectId, Long authorId, String idempotencyKey, MeetingCreateRequest request) {
 
         // 작성자 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단.
-        // 멱등 처리 '바깥'에 둔다. 안에 두면 어차피 거부할 요청이 멱등 키로 기록돼 재시도까지 막힌다.
+        // 멱등 처리 바깥에 둬서 기존 응답을 재생하는 요청도 현재의 재직 상태를 반드시 확인한다.
         currentUserService.getEmployedUser(authorId);
 
         String path = "/api/v1/projects/" + projectId + "/meetings";
@@ -75,12 +74,12 @@ public class MeetingService {
     // 회의록 작성
     private Long doCreate(Long projectId, Long authorId, MeetingCreateRequest request) {
 
+        // 작성자가 이 프로젝트의 참여중 멤버인지 확인
+        projectMemberService.validateActiveMember(projectId, authorId);
+
         // 존재하는 프로젝트인지 확인
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
-
-        // 작성자가 이 프로젝트의 참여중 멤버인지 확인
-        projectMemberService.validateActiveMember(projectId, authorId);
 
         // 완료/보관된 프로젝트가 아닌지 확인
         if (!ProjectPolicy.isOpenForContent(project)) {
@@ -125,10 +124,19 @@ public class MeetingService {
     @Transactional(readOnly = true)
     public PageResponse<MeetingListResponse> getMeetingList
     (Long projectId, Long userId, String title, String attendeeName, Pageable pageable) {
+        return getMeetingList(projectId, userId, title, attendeeName, null, null, pageable);
+    }
 
-        projectMemberService.validateActiveMember(projectId, userId);
+    // 회의 일자 구간까지 좁히는 일반형 조회. "지난 달 회의록"처럼 기간으로 묻는 에이전트 도구(meeting.list)가 쓴다.
+    @Transactional(readOnly = true)
+    public PageResponse<MeetingListResponse> getMeetingList
+    (Long projectId, Long userId, String title, String attendeeName,
+     LocalDate from, LocalDate to, Pageable pageable) {
 
-        Page<MeetingEntity> meetings = meetingRepository.findMeetingSummaries(projectId, title, attendeeName, pageable);
+        projectMemberService.validateAccess(projectId, userId);
+
+        Page<MeetingEntity> meetings =
+                meetingRepository.findMeetingSummaries(projectId, title, attendeeName, from, to, pageable);
 
         // 이 페이지의 회의 id들을 모아서 참석자를 한 번에 조회 후 meetingId로 그룹핑
         List<Long> meetingIds = meetings.getContent().stream()
@@ -159,6 +167,8 @@ public class MeetingService {
                     .authorName(authorName)
                     .attendeeNames(attendeeNames)
                     .meetingDate(meeting.getMeetingDate())
+                    .location(meeting.getLocation())
+                    .purpose(meeting.getPurpose())
                     .build();
         });
 
@@ -170,7 +180,7 @@ public class MeetingService {
     public MeetingDetailResponse getMeetingDetail
     (Long projectId, Long meetingId, Long userId) {
 
-        projectMemberService.validateActiveMember(projectId, userId);
+        projectMemberService.validateAccess(projectId, userId);
 
         // 회의록 찾기 (존재하지 않는 회의록은 에러)
         MeetingEntity meeting = meetingRepository.findById(meetingId)
@@ -189,7 +199,9 @@ public class MeetingService {
     public MeetingDetailResponse updateMeeting
     (Long projectId, Long meetingId, Long userId, MeetingUpdateRequest request) {
 
-        // 현재 사용자가 이 프로젝트의 활성 멤버인지 검증
+        // 프로젝트 존재를 멤버십보다 먼저 판정해 없는 프로젝트가 403으로 가려지지 않게 한다.
+        ProjectEntity project = projectRepository.findById(projectId)
+                .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
         projectMemberService.validateActiveMember(projectId, userId);
 
         // 회의록 찾기
@@ -201,25 +213,22 @@ public class MeetingService {
             throw BaseException.type(MeetingErrorCode.MEETING_NOT_FOUND);
         }
 
-        // 프로젝트 조회 및 완료/보관된 프로젝트가 아닌지 확인
-        ProjectEntity project = projectRepository.findById(projectId)
-                .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
+        // 작성자 또는 참석자만 수정 가능
+        boolean isParticipant = meetingAttendeeRepository.existsByMeetingIdAndUserId(meetingId, userId);
+        if (!MeetingPolicy.canEdit(meeting, userId, isParticipant)) {
+            throw BaseException.type(MeetingErrorCode.NO_PERMISSION);
+        }
+
+        // 권한 판정 뒤에 둬서 남의 회의록 요청에는 권한 에러가 먼저 나가게 한다.
+        currentUserService.getEmployedUser(userId);
+
+        // 완료/보관된 프로젝트가 아닌지 확인
         if (!ProjectPolicy.isOpenForContent(project)) {
             throw BaseException.type(MeetingErrorCode.PROJECT_CLOSED);
         }
 
         // 회의 일자가 프로젝트 기간(startDate ~ targetDate) 안인지
         validateMeetingDate(project, request.meetingDate());
-
-        // 작성자 또는 참석자만 수정 가능
-        boolean isParticipant = meetingAttendeeRepository.existsByMeetingIdAndUserId(meetingId, userId);
-        // 재직 검증 (USER_003) — 휴직자는 통과, 퇴사자만 차단.
-        // 권한 판정 다음에 둬서, 남의 회의록을 건드리는 요청은 권한 에러가 먼저 나가게 한다.
-        currentUserService.getEmployedUser(userId);
-
-        if (!MeetingPolicy.canEdit(meeting, userId, isParticipant)) {
-            throw BaseException.type(MeetingErrorCode.NO_PERMISSION);
-        }
 
         // 본인(참석자)이 수정 시 자기 자신을 명단에서 뺄 수 없음
         // (작성자는 항상 WRITER로 유지되므로 예외)
@@ -259,14 +268,14 @@ public class MeetingService {
     (Long projectId, Long meetingId, Long userId) {
 
         // 현재 사용자가 이 프로젝트의 활성 멤버인지
-        projectMemberService.validateActiveMember(projectId, userId);
+        projectMemberService.validateAccess(projectId, userId);
 
         MeetingEntity meeting = meetingRepository.findById(meetingId)
                 .orElseThrow(() -> BaseException.type(MeetingErrorCode.MEETING_NOT_FOUND));
 
         // 프로젝트와 회의록이 일치하지 않을 경우
         if (!projectId.equals(meeting.getProjectId())) {
-            throw BaseException.type(MeetingErrorCode.MEETING_NOT_IN_PROJECT);
+            throw BaseException.type(MeetingErrorCode.MEETING_NOT_FOUND);
         }
 
         // 작성자만 삭제 가능
@@ -313,10 +322,14 @@ public class MeetingService {
             throw BaseException.type(MeetingErrorCode.ATTENDEE_NOT_FOUND);
         }
 
-        // 재직중 확인
+        // 재직 확인 — 퇴사자(RESIGNED)만 거부하고 휴직(ON_LEAVE)은 허용한다.
+        // 회의록은 "그 자리에 누가 있었나"의 기록이라 휴직 전 회의를 뒤늦게 적을 수 있고,
+        // 복귀 예정자·인수인계 참석도 실제로 일어난다.
+        // 프로젝트 멤버·일정 참가자와 같은 기준(UserPolicy.isEmployed)으로 맞춘다 —
+        // 기준이 갈리면 참여자 목록에는 보이는데 참석자로는 거부되는 일이 생긴다.
         for (UserEntity attendee : attendees) {
-            if (!UserPolicy.isActive(attendee)) {
-                throw BaseException.type(UserErrorCode.INACTIVE_USER);
+            if (!UserPolicy.isEmployed(attendee)) {
+                throw BaseException.type(UserErrorCode.RESIGNED_USER);
             }
         }
 
@@ -328,20 +341,24 @@ public class MeetingService {
 
     // 작성자 + 참석자 저장 공통 로직
     private void saveAttendees(Long meetingId, Long authorId, List<Long> attendeeIds) {
-        UserEntity author = currentUserService.getCurrentUser(authorId);
+        // 작성자 + 참석자 id를 한 번에 조회
+        List<Long> allIds = new ArrayList<>();
+        allIds.add(authorId);
+        allIds.addAll(attendeeIds);
 
-        // 참석자들만 한 번에 조회
-        Map<Long, UserEntity> attendeeMap = userRepository.findAllById(attendeeIds).stream()
+        Map<Long, UserEntity> userMap = userRepository.findAllById(allIds).stream()
                 .collect(Collectors.toMap(UserEntity::getId, user -> user));
 
         List<MeetingAttendeeEntity> toSave = new ArrayList<>();
 
         // 작성자(WRITER)
+        UserEntity author = userMap.get(authorId);
+        if (author == null) throw BaseException.type(MeetingErrorCode.AUTHOR_NOT_FOUND);
         toSave.add(toAttendee(meetingId, author, MeetingRole.WRITER));
 
         // 참석자(ATTENDEE)
         for (Long attendeeId : attendeeIds) {
-            UserEntity attendee = attendeeMap.get(attendeeId);
+            UserEntity attendee = userMap.get(attendeeId);
             if (attendee == null) throw BaseException.type(MeetingErrorCode.ATTENDEE_NOT_FOUND);
             toSave.add(toAttendee(meetingId, attendee, MeetingRole.ATTENDEE));
         }

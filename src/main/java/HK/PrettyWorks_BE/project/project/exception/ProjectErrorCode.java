@@ -24,7 +24,12 @@ public enum ProjectErrorCode implements ErrorCode {
     PROJECT_CLOSED(HttpStatus.CONFLICT, "PROJECT_020", "완료·보관된 프로젝트는 변경할 수 없습니다."),
     PERIOD_SHRINK_BLOCKED(HttpStatus.CONFLICT, "PROJECT_021", "새 기간을 벗어나는 할 일·지출·회의록이 있어 기간을 줄일 수 없습니다."),
     // 다른 프로젝트의 마일스톤을 지정한 경우도 이 코드로 응답한다. "없음"과 "남의 것"을 구분하면 존재 여부가 새어나간다.
-    MILESTONE_NOT_FOUND(HttpStatus.NOT_FOUND, "PROJECT_022", "마일스톤을 찾을 수 없습니다.");
+    MILESTONE_NOT_FOUND(HttpStatus.NOT_FOUND, "PROJECT_022", "마일스톤을 찾을 수 없습니다."),
+
+    // 409 — 마일스톤은 목표일 순서대로만 완료·취소할 수 있다(중간을 건너뛰면 완료율이 진척을 왜곡한다).
+    // 완료와 취소를 나눈 이유: 사용자가 해야 할 일이 정반대다. 하나로 합치면 무엇을 먼저 하라는 건지 알 수 없다.
+    MILESTONE_ORDER_REQUIRED(HttpStatus.CONFLICT, "PROJECT_023", "앞선 마일스톤을 먼저 완료해 주세요."),
+    MILESTONE_UNDO_ORDER_REQUIRED(HttpStatus.CONFLICT, "PROJECT_024", "뒤의 마일스톤을 먼저 취소해 주세요.");
 
     private final HttpStatus status;
     private final String errorCode;

@@ -21,21 +21,19 @@ import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.repository.UserRepository;
+import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Page;
 import org.springframework.data.domain.Pageable;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.util.StringUtils;
 
 import java.util.List;
 import java.util.Map;
 import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
-// 검증 순서(전 API 공통):
-//   ① 프로젝트 존재(404) → ② 프로젝트 멤버십(403) → ③ 게시글 존재·소속(404) → ④ 작성자 권한(403) → ⑤ 프로젝트 상태(400)
-// 프로젝트 '존재'를 '멤버십'보다 먼저 보는 이유: 권한을 먼저 보면 없는 projectId도 "참여 기록 없음"이 되어
-// 404여야 할 응답이 403으로 가려진다. (ProjectMemberService.validateAccess 주석 참고)
 @Service
 @RequiredArgsConstructor
 public class PostService {
@@ -44,11 +42,15 @@ public class PostService {
     private final ProjectMemberService projectMemberService;
     private final UserRepository userRepository;
     private final IdempotencyService idempotencyService;
+    private final CurrentUserService currentUserService;
 
     // 멱등 처리 진입점
     // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않음
     public PostCreateResponse createPost(
             Long projectId, Long authorId, String idempotencyKey, PostCreateRequest request) {
+
+        // 퇴사 직후에도 남아 있을 수 있는 access token으로 새 글을 쓰지 못하게 한다.
+        currentUserService.getEmployedUser(authorId);
 
         String path = "/api/v1/projects/" + projectId + "/posts";
 
@@ -96,7 +98,14 @@ public class PostService {
         // 프로젝트 존재 + 참여중 멤버 검증
         projectMemberService.validateAccess(projectId, userId);
 
-        Page<PostEntity> posts = postRepository.findPostSummaries(projectId, title, priority, pageable);
+        String normalizedTitle =  StringUtils.hasText(title) ? title.trim() : null;
+
+        Page<PostEntity> posts = postRepository.findPostSummaries(
+                projectId,
+                normalizedTitle,
+                priority,
+                pageable
+        );
 
         // 이 페이지의 작성자 id를 모아서 한 번에 조회 (N+1 방지)
         List<Long> authorIds = posts.getContent().stream()
@@ -155,6 +164,9 @@ public class PostService {
             throw BaseException.type(PostErrorCode.NO_PERMISSION);
         }
 
+        // 권한이 없는 요청에는 사용자 상태나 프로젝트 상태보다 권한 오류를 우선한다.
+        currentUserService.getEmployedUser(userId);
+
         // 완료/보관된 프로젝트가 아닌지 확인
         if (!ProjectPolicy.isOpenForContent(project)) {
             throw BaseException.type(PostErrorCode.PROJECT_CLOSED);
@@ -179,6 +191,8 @@ public class PostService {
             throw BaseException.type(PostErrorCode.NO_PERMISSION);
         }
 
+        currentUserService.getEmployedUser(userId);
+
         // soft delete (@SQLDelete → deleted_at 갱신)
         postRepository.delete(post);
 
@@ -193,7 +207,7 @@ public class PostService {
                 .orElseThrow(() -> BaseException.type(PostErrorCode.POST_NOT_FOUND));
 
         if (!projectId.equals(post.getProjectId())) {
-            throw BaseException.type(PostErrorCode.POST_NOT_IN_PROJECT);
+            throw BaseException.type(PostErrorCode.POST_NOT_FOUND);
         }
         return post;
     }

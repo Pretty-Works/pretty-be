@@ -5,6 +5,9 @@ import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.global.lock.VersionGuard;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
+import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationType;
+import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.member.constant.ProjectMemberStatus;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
 import HK.PrettyWorks_BE.project.member.repository.ProjectMemberRepository;
@@ -19,6 +22,7 @@ import HK.PrettyWorks_BE.project.project.dto.res.*;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.MilestoneRepository;
+import HK.PrettyWorks_BE.project.project.repository.MyProjectRow;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.exception.UserErrorCode;
@@ -61,6 +65,7 @@ public class ProjectService {
     private final ProjectMemberService projectMemberService;
     private final MilestoneRepository milestoneRepository;
     private final IdempotencyService idempotencyService;
+    private final NotificationPublisher notificationPublisher;
     // 기간 축소 시 하위 데이터를 검사할 도메인들. 각 도메인이 구현체를 등록하고 Spring이 모아서 주입한다.
     private final List<ProjectPeriodConstraint> periodConstraints;
 
@@ -148,7 +153,15 @@ public class ProjectService {
         }
         milestoneRepository.saveAll(milestoneEntities);
 
-        // 6) 생성된 프로젝트 id 반환
+        // 6) 참여자에게 추가 알림. 수정으로 추가하든 생성 때 넣든 당사자에겐 같은 일이라 문구도 같다.
+        //    create가 아니라 여기 두는 이유: 멱등 재시도는 저장을 건너뛰고 첫 응답을 재생하므로,
+        //    바깥에 두면 프로젝트는 하나인데 알림만 여러 번 나간다.
+        //    participants는 collectParticipants가 오너를 이미 빼둔 목록이다.
+        notificationPublisher.publish(NotificationType.PROJECT_MEMBER_ADDED,
+                participants.keySet(), ownerId, NotificationTargetType.PROJECT, project.getId(),
+                project.getName());
+
+        // 7) 생성된 프로젝트 id 반환
         return project.getId();
     }
 
@@ -160,10 +173,11 @@ public class ProjectService {
         ProjectEntity project = projectRepository.findByIdWithOptimisticLock(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
 
-        // 2) 수정 권한 (PROJECT_005): 호출자의 참여중(ACTIVE) 멤버십이 오너이거나 role="PM"
+        // 2) 수정 권한 (PROJECT_005): 참여중(ACTIVE) 멤버이면서 오너이거나 부서가 PM.
+        //    재직 검증 없이 읽는다 — 퇴사자에게 USER_003보다 403이 먼저 나가야 한다.
         ProjectMemberEntity caller = projectMemberService.getActiveMembership(projectId, userId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.NO_EDIT_PERMISSION));
-        if (!ProjectPolicy.canUpdate(caller)) {
+        if (!ProjectPolicy.canUpdate(caller, currentUserService.getCurrentUser(userId))) {
             throw BaseException.type(ProjectErrorCode.NO_EDIT_PERMISSION);
         }
 
@@ -203,16 +217,26 @@ public class ProjectService {
         validateParticipants(requested.keySet());
 
         // 10) 프로젝트 기본정보 수정 (status는 이 API로 바꾸지 않음, 예산 null→0)
+        //     기간이 실제로 바뀐 경우에만 알리려고 덮어쓰기 전 값을 잡아둔다.
+        boolean periodChanged = !startDate.equals(project.getStartDate())
+                || !endDate.equals(project.getTargetDate());
         project.update(request.name(), startDate, endDate, budgetOrZero(request.budget()), request.description());
 
         // 11) 오너 직무 역할 갱신
         owner.updateRole(request.ownerRole());
 
-        // 12) 참여자 diff (추가 insert / 재활성화 / 역할 변경 / 빠짐 soft-delete)
-        updateParticipants(projectId, requested);
+        // 12) 참여자 diff (추가 insert / 재활성화 / 역할 변경 / 빠짐 soft-delete) + 추가·제외 알림
+        updateParticipants(project, userId, requested);
 
         // 13) 마일스톤 diff (신규 insert / 기존 갱신 / 요청에서 빠진 것 삭제) — 완료 상태는 보존
         syncMilestones(projectId, milestones);
+
+        // 14) 기간 변경 알림. 12)에서 방금 빠진 사람은 이미 ACTIVE가 아니라 대상에서 자연히 제외된다.
+        if (periodChanged) {
+            notificationPublisher.publish(NotificationType.PROJECT_PERIOD_CHANGED,
+                    projectMemberService.getActiveMemberIds(projectId), userId, NotificationTargetType.PROJECT, projectId,
+                    project.getName(), startDate, endDate);
+        }
 
         return ProjectResponse.builder()
                 .projectId(project.getId())
@@ -225,32 +249,62 @@ public class ProjectService {
     @Transactional(readOnly = true)
     public PageResponse<ProjectListResponse> getMyProjects(Long userId, String statusParam,
                                                            String keyword, Pageable pageable) {
-        // 1) 상태 필터 해석 — 미지정은 진행중, ALL은 필터 없음(null), ARCHIVED는 조회 불가
-        ProjectStatus status = parseFilterStatus(statusParam);
-
-        // 2) 검색어 정리 — 공백만 들어오면 검색하지 않은 것으로 본다
-        String searchKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
-
-        Page<ProjectEntity> projects = projectRepository.findMyProjects(
-                userId, ProjectMemberStatus.ACTIVE, ProjectStatus.ARCHIVED,
-                status, searchKeyword,
-                ProjectStatus.ONGOING, ProjectStatus.HOLDING,
-                pageable);
+        Page<MyProjectRow> rows = findMyProjects(userId, statusParam, keyword, pageable);
 
         // 3) 진행률은 조회 시점 날짜로 계산한 파생값 (상세 조회와 동일한 계산)
         LocalDate today = LocalDate.now();
 
-        return PageResponse.from(projects.map(project -> ProjectListResponse.builder()
-                .projectId(project.getId())
-                .name(project.getName())
-                .status(project.getStatus())
-                .targetDate(project.getTargetDate())
-                .progress(project.calculateProgress(today))
-                .build()));
+        return PageResponse.from(rows.map(row -> {
+            ProjectEntity project = row.project();
+            return ProjectListResponse.builder()
+                    .projectId(project.getId())
+                    .name(project.getName())
+                    .status(project.getStatus())
+                    .targetDate(project.getTargetDate())
+                    .progress(project.calculateProgress(today))
+                    .build();
+        }));
     }
 
     // 목록 필터용 상태 해석. 값이 없으면 진행중(홈의 기본 화면), ALL이면 상태 조건을 걸지 않는다.
     // ARCHIVED는 소프트 삭제에 해당하므로 명시적으로 요청해도 조회할 수 없다.
+    /**
+     * Uses the same membership, status filtering and fixed ordering as the public project list,
+     * while exposing the period and write-state data required by internal tools.
+     */
+    @Transactional(readOnly = true)
+    public Page<ProjectSearchResult> searchMyProjects(Long userId, String statusParam,
+                                                       String keyword, Pageable pageable) {
+        return findMyProjects(userId, statusParam, keyword, pageable)
+                .map(row -> {
+                    ProjectEntity project = row.project();
+                    return new ProjectSearchResult(
+                            project.getId(),
+                            project.getName(),
+                            project.getStatus(),
+                            project.getStartDate(),
+                            project.getTargetDate(),
+                            project.getTargetBudget(),
+                            ProjectPolicy.isOpenForContent(project),
+                            // 조회 조건이 "내가 참여중"이라 멤버 행은 이미 조인돼 있다.
+                            // 여기서 버리고 나중에 다시 찾으면 프로젝트 수만큼 쿼리가 더 나간다.
+                            row.membership().getRole(),
+                            row.membership().isOwner());
+                });
+    }
+
+    private Page<MyProjectRow> findMyProjects(Long userId, String statusParam,
+                                               String keyword, Pageable pageable) {
+        ProjectStatus status = parseFilterStatus(statusParam);
+        String searchKeyword = StringUtils.hasText(keyword) ? keyword.trim() : null;
+
+        return projectRepository.findMyProjects(
+                userId, ProjectMemberStatus.ACTIVE, ProjectStatus.ARCHIVED,
+                status, searchKeyword,
+                ProjectStatus.ONGOING, ProjectStatus.HOLDING,
+                pageable);
+    }
+
     private ProjectStatus parseFilterStatus(String statusParam) {
         if (!StringUtils.hasText(statusParam)) {
             return ProjectStatus.ONGOING;
@@ -294,33 +348,43 @@ public class ProjectService {
             throw BaseException.type(GlobalErrorCode.INTERNAL_SERVER_ERROR);   // 오너는 항상 존재해야 한다
         }
 
-        // 4) 멤버 이름을 한 번에 조회 (userId → name). 루프 안에서 개별 조회하지 않는다.
+        // 4) 멤버 정보를 한 번에 조회 (userId → user). 루프 안에서 개별 조회하지 않는다.
+        //    이름뿐 아니라 부서·직급까지 필요해 getNameMap이 아니라 getUserMap을 쓴다 —
+        //    수정 화면의 참여자 카드가 "이름 · 부서"로 표시한다.
         Set<Long> memberUserIds = activeMembers.stream()
                 .map(ProjectMemberEntity::getUserId)
                 .collect(Collectors.toSet());
-        Map<Long, String> nameById = userService.getNameMap(memberUserIds);
+        Map<Long, UserEntity> userById = userService.getUserMap(memberUserIds);
 
         // 5) 마일스톤 (목표일 오름차순)
         List<MilestoneEntity> milestones = milestoneRepository.findByProjectIdOrderByTargetDateAscIdAsc(projectId);
 
         // 6) 조립 — progress는 오늘 날짜로 계산한 파생값
+        UserEntity ownerUser = userById.get(ownerMember.getUserId());
         ProjectDetailResponse.Owner owner = ProjectDetailResponse.Owner.builder()
                 .userId(ownerMember.getUserId())
-                .name(nameById.get(ownerMember.getUserId()))
+                .name(ownerUser == null ? null : ownerUser.getName())
+                .department(ownerUser == null ? null : ownerUser.getDepartment())
+                .position(ownerUser == null ? null : ownerUser.getPosition())
+                .status(ownerUser == null ? null : ownerUser.getStatus())
                 .ownerRole(ownerMember.getRole())
                 .build();
 
         List<ProjectDetailResponse.Member> memberDtos = participants.stream()
-                .map(m -> ProjectDetailResponse.Member.builder()
-                        .userId(m.getUserId())
-                        .name(nameById.get(m.getUserId()))
-                        .role(m.getRole())
-                        .build())
+                .map(m -> {
+                    UserEntity user = userById.get(m.getUserId());
+                    return ProjectDetailResponse.Member.builder()
+                            .userId(m.getUserId())
+                            .name(user == null ? null : user.getName())
+                            .department(user == null ? null : user.getDepartment())
+                            .position(user == null ? null : user.getPosition())
+                            .status(user == null ? null : user.getStatus())
+                            .role(m.getRole())
+                            .build();
+                })
                 .toList();
 
-        List<MilestoneSummary> milestoneDtos = milestones.stream()
-                .map(MilestoneSummary::from)
-                .toList();
+        List<MilestoneSummary> milestoneDtos = MilestoneSummary.listFrom(milestones);
 
         return ProjectDetailResponse.builder()
                 .projectId(project.getId())
@@ -344,10 +408,11 @@ public class ProjectService {
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
 
-        // 2) 상태 변경 권한 (PROJECT_017): 호출자의 참여중(ACTIVE) 멤버십이 오너여야 함
+        // 2) 상태 변경 권한 (PROJECT_017): 수정과 같은 기준 — 오너이거나 부서가 PM인 참여자.
+        //    에러코드를 PROJECT_005와 나눠 두는 이유는 규칙이 달라서가 아니라 화면 문구가 달라야 하기 때문이다.
         ProjectMemberEntity caller = projectMemberService.getActiveMembership(projectId, userId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.NO_STATUS_CHANGE_PERMISSION));
-        if (!ProjectPolicy.canChangeStatus(caller)) {
+        if (!ProjectPolicy.canUpdate(caller, currentUserService.getCurrentUser(userId))) {
             throw BaseException.type(ProjectErrorCode.NO_STATUS_CHANGE_PERMISSION);
         }
 
@@ -364,6 +429,11 @@ public class ProjectService {
 
         // 5) 상태 변경 (영속 엔티티 → dirty checking으로 UPDATE)
         project.changeStatus(target);
+
+        // 6) 참여중 멤버 전원에게 알림. 탈퇴 멤버는 ACTIVE 조회로 빠지고, 변경자·퇴사자는 발행기가 걸러낸다.
+        notificationPublisher.publish(NotificationType.PROJECT_STATUS_CHANGED,
+                projectMemberService.getActiveMemberIds(projectId), userId, NotificationTargetType.PROJECT, projectId,
+                project.getName(), target.getDescription());
 
         return ProjectStatusResponse.builder()
                 .projectId(project.getId())
@@ -456,7 +526,9 @@ public class ProjectService {
     }
 
     // 참여자 diff (오너 제외). 현재 멤버(ACTIVE+LEFT)와 요청을 userId로 비교한다.
-    private void updateParticipants(Long projectId, Map<Long, MemberRequest> requested) {
+    private void updateParticipants(ProjectEntity project, Long actorId,
+                                    Map<Long, MemberRequest> requested) {
+        Long projectId = project.getId();
         Map<Long, ProjectMemberEntity> current = new LinkedHashMap<>();
         for (ProjectMemberEntity m : projectMemberRepository.findParticipants(projectId)) {
             current.put(m.getUserId(), m);
@@ -464,6 +536,9 @@ public class ProjectService {
 
         LocalDateTime now = LocalDateTime.now();
         List<ProjectMemberEntity> toInsert = new ArrayList<>();
+        // 알림 수신자. 재참여(reactivate)도 당사자에겐 "추가"라 신규와 같은 목록에 담는다.
+        List<Long> added = new ArrayList<>();
+        List<Long> removed = new ArrayList<>();
 
         // 요청에 있는 참여자: 신규 insert / LEFT였으면 재활성화 / 참여중이면 역할만 갱신
         for (MemberRequest req : requested.values()) {
@@ -476,9 +551,12 @@ public class ProjectService {
                         .role(req.role())
                         .status(ProjectMemberStatus.ACTIVE)
                         .build());
+                added.add(req.userId());
             } else if (existing.getStatus() == ProjectMemberStatus.LEFT) {
                 existing.reactivate(req.role());
+                added.add(req.userId());
             } else if (!Objects.equals(existing.getRole(), req.role())) {
+                // 역할 변경은 알리지 않는다. 참여 여부가 바뀐 게 아니라 표기가 바뀐 것이다.
                 existing.updateRole(req.role());
             }
         }
@@ -487,6 +565,7 @@ public class ProjectService {
         for (ProjectMemberEntity m : current.values()) {
             if (m.getStatus() == ProjectMemberStatus.ACTIVE && !requested.containsKey(m.getUserId())) {
                 m.leave(now);
+                removed.add(m.getUserId());
             }
         }
 
@@ -494,6 +573,12 @@ public class ProjectService {
             projectMemberRepository.saveAll(toInsert);
         }
         // 기존 엔티티(reactivate/updateRole/leave)는 영속 상태라 flush 시 dirty checking으로 자동 UPDATE.
+
+        // PM이 자기 자신을 참여자 목록에서 빼는 경우가 있어, 제외 알림도 행위자를 걸러야 한다(발행기가 처리).
+        notificationPublisher.publish(NotificationType.PROJECT_MEMBER_ADDED,
+                added, actorId, NotificationTargetType.PROJECT, projectId, project.getName());
+        notificationPublisher.publish(NotificationType.PROJECT_MEMBER_REMOVED,
+                removed, actorId, NotificationTargetType.PROJECT, projectId, project.getName());
     }
 
     // 마일스톤 동기화(diff) — 요청 목록을 최종 상태로 맞춘다. 참여자 diff(updateParticipants)와 같은 패턴.

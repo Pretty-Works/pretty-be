@@ -17,7 +17,7 @@ public interface PostRepository extends JpaRepository<PostEntity, Long> {
             WHERE p.projectId = :projectId
               AND (:title IS NULL OR p.title LIKE CONCAT('%', :title, '%'))
               AND (:priority IS NULL OR p.priority = :priority)
-            ORDER BY p.createdAt DESC
+            ORDER BY p.createdAt DESC, p.id DESC
             """,
             countQuery = """
             SELECT COUNT(p)

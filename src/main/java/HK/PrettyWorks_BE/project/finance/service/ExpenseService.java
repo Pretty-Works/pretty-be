@@ -2,8 +2,13 @@ package HK.PrettyWorks_BE.project.finance.service;
 
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
+import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.global.util.Percent;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
+import HK.PrettyWorks_BE.project.finance.constant.ExpenseCategory;
+import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationType;
+import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.finance.constant.ExpenseStatus;
 import HK.PrettyWorks_BE.project.finance.domain.ExpenseEntity;
 import HK.PrettyWorks_BE.project.finance.dto.req.ExpenseRequest;
@@ -32,6 +37,8 @@ import org.springframework.transaction.annotation.Transactional;
 import org.springframework.util.StringUtils;
 
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
+import java.util.List;
 import java.util.Map;
 import java.util.Set;
 import java.util.function.Supplier;
@@ -51,6 +58,7 @@ public class ExpenseService {
     private final IdempotencyService idempotencyService;
     private final CurrentUserService currentUserService;
     private final UserService userService;
+    private final NotificationPublisher notificationPublisher;
 
     // 지출 등록. 멱등 키가 있으면 중복 요청을 방어한다(같은 키·같은 요청은 첫 응답 재생, 다른 내용은 409).
     // 트랜잭션은 IdempotencyService가 소유하므로 여기엔 @Transactional을 걸지 않는다.
@@ -96,6 +104,15 @@ public class ExpenseService {
                 .amount(request.amount())
                 .build();
         expenseRepository.save(expense);
+
+        // 6) 오너에게만 알린다. 예산을 책임지는 사람이라 남의 지출이 붙는 걸 알아야 한다 —
+        //    멤버 전원에게 보내면 지출이 등록될 때마다 모두의 드롭다운이 채워진다.
+        //    발행을 create가 아니라 여기 두는 이유: 멱등 재시도는 저장을 건너뛰고 첫 응답을 재생하므로,
+        //    바깥에 두면 같은 지출로 알림만 여러 번 나간다.
+        projectMemberService.getOwnerId(projectId).ifPresent(ownerId ->
+                notificationPublisher.publish(NotificationType.EXPENSE_CREATED,
+                        List.of(ownerId), spenderId, NotificationTargetType.PROJECT, projectId,
+                        project.getName(), String.format("%,d", request.amount())));
 
         return expense.getId();
     }
@@ -172,10 +189,31 @@ public class ExpenseService {
         LocalDate from = (status == ExpenseStatus.PLANNED) ? today.plusDays(1) : null;
         LocalDate to = (status == ExpenseStatus.EXECUTED) ? today : null;
 
-        Page<ExpenseEntity> expenses =
-                expenseRepository.findExpenses(projectId, from, to, searchKeyword, withSort(pageable, status));
+        Page<ExpenseEntity> expenses = expenseRepository.findExpenses(
+                projectId, from, to, null, null, searchKeyword, withSort(pageable, status));
 
-        // 4) 지출자 이름은 한 번에 조회 (행마다 조회하면 N+1)
+        return toListResponse(projectId, expenses);
+    }
+
+    // 기간·유형·등록자를 직접 지정하는 일반형 조회. 화면 탭(status)이 아니라 임의 조건으로 찾아야 하는
+    // 에이전트 도구(expense.list)가 쓴다. 정렬은 호출자가 Pageable로 정한다.
+    @Transactional(readOnly = true)
+    public PageResponse<ExpenseListResponse> getExpenses(Long projectId, Long userId,
+                                                         LocalDate from, LocalDate to,
+                                                         ExpenseCategory category, Long spenderId,
+                                                         Pageable pageable) {
+        projectMemberService.validateAccess(projectId, userId);
+
+        if (from != null && to != null && from.isAfter(to)) {
+            throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
+        }
+
+        return toListResponse(projectId,
+                expenseRepository.findExpenses(projectId, from, to, category, spenderId, null, pageable));
+    }
+
+    // 지출 엔티티 페이지 → 목록 응답. 지출자 이름을 한 번에 붙인다(행마다 조회하면 N+1).
+    private PageResponse<ExpenseListResponse> toListResponse(Long projectId, Page<ExpenseEntity> expenses) {
         Set<Long> spenderIds = expenses.getContent().stream()
                 .map(ExpenseEntity::getSpenderId)
                 .collect(Collectors.toSet());
@@ -228,6 +266,8 @@ public class ExpenseService {
                 .planned(planned)
                 .remaining(remaining)
                 .executionRate(Percent.floorRate(executed, totalBudget))
+                .elapsedRate(elapsedRate(project, today))
+                .expenseCount(total.count())
                 .byCategory(expenseRepository.sumByCategory(projectId, today).stream()
                         .map(row -> BudgetSummaryResponse.CategoryAmount.builder()
                                 .category(row.category())
@@ -248,6 +288,23 @@ public class ExpenseService {
     // 집계 대상 행이 0건이면 SUM은 0이 아니라 null을 반환한다.
     private long zeroIfNull(Long value) {
         return value == null ? 0L : value;
+    }
+
+    // 기간 경과율(%). 시작 전이면 0, 목표일을 넘겼으면 100으로 자른다 —
+    // 음수나 100 초과는 "얼마나 진행됐나"라는 질문의 답이 될 수 없다.
+    // 시작일과 목표일이 같은 하루짜리 프로젝트는 분모가 0이라 시작한 순간 100으로 본다.
+    private int elapsedRate(ProjectEntity project, LocalDate today) {
+        LocalDate start = project.getStartDate();
+        LocalDate target = project.getTargetDate();
+        if (today.isBefore(start)) {
+            return 0;
+        }
+        long totalDays = ChronoUnit.DAYS.between(start, target);
+        if (totalDays <= 0) {
+            return 100;
+        }
+        long elapsedDays = ChronoUnit.DAYS.between(start, today);
+        return (int) Math.min(100, Percent.floorRate(elapsedDays, totalDays));
     }
 
     // 목록 정렬은 서버가 고정한다(화면에 정렬 UI가 없다).

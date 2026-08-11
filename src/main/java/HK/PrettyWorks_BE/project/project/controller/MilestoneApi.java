@@ -46,7 +46,7 @@ public interface MilestoneApi {
             summary = "마일스톤 완료 토글",
             description = """
                     완료 여부만 변경합니다. 목표일·내용 수정과 추가·삭제는 프로젝트 수정 API에서 다룹니다.
-                    오너 또는 역할이 "PM"인 참여자만 가능합니다(PROJECT_005) — 완료 체크가 곧 완료율이라
+                    오너 또는 부서가 PM인 참여자만 가능합니다(PROJECT_005) — 완료 체크가 곧 완료율이라
                     참여자 누구나 바꾸면 지표를 신뢰할 수 없기 때문입니다.
 
                     같은 값을 여러 번 보내도 결과가 같습니다(멱등). 이미 완료인 것에 done=true를 다시 보내도
@@ -56,6 +56,17 @@ public interface MilestoneApi {
 
                     이 API는 프로젝트의 version을 올리지 않습니다. 열려 있는 수정 화면의 저장을 방해하지 않으며,
                     프로젝트 수정은 완료 시각을 건드리지 않으므로 체크한 내용이 덮어쓰이지도 않습니다.
+
+                    [순서 규칙] 마일스톤은 **목표일 순서대로만** 완료·취소할 수 있습니다.
+                    - 완료는 아직 완료되지 않은 것 중 **가장 앞의 하나**만 가능합니다(PROJECT_023).
+                    - 취소는 완료된 것 중 **가장 뒤의 하나**만 가능합니다(PROJECT_024).
+
+                    목록 응답의 `milestones[].toggleable`이 지금 누를 수 있는 항목을 알려줍니다.
+                    같은 규칙을 화면에서 다시 계산하지 말고 이 값으로 체크박스를 활성화하세요.
+                    ⚠️ 표시용 힌트입니다 — 권한(오너·PM)은 포함하지 않으며 실제 허용 여부는 요청 시 서버가 다시 판정합니다.
+
+                    프로젝트 수정으로 목표일을 바꾸거나 중간에 마일스톤을 추가하면 완료 구간에 빈칸이 생길 수 있습니다.
+                    계획 변경 자체를 막지 않기 때문이며, 이 경우에도 앞뒤로 누를 수 있는 항목이 남아 순서대로 정리됩니다.
                     """
     )
     @ApiResponses({
@@ -68,7 +79,13 @@ public interface MilestoneApi {
                             examples = @ExampleObject(value = """
                                     { "errorCode": "PROJECT_022", "message": "마일스톤을 찾을 수 없습니다.", "result": null }
                                     """))),
-            @ApiResponse(responseCode = "409", description = "완료·보관된 프로젝트(PROJECT_020)")
+            @ApiResponse(responseCode = "409",
+                    description = "완료·보관된 프로젝트(PROJECT_020) / 앞선 마일스톤이 미완료(PROJECT_023) / "
+                            + "뒤의 마일스톤이 완료 상태(PROJECT_024)",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    { "errorCode": "PROJECT_023", "message": "앞선 마일스톤을 먼저 완료해 주세요.", "result": null }
+                                    """)))
     })
     Void toggleStatus(Long userId, Long projectId, Long milestoneId, MilestoneStatusRequest request);
 }

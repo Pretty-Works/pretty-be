@@ -4,15 +4,15 @@ import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.project.member.constant.ProjectMemberStatus;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
 import HK.PrettyWorks_BE.project.member.exception.ProjectMemberErrorCode;
-import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberSearchResponse;
+import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberResponse;
+import HK.PrettyWorks_BE.global.base.PageRequests;
 import HK.PrettyWorks_BE.project.member.repository.ProjectMemberRepository;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
-import HK.PrettyWorks_BE.user.constant.StatusType;
+import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import HK.PrettyWorks_BE.user.service.UserSearchCondition;
 import lombok.RequiredArgsConstructor;
-import org.springframework.data.domain.PageRequest;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
@@ -65,24 +65,45 @@ public class ProjectMemberService {
                 .findByProjectIdAndUserIdAndStatus(projectId, userId, ProjectMemberStatus.ACTIVE);
     }
 
-    // 회의록·할 일 등 프로젝트 하위 기능에서 사용할 참여중 재직자 이름 자동완성.
+    // 알림 수신자 후보. 탈퇴 멤버(LEFT)는 여기서 빠지고, 행위자·퇴사자 제외는 NotificationPublisher가 한다.
     @Transactional(readOnly = true)
-    public List<ProjectMemberSearchResponse> searchMembers(Long projectId, Long requesterId,
-                                                           String keyword, int limit) {
+    public List<Long> getActiveMemberIds(Long projectId) {
+        return projectMemberRepository
+                .findByProjectIdAndStatusOrderByIdAsc(projectId, ProjectMemberStatus.ACTIVE).stream()
+                .map(ProjectMemberEntity::getUserId)
+                .toList();
+    }
+
+    // 오너의 userId. 오너 행은 항상 존재하지만, 없을 때의 처리는 호출자가 정하도록 Optional로 넘긴다.
+    @Transactional(readOnly = true)
+    public Optional<Long> getOwnerId(Long projectId) {
+        return projectMemberRepository.findOwner(projectId).map(ProjectMemberEntity::getUserId);
+    }
+
+    /**
+     * 참여중 재직자 조회. 명단 화면·참여자 추가 자동완성·에이전트 도구가 모두 이 진입점을 쓴다.
+     *
+     * <p>휴직자도 포함한다 — 프로젝트 참여·회의 참석이 열려 있으므로 사내 임직원 검색과 기준이 같아야 한다.
+     * 세 용도가 다른 명단을 받으면 화면에는 보이는 사람이 에이전트에게는 안 보이는 식으로 갈린다.
+     *
+     * @param keyword     이름 부분 일치. 비우면 전체
+     * @param excludeSelf 요청자 본인을 뺄지. 참여자 추가 자동완성은 이미 참여 중인 본인을 후보로 둘 이유가 없다
+     * @param size        1~100. 자동완성 상한(20)보다 큰 이유는 명단이 전원을 받아야 하기 때문이다
+     */
+    @Transactional(readOnly = true)
+    public List<ProjectMemberResponse> getMembers(Long projectId, Long requesterId,
+                                                  String keyword, boolean excludeSelf, int size) {
         currentUserService.getEmployedUser(requesterId);
         validateAccess(projectId, requesterId);
 
-        UserSearchCondition condition = UserSearchCondition.of(keyword, limit);
-        if (condition.isEmpty()) {
-            return List.of();
-        }
-
-        return projectMemberRepository.searchActiveMembers(
-                        projectId, requesterId, condition.keyword(),
-                        ProjectMemberStatus.ACTIVE, StatusType.ACTIVE,
-                        PageRequest.of(0, condition.limit()))
+        return projectMemberRepository.findActiveMembers(
+                        projectId,
+                        UserSearchCondition.normalizeKeyword(keyword),
+                        excludeSelf ? requesterId : null,
+                        ProjectMemberStatus.ACTIVE, UserPolicy.EMPLOYED_STATUSES,
+                        PageRequests.of(0, size))
                 .stream()
-                .map(ProjectMemberSearchResponse::from)
+                .map(ProjectMemberResponse::from)
                 .toList();
     }
 }

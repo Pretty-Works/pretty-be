@@ -11,6 +11,8 @@ import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
 
+import java.util.Collection;
+import java.util.List;
 import java.util.Optional;
 
 public interface ProjectRepository extends JpaRepository<ProjectEntity, Long> {
@@ -31,7 +33,8 @@ public interface ProjectRepository extends JpaRepository<ProjectEntity, Long> {
     //      (각 그룹에서 반대편 CASE는 전 행이 null이라 순서에 영향을 주지 않는다)
     //   4) id 보조 정렬 — 없으면 같은 항목이 두 페이지에 나오거나 누락될 수 있다
     @Query(value = """
-            select p from ProjectEntity p
+            select new HK.PrettyWorks_BE.project.project.repository.MyProjectRow(p, m)
+            from ProjectEntity p
             join ProjectMemberEntity m on m.projectId = p.id
             where m.userId = :userId
               and m.status = :memberStatus
@@ -55,7 +58,7 @@ public interface ProjectRepository extends JpaRepository<ProjectEntity, Long> {
               and (:status is null or p.status = :status)
               and (:keyword is null or p.name like concat('%', :keyword, '%'))
             """)
-    Page<ProjectEntity> findMyProjects(@Param("userId") Long userId,
+    Page<MyProjectRow> findMyProjects(@Param("userId") Long userId,
                                        @Param("memberStatus") ProjectMemberStatus memberStatus,
                                        @Param("archived") ProjectStatus archived,
                                        @Param("status") ProjectStatus status,
@@ -63,4 +66,9 @@ public interface ProjectRepository extends JpaRepository<ProjectEntity, Long> {
                                        @Param("ongoing") ProjectStatus ongoing,
                                        @Param("holding") ProjectStatus holding,
                                        Pageable pageable);
+
+    // AI 요약 생성 배치 대상. 엔티티가 아니라 id만 읽는다 — 배치는 프로젝트 본문이 필요 없고,
+    // 재료는 어차피 도메인 서비스가 다시 조회한다.
+    @Query("select p.id from ProjectEntity p where p.status in :statuses order by p.id asc")
+    List<Long> findIdsByStatusIn(@Param("statuses") Collection<ProjectStatus> statuses);
 }
