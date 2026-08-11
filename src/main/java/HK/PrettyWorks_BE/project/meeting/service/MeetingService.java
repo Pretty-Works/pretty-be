@@ -89,8 +89,8 @@ public class MeetingService {
         // 회의 일자가 프로젝트 기간(startDate ~ targetDate) 안인지
         validateMeetingDate(project, request.meetingDate());
 
-        // 참석자 공통 검증
-        validateAttendees(projectId, authorId, request.attendeeIds());
+        // 참석자 공통 검증 — 검증하며 읽은 사용자를 그대로 넘겨받아 저장 때 다시 조회하지 않는다
+        List<UserEntity> attendees = validateAttendees(projectId, authorId, request.attendeeIds());
 
         // 회의록을 먼저 저장해서 임시 id를 발급
         String tempDocumentNo = "TMP-" + UUID.randomUUID().toString().replace("-", "").substring(0, 26);
@@ -114,8 +114,10 @@ public class MeetingService {
         // 발급받은 id로 최종 문서번호 확정
         savedMeeting.assignDocumentNo("MTG-" + request.meetingDate() + "-" + savedMeeting.getId());
 
-        // 작성자 + 참석자 저장
-        saveAttendees(savedMeeting.getId(), authorId, request.attendeeIds());
+        // 작성자(WRITER) + 참석자(ATTENDEE) 저장
+        UserEntity author = userRepository.findById(authorId)
+                .orElseThrow(() -> BaseException.type(MeetingErrorCode.AUTHOR_NOT_FOUND));
+        saveAttendees(savedMeeting.getId(), author, attendees);
 
         return savedMeeting.getId();
     }
@@ -231,14 +233,14 @@ public class MeetingService {
         validateMeetingDate(project, request.meetingDate());
 
         // 본인(참석자)이 수정 시 자기 자신을 명단에서 뺄 수 없음
-        // (작성자는 항상 WRITER로 유지되므로 예외)
-        if (!meeting.getAuthorId().equals(userId)
+        // (작성자는 명단 관리 권한이 있고 항상 WRITER로 유지되므로 예외)
+        if (!MeetingPolicy.canManageAttendees(meeting, userId)
                 && !request.attendeeIds().contains(userId)) {
             throw BaseException.type(MeetingErrorCode.CANNOT_REMOVE_SELF);
         }
 
-        // 참석자 공통 검증
-        validateAttendees(projectId, meeting.getAuthorId(), request.attendeeIds());
+        // 참석자 공통 검증 — 검증하며 읽은 사용자를 그대로 넘겨받아 저장 때 다시 조회하지 않는다
+        List<UserEntity> attendees = validateAttendees(projectId, meeting.getAuthorId(), request.attendeeIds());
 
         // 회의록 내용 수정
         meeting.update(
@@ -251,12 +253,8 @@ public class MeetingService {
                 request.recording()
         );
 
-        // 참석자 교체
-        meetingAttendeeRepository.deleteByMeetingId(meetingId);
-        meetingAttendeeRepository.flush(); // 삭제를 DB에 먼저 반영
-
-        // 작성자/참석자 다시 저장
-        saveAttendees(meetingId, meeting.getAuthorId(), request.attendeeIds());
+        // 참석자 명단 동기화 (바뀐 사람만 반영)
+        syncAttendees(meetingId, attendees);
 
         // 수정된 최신 상세를 반환
         return toDetailResponse(meeting);
@@ -294,16 +292,18 @@ public class MeetingService {
                 .build();
     }
 
-    // 회의 일자가 프로젝트 기간(startDate ~ targetDate) 안인지 검증
+    // 회의 일자가 프로젝트 기간(startDate ~ targetDate) 안인지 검증.
+    // 기간 판정은 ProjectPolicy가 소유한다 — 할 일·지출·마일스톤과 같은 규칙(양끝 포함)을 써야
+    // 경계 규칙이 바뀔 때 회의록만 남는 일이 없다.
     private void validateMeetingDate(ProjectEntity project, LocalDate meetingDate) {
-        if (meetingDate.isBefore(project.getStartDate())
-                || meetingDate.isAfter(project.getTargetDate())) {
+        if (!ProjectPolicy.isWithinPeriod(project, meetingDate)) {
             throw BaseException.type(MeetingErrorCode.MEETING_DATE_OUT_OF_RANGE);
         }
     }
 
-    // 참석자 공통 검증
-    private void validateAttendees(Long projectId, Long authorId, List<Long> attendeeIds) {
+    // 참석자 공통 검증. 검증하며 읽은 UserEntity를 반환해 호출자가 저장에 그대로 쓴다
+    // (여기서 조회하고 저장 쪽에서 또 조회하면 같은 사용자를 두 번 읽게 된다)
+    private List<UserEntity> validateAttendees(Long projectId, Long authorId, List<Long> attendeeIds) {
         // 참석자 중복
         if (attendeeIds.size() != new HashSet<>(attendeeIds).size()) {
             throw BaseException.type(MeetingErrorCode.DUPLICATE_ATTENDEE);
@@ -315,12 +315,18 @@ public class MeetingService {
         }
 
         // 참석자 전원을 한 번에 조회
-        List<UserEntity> attendees = userRepository.findAllById(attendeeIds);
+        Map<Long, UserEntity> userMap = userRepository.findAllById(attendeeIds).stream()
+                .collect(Collectors.toMap(UserEntity::getId, user -> user));
 
         // 존재하는 ID인지 검증
-        if (attendees.size() != attendeeIds.size()) {
+        if (userMap.size() != attendeeIds.size()) {
             throw BaseException.type(MeetingErrorCode.ATTENDEE_NOT_FOUND);
         }
+
+        // 요청 순서대로 되돌린다 — 조회 결과 순서(대개 id 순)를 그대로 쓰면 명단 순서가 요청과 달라진다
+        List<UserEntity> attendees = attendeeIds.stream()
+                .map(userMap::get)
+                .toList();
 
         // 재직 확인 — 퇴사자(RESIGNED)만 거부하고 휴직(ON_LEAVE)은 허용한다.
         // 회의록은 "그 자리에 누가 있었나"의 기록이라 휴직 전 회의를 뒤늦게 적을 수 있고,
@@ -333,37 +339,67 @@ public class MeetingService {
             }
         }
 
-        // 멤버십 확인
-        for (Long attendeeId : attendeeIds) {
-            projectMemberService.validateActiveMember(projectId, attendeeId);
-        }
+        // 멤버십 확인 — 인원수만큼 조회가 나가지 않게 한 번에 센다
+        projectMemberService.validateActiveMembers(projectId, attendeeIds);
+
+        return attendees;
     }
 
-    // 작성자 + 참석자 저장 공통 로직
-    private void saveAttendees(Long meetingId, Long authorId, List<Long> attendeeIds) {
-        // 작성자 + 참석자 id를 한 번에 조회
-        List<Long> allIds = new ArrayList<>();
-        allIds.add(authorId);
-        allIds.addAll(attendeeIds);
-
-        Map<Long, UserEntity> userMap = userRepository.findAllById(allIds).stream()
-                .collect(Collectors.toMap(UserEntity::getId, user -> user));
-
+    // 작성자 + 참석자 저장 (생성 시)
+    private void saveAttendees(Long meetingId, UserEntity author, List<UserEntity> attendees) {
         List<MeetingAttendeeEntity> toSave = new ArrayList<>();
 
         // 작성자(WRITER)
-        UserEntity author = userMap.get(authorId);
-        if (author == null) throw BaseException.type(MeetingErrorCode.AUTHOR_NOT_FOUND);
         toSave.add(toAttendee(meetingId, author, MeetingRole.WRITER));
 
         // 참석자(ATTENDEE)
-        for (Long attendeeId : attendeeIds) {
-            UserEntity attendee = userMap.get(attendeeId);
-            if (attendee == null) throw BaseException.type(MeetingErrorCode.ATTENDEE_NOT_FOUND);
+        for (UserEntity attendee : attendees) {
             toSave.add(toAttendee(meetingId, attendee, MeetingRole.ATTENDEE));
         }
 
         meetingAttendeeRepository.saveAll(toSave);
+    }
+
+    // 참석자 명단 동기화(diff) — 요청 명단을 최종 상태로 맞춘다. 일정 도메인 syncParticipants와 같은 패턴.
+    // 빠진 사람만 삭제하고 새로 들어온 사람만 추가하며, 그대로인 행은 손대지 않는다.
+    //
+    // 전원 삭제 후 재삽입하지 않는 이유가 둘 있다.
+    //  1) (user_id, meeting_id) UNIQUE와 부딪혀 삭제를 먼저 DB에 밀어넣는 flush()가 필요했다.
+    //  2) 참석자 이름·부서는 '작성 시점 스냅샷'인데, 재삽입하면 그 뒤 부서를 옮긴 사람의 기록이
+    //     현재 부서로 덮여 쓴다. 오타 하나 고쳤을 뿐인데 과거 회의 기록이 바뀌는 셈이다.
+    private void syncAttendees(Long meetingId, List<UserEntity> attendees) {
+        Set<Long> requestedIds = attendees.stream()
+                .map(UserEntity::getId)
+                .collect(Collectors.toCollection(LinkedHashSet::new));
+
+        // 현재 ATTENDEE 행만 대상 — WRITER 행은 작성자 고정이라 명단 변경과 무관하다
+        List<MeetingAttendeeEntity> current =
+                meetingAttendeeRepository.findByMeetingIdAndRole(meetingId, MeetingRole.ATTENDEE);
+
+        // 요청에서 빠진 참석자만 삭제
+        List<MeetingAttendeeEntity> toDelete = new ArrayList<>();
+        Set<Long> keptIds = new HashSet<>();
+        for (MeetingAttendeeEntity attendee : current) {
+            if (requestedIds.contains(attendee.getUserId())) {
+                keptIds.add(attendee.getUserId());
+            } else {
+                toDelete.add(attendee);
+            }
+        }
+        if (!toDelete.isEmpty()) {
+            meetingAttendeeRepository.deleteAll(toDelete);
+        }
+
+        // 새로 들어온 참석자만 추가
+        List<MeetingAttendeeEntity> toInsert = new ArrayList<>();
+        for (UserEntity attendee : attendees) {
+            if (!keptIds.contains(attendee.getId())) {
+                toInsert.add(toAttendee(meetingId, attendee, MeetingRole.ATTENDEE));
+            }
+        }
+        if (!toInsert.isEmpty()) {
+            meetingAttendeeRepository.saveAll(toInsert);
+        }
     }
 
     // MeetingAttendeeEntity 조립 공통

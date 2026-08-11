@@ -16,8 +16,11 @@ import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.Collection;
+import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Optional;
+import java.util.Set;
 
 @Service
 @RequiredArgsConstructor
@@ -37,6 +40,26 @@ public class ProjectMemberService {
     @Transactional(readOnly = true)
     public void validateActiveMember(Long projectId, Long userId) {
         if (!isActiveMember(projectId, userId)) {
+            throw BaseException.type(ProjectMemberErrorCode.NOT_A_MEMBER);
+        }
+    }
+
+    // 여러 명이 모두 참여중 멤버인지 한 번에 검증합니다. 회의록 참석자처럼 명단 전체를 봐야 할 때 사용합니다.
+    // 한 명씩 validateActiveMember를 도는 것과 결과는 같지만 쿼리는 1번입니다.
+    // 누가 아닌지는 알려주지 않습니다 — 명단 검증은 통과/거부만 필요하고, 개별 지목은 쿼리를 인원수만큼 되돌립니다.
+    @Transactional(readOnly = true)
+    public void validateActiveMembers(Long projectId, Collection<Long> userIds) {
+        if (userIds == null || userIds.isEmpty()) {
+            return;
+        }
+
+        // 중복이 있으면 count와 개수가 어긋나 멀쩡한 명단이 거부되므로 여기서 한 번 더 접습니다.
+        Set<Long> distinctIds = new LinkedHashSet<>(userIds);
+
+        long activeCount = projectMemberRepository
+                .countByProjectIdAndUserIdInAndStatus(projectId, distinctIds, ProjectMemberStatus.ACTIVE);
+
+        if (activeCount != distinctIds.size()) {
             throw BaseException.type(ProjectMemberErrorCode.NOT_A_MEMBER);
         }
     }
