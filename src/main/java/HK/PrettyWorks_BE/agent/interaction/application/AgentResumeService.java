@@ -67,7 +67,7 @@ public class AgentResumeService {
         }
         try {
             Supplier<AgentResumeRequest> resume = () -> AgentResumeRequest.question(
-                    prepared.questionId(), prepared.response());
+                    prepared.questionId(), prepared.response(), prepared.autoApprove());
             return connectAndSubmit(userId, prepared.internalRunId(), prepared.publicRunId(),
                     prepared.lastEventSequence(), resume);
         } catch (RuntimeException failure) {
@@ -91,8 +91,9 @@ public class AgentResumeService {
             String token = prepared.tokenRequired()
                     ? tokenService.issue(prepared.approvalId()).token() : null;
             return AgentResumeRequest.approval(
-                    prepared.approvalId(), prepared.decision(), prepared.alternativeId(),
-                    prepared.reason(), token, prepared.paramsCanonical());
+                    prepared.approvalId(), prepared.toolCallId(), prepared.decision(),
+                    prepared.alternativeId(), prepared.reason(), token,
+                    prepared.paramsCanonical(), prepared.autoApprove());
         };
     }
 

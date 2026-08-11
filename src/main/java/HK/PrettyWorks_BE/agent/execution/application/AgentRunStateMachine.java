@@ -17,7 +17,7 @@ import java.util.Set;
 
 @Service
 public class AgentRunStateMachine {
-    public static final int MAX_TOOL_CALLS = 20;
+    public static final int MAX_TOOL_CALLS = 100;
     public static final int MAX_QUESTIONS = 5;
 
     private static final Map<AgentRunStatus, Set<AgentRunStatus>> ALLOWED = Map.of(

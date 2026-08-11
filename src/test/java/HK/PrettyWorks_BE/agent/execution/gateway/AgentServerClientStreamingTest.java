@@ -110,7 +110,8 @@ class AgentServerClientStreamingTest {
         });
 
         AgentResumeRequest request = AgentResumeRequest.approval(
-                41L, AgentDecision.APPROVED, null, null, "secret-token", "{\"taskId\":7}");
+                41L, "call-1", AgentDecision.APPROVED, null, null,
+                "secret-token", "{\"taskId\":7}", false);
         AgentSegmentOutcome outcome = client.resumeRun(
                 "run_public_1", request, ignored -> {});
 
@@ -118,17 +119,74 @@ class AgentServerClientStreamingTest {
         assertThat(capturedPath.get())
                 .isEqualTo("/api/agent/runs/run_public_1/resume");
         assertThat(capturedRequest.get().get("kind").textValue()).isEqualTo("APPROVAL");
+        assertThat(capturedRequest.get().get("toolCallId").textValue()).isEqualTo("call-1");
+        assertThat(capturedRequest.get().get("decision").textValue()).isEqualTo("APPROVED");
         assertThat(capturedRequest.get().get("approvalToken").textValue())
                 .isEqualTo("secret-token");
         assertThat(capturedRequest.get().get("paramsCanonical").textValue())
                 .isEqualTo("{\"taskId\":7}");
     }
 
+    // 첨부는 FastAPI RunRequest 의 attachments[{name, content}] 자리에 실려야 한다.
+    // files 로 보내면 pydantic 이 통째로 버려, 파일을 올려도 에이전트가 존재조차 모른다.
+    @Test
+    void postsAttachmentsUnderTheNameFastApiReads() throws Exception {
+        AtomicReference<JsonNode> capturedRequest = new AtomicReference<>();
+        startServer(exchange -> {
+            capturedRequest.set(objectMapper.readTree(exchange.getRequestBody()));
+            respond(exchange, 200, "text/event-stream", """
+                    event: done
+                    data: {"answer":"완료했습니다.","action":null}
+
+                    """);
+        }, 30_000, 60_000);
+
+        AgentRunRequest request = new AgentRunRequest(
+                "run_public_1", 1L, "요약해줘", List.of(),
+                objectMapper.readTree("{\"screen\":\"HOME\"}"), "WEB", "ko-KR",
+                List.of(new AgentRunRequest.AttachedFile("회의록.txt", "text/plain", 12L,
+                        HK.PrettyWorks_BE.agent.shared.attachment.AgentFileEncoding.TEXT,
+                        "회의 내용입니다")),
+                true);
+        client.startRun(request, ignored -> {});
+
+        JsonNode body = capturedRequest.get();
+        assertThat(body.has("files")).isFalse();
+        assertThat(body.at("/attachments/0/name").textValue()).isEqualTo("회의록.txt");
+        assertThat(body.at("/attachments/0/content").textValue()).isEqualTo("회의 내용입니다");
+        assertThat(body.get("autoApprove").booleanValue()).isTrue();
+    }
+
+    // 질문 재개 본문은 FastAPI ResumeRequest 필드명(questionId·selectedIds·text)이어야 한다.
+    // 이름이 어긋나면 pydantic 이 값을 통째로 버려 400 → AGENT_007 로 실행이 죽는다.
+    @Test
+    void postsQuestionResumeWithFastApiFieldNames() throws Exception {
+        AtomicReference<JsonNode> capturedRequest = new AtomicReference<>();
+        // 본문 계약만 보는 시험이라 타임아웃은 넉넉히 준다 (기본 1초는 느린 CI 에서 흔들린다).
+        startServer(exchange -> {
+            capturedRequest.set(objectMapper.readTree(exchange.getRequestBody()));
+            respond(exchange, 200, "text/event-stream", """
+                    event: done
+                    data: {"answer":"완료했습니다.","action":null}
+
+                    """);
+        }, 30_000, 60_000);
+
+        AgentResumeRequest request = AgentResumeRequest.question(51L, objectMapper.readTree(
+                "{\"selectedOptionIds\":[\"2\"],\"freeText\":\"회의실 A\"}"), false);
+        client.resumeRun("run_public_1", request, ignored -> {});
+
+        JsonNode body = capturedRequest.get();
+        assertThat(body.get("questionId").longValue()).isEqualTo(51L);
+        assertThat(body.at("/selectedIds/0").textValue()).isEqualTo("2");
+        assertThat(body.get("text").textValue()).isEqualTo("회의실 A");
+    }
+
     @Test
     void mapsMissingResumeCheckpointToCheckpointLost() throws Exception {
         startServer(exchange -> respond(exchange, 404, "application/json", "{}"));
         AgentResumeRequest request = AgentResumeRequest.question(
-                51L, objectMapper.readTree("{\"freeText\":\"회의실 A\"}"));
+                51L, objectMapper.readTree("{\"freeText\":\"회의실 A\"}"), false);
 
         assertThatThrownBy(() -> client.resumeRun("run_public_1", request, ignored -> {}))
                 .isInstanceOfSatisfying(BaseException.class, exception ->
@@ -222,7 +280,8 @@ class AgentServerClientStreamingTest {
                 objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"),
                 "WEB",
                 "ko-KR",
-                List.of()
+                List.of(),
+                false
         );
     }
 

@@ -7,6 +7,7 @@ import HK.PrettyWorks_BE.agent.interaction.domain.AgentInteractionKind;
 import HK.PrettyWorks_BE.agent.interaction.persistence.AgentInteractionRepository;
 import HK.PrettyWorks_BE.agent.shared.exception.AgentErrorCode;
 import HK.PrettyWorks_BE.agent.shared.json.ParamsCanonicalizer;
+import HK.PrettyWorks_BE.agent.suggestion.application.AgentSuggestionCache;
 import HK.PrettyWorks_BE.agent.tool.security.InternalAgentAttributes;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
@@ -41,12 +42,14 @@ class AgentWriteExecutorTest {
     private static final Long APPROVAL_ID = 99L;
     private static final String TOKEN_HASH = "token-hash";
     private static final int TEST_BODY_CACHE_LIMIT = 8 * 1024;
+    private static final Long USER_ID = 7L;
 
     private final ObjectMapper objectMapper = new ObjectMapper();
     private final ParamsCanonicalizer canonicalizer = new ParamsCanonicalizer(objectMapper);
     private final AgentInteractionRepository interactionRepository = mock(AgentInteractionRepository.class);
     private final ApprovalTokenService tokenService = mock(ApprovalTokenService.class);
     private final PlatformTransactionManager transactionManager = mock(PlatformTransactionManager.class);
+    private final AgentSuggestionCache suggestionCache = mock(AgentSuggestionCache.class);
     private final Validator validator = Validation.buildDefaultValidatorFactory().getValidator();
 
     @BeforeEach
@@ -75,6 +78,23 @@ class AgentWriteExecutorTest {
         assertThat(first.get("taskId")).isEqualTo(123);
         assertThat(replay).isEqualTo(first);
         assertThat(executions).hasValue(1);
+    }
+
+    // 추천 칩의 재료가 방금 바뀌었다. TTL 이 지나기를 기다리면 "할 일을 끝냈는데 아직도
+    // 밀렸다고 한다"가 그 시간만큼 남는다. 재실행(replay)은 이미 지난 실행이라 다시 버리지 않는다.
+    @Test
+    void dropsTheSuggestionCacheOncePerCommittedWrite() throws IOException {
+        String body = "{\"content\":\"A\",\"projectId\":7}";
+        AgentInteractionEntity interaction = approvedInteraction("task.create", body);
+        when(interactionRepository.findByIdForUpdate(APPROVAL_ID)).thenReturn(Optional.of(interaction));
+        AgentWriteExecutor executor = executor(body);
+
+        executor.execute("task.create", Map.of("projectId", 7), Map.class,
+                key -> Map.of("taskId", 123));
+        executor.execute("task.create", Map.of("projectId", 7), Map.class,
+                key -> Map.of("taskId", 999));
+
+        verify(suggestionCache, times(1)).evict(USER_ID);
     }
 
     @Test
@@ -193,10 +213,11 @@ class AgentWriteExecutorTest {
         }
         request.setAttribute(InternalAgentAttributes.CACHED_REQUEST, request);
         request.setAttribute(InternalAgentAttributes.INTERNAL_RUN_ID, RUN_ID);
+        request.setAttribute(InternalAgentAttributes.USER_ID, USER_ID);
         request.setAttribute(InternalAgentAttributes.TOKEN_INSPECTION,
                 new ApprovalTokenService.TokenInspection(APPROVAL_ID, TOKEN_HASH));
         return new AgentWriteExecutor(request, interactionRepository, tokenService,
-                canonicalizer, objectMapper, validator, transactionManager);
+                canonicalizer, objectMapper, validator, transactionManager, suggestionCache);
     }
 
     private AgentInteractionEntity approvedInteraction(String tool, String body) {

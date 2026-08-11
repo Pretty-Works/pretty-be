@@ -22,7 +22,8 @@ class AgentRunRequestTest {
                 objectMapper.readTree("{\"screen\":\"TASK_LIST\",\"formState\":{}}"),
                 "WEB",
                 "ko-KR",
-                List.of()
+                List.of(),
+                false
         );
 
         assertThat(request.runId()).isEqualTo("run_public_1");
@@ -34,7 +35,7 @@ class AgentRunRequestTest {
     void requiresScreenContextWithNonBlankScreen() {
         assertThatThrownBy(() -> new AgentRunRequest(
                 "run_public_1", 1L, "질문", List.of(), objectMapper.readTree("{}"),
-                "WEB", "ko-KR", List.of()))
+                "WEB", "ko-KR", List.of(), false))
                 .isInstanceOf(IllegalArgumentException.class)
                 .hasMessageContaining("screenContext.screen");
     }
@@ -45,7 +46,7 @@ class AgentRunRequestTest {
     void treatsMissingFilesAsEmptyList() {
         AgentRunRequest request = new AgentRunRequest(
                 "run_public_1", 1L, "질문", List.of(),
-                objectMapper.readTree("{\"screen\":\"HOME\"}"), "WEB", "ko-KR", null);
+                objectMapper.readTree("{\"screen\":\"HOME\"}"), "WEB", "ko-KR", null, false);
 
         assertThat(request.files()).isEmpty();
     }
@@ -57,7 +58,7 @@ class AgentRunRequestTest {
 
         AgentRunRequest request = new AgentRunRequest(
                 "run_public_1", 1L, "요약해줘", List.of(),
-                objectMapper.readTree("{\"screen\":\"HOME\"}"), "WEB", "ko-KR", List.of(file));
+                objectMapper.readTree("{\"screen\":\"HOME\"}"), "WEB", "ko-KR", List.of(file), false);
 
         assertThat(request.files()).containsExactly(file);
         assertThat(request.files().getFirst().content()).isEqualTo("회의 내용입니다");
@@ -75,7 +76,7 @@ class AgentRunRequestTest {
     void snapshotsMutableInputs() {
         var screenContext = objectMapper.readTree("{\"screen\":\"HOME\"}");
         AgentRunRequest request = new AgentRunRequest(
-                "run_public_1", 1L, "질문", List.of(), screenContext, "WEB", "ko-KR", List.of());
+                "run_public_1", 1L, "질문", List.of(), screenContext, "WEB", "ko-KR", List.of(), false);
 
         ((tools.jackson.databind.node.ObjectNode) screenContext).put("screen", "PROJECT_LIST");
         ((tools.jackson.databind.node.ObjectNode) request.screenContext()).put("screen", "TASK_LIST");

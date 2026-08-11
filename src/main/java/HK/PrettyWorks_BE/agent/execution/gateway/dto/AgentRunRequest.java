@@ -1,6 +1,7 @@
 package HK.PrettyWorks_BE.agent.execution.gateway.dto;
 
 import HK.PrettyWorks_BE.agent.shared.attachment.AgentFileEncoding;
+import com.fasterxml.jackson.annotation.JsonProperty;
 import lombok.Builder;
 import tools.jackson.databind.JsonNode;
 
@@ -26,7 +27,15 @@ public record AgentRunRequest(
         // 이번 턴에 사용자가 붙인 파일. 첨부가 없으면 빈 배열이다(null이 아니다).
         // 이전 턴의 첨부는 다시 보내지 않는다 — messages 와 같은 취급이라면 대화가 길어질수록
         // 같은 파일이 매 턴 프롬프트에 다시 실린다. 필요하면 사용자가 다시 올린다.
-        List<AttachedFile> files
+        //
+        // 와이어 이름이 attachments 인 이유: FastAPI RunRequest 가 그 이름으로 받는다.
+        // pydantic 은 모르는 필드를 조용히 버리므로, files 로 보내면 첨부가 있다는 사실조차
+        // 에이전트에 닿지 않는다(에러도 나지 않아 알아채기 어렵다).
+        @JsonProperty("attachments")
+        List<AttachedFile> files,
+
+        // 정보용. FastAPI 는 이 값으로 동작을 바꾸지 않고 문구만 다듬는다(규격 §5-1).
+        boolean autoApprove
 ) {
     public AgentRunRequest {
         requireText(runId, "runId");
@@ -100,6 +109,18 @@ public record AgentRunRequest(
             if (content == null) {
                 throw new IllegalArgumentException("files.content must not be null");
             }
+        }
+
+        /**
+         * FastAPI AttachmentItem 이 읽는 이름 칸입니다. {@code filename}과 같은 값이며,
+         * 그쪽 모델에 {@code filename}이 없어 이름만 맞춰 한 벌 더 실어 보냅니다
+         * (나머지 필드는 그쪽에서 무시되지만 실행 기록에는 남습니다).
+         */
+        // READ_ONLY: 내보낼 때만 쓴다. 이 DTO를 다시 읽어 들이는 곳(첨부 이어쓰기 캐시)에서
+        // filename 과 짝이 맞지 않는 입력 필드가 되면 안 된다.
+        @JsonProperty(value = "name", access = JsonProperty.Access.READ_ONLY)
+        public String name() {
+            return filename;
         }
     }
 
