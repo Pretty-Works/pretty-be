@@ -17,6 +17,10 @@ public interface ProjectMemberRepository extends JpaRepository<ProjectMemberEnti
     // 회의록·게시판 등에서 "이 사용자가 이 프로젝트의 참여중(ACTIVE) 멤버인가"를 인가할 때 사용합니다.
     boolean existsByProjectIdAndUserIdAndStatus(Long projectId, Long userId, ProjectMemberStatus status);
 
+    // 여러 명의 멤버십을 한 번에 확인할 때 사용합니다. (회의록 참석자 명단처럼 인원수만큼 조회가 나가던 자리)
+    // 중복 없는 userIds를 넘기고 반환값이 그 개수와 같은지 보면 "전원이 참여중인가"가 판정됩니다.
+    long countByProjectIdAndUserIdInAndStatus(Long projectId, Collection<Long> userIds, ProjectMemberStatus status);
+
     // 수정 API: 호출자의 해당 프로젝트 멤버십 (오너/PM 여부로 수정 권한 판정).
     Optional<ProjectMemberEntity> findByProjectIdAndUserIdAndStatus(Long projectId, Long userId, ProjectMemberStatus status);
 
