@@ -101,8 +101,10 @@ public record AgentMessagesResponse(
                     example = "[{\"text\": \"할 일 3건을 찾았어요\"}]")
             JsonNode steps,
 
-            // done.action 종류. 프론트가 NAVIGATE/FILL_FORM 버튼 동작을 정한다.
-            @Schema(description = "done.action의 종류. NAVIGATE·FILL_FORM 등. 없으면 null.",
+            // done.action 종류. 프론트가 버튼 동작을 정한다.
+            // OPEN_EXTERNAL_URL은 사내 화면이 아니라 새 창으로 나가므로 targetScreen이 null이고
+            // params.url을 연다(외부 인증 진입점).
+            @Schema(description = "done.action의 종류. NAVIGATE·FILL_FORM·OPEN_EXTERNAL_URL 등. 없으면 null.",
                     nullable = true, example = "NAVIGATE")
             String actionType,
 

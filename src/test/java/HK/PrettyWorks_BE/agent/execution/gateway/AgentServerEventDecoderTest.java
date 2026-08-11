@@ -9,8 +9,10 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AgentServerEventDecoderTest {
+    private static final String ALLOWED_ORIGINS = "https://agent.example.com, http://localhost:8000";
+
     private final AgentServerEventDecoder decoder =
-            new AgentServerEventDecoder(new ObjectMapper());
+            new AgentServerEventDecoder(new ObjectMapper(), ALLOWED_ORIGINS);
 
     @Test
     void decodesAllValidEventShapes() {
@@ -132,6 +134,87 @@ class AgentServerEventDecoderTest {
                 """.strip().replace("\n", "")))
                 .isInstanceOf(AgentServerEventDecodingException.class)
                 .hasMessageContaining("must not contain formData");
+    }
+
+    @Test
+    void acceptsExternalUrlActionWithoutTargetScreen() {
+        // 외부 인증(Gmail OAuth 등) 진입점. 이동할 사내 화면이 없어 targetScreen이 null로 온다.
+        AgentServerEvent.Done done = (AgentServerEvent.Done) decoder.decode("done", """
+                {"answer":"Gmail을 연동하시겠습니까?","action":{"type":"OPEN_EXTERNAL_URL",
+                 "label":"Gmail 연동하기","targetScreen":null,
+                 "params":{"url":"https://agent.example.com/oauth/google/start?request=abc"}}}
+                """.strip().replace("\n", "")).event();
+
+        assertThat(done.action().type()).isEqualTo("OPEN_EXTERNAL_URL");
+        assertThat(done.action().targetScreen()).isNull();
+        assertThat(done.action().params().get("url").textValue())
+                .isEqualTo("https://agent.example.com/oauth/google/start?request=abc");
+    }
+
+    @Test
+    void rejectsExternalUrlActionThatCannotBeOpenedSafely() {
+        // 이 값은 그대로 저장돼 새로고침 때 다시 내려간다. 프론트 검증만 믿으면 위험한 스킴이 눌러앉는다.
+        assertThatThrownBy(() -> decoder.decode("done", """
+                {"answer":"연동해 주세요.","action":{"type":"OPEN_EXTERNAL_URL","label":"연동하기",
+                 "params":{"url":"javascript:alert(1)"}}}
+                """.strip().replace("\n", "")))
+                .isInstanceOf(AgentServerEventDecodingException.class)
+                .hasMessageContaining("http(s)");
+
+        assertThatThrownBy(() -> decoder.decode("done", """
+                {"answer":"연동해 주세요.","action":{"type":"OPEN_EXTERNAL_URL","label":"연동하기"}}
+                """.strip().replace("\n", "")))
+                .isInstanceOf(AgentServerEventDecodingException.class)
+                .hasMessageContaining("params.url");
+    }
+
+    @Test
+    void allowsOnlyConfiguredOriginsForExternalLinks() {
+        // 프롬프트 인젝션 한 번이면 "Gmail 연동하기"처럼 보이는 피싱 버튼이 사내 도구 안에 그려진다.
+        // 목적지를 서버에서 묶지 않으면 프론트 검증 하나가 유일한 방어선이 된다.
+        assertThatThrownBy(() -> decoder.decode("done", """
+                {"answer":"Gmail을 연동하시겠습니까?","action":{"type":"OPEN_EXTERNAL_URL",
+                 "label":"Gmail 연동하기","params":{"url":"https://accounts-google.evil.com/login"}}}
+                """.strip().replace("\n", "")))
+                .isInstanceOf(AgentServerEventDecodingException.class)
+                .hasMessageContaining("origin is not allowed");
+    }
+
+    @Test
+    void matchesOriginExactlyInsteadOfBySuffix() {
+        // endsWith·contains로 비교하면 아래 두 주소가 전부 통과한다. 실무에서 제일 흔한 우회다.
+        assertThatThrownBy(() -> decoder.decode("done", """
+                {"answer":"연동해 주세요.","action":{"type":"OPEN_EXTERNAL_URL","label":"연동하기",
+                 "params":{"url":"https://agent.example.com.evil.com/oauth/start"}}}
+                """.strip().replace("\n", "")))
+                .isInstanceOf(AgentServerEventDecodingException.class)
+                .hasMessageContaining("origin is not allowed");
+
+        // 포트가 다르면 다른 origin이다. 허용 목록엔 localhost:8000만 있다.
+        assertThatThrownBy(() -> decoder.decode("done", """
+                {"answer":"연동해 주세요.","action":{"type":"OPEN_EXTERNAL_URL","label":"연동하기",
+                 "params":{"url":"http://localhost:9999/oauth/start"}}}
+                """.strip().replace("\n", "")))
+                .isInstanceOf(AgentServerEventDecodingException.class)
+                .hasMessageContaining("origin is not allowed");
+    }
+
+    @Test
+    void refusesToStartWithoutAnExternalUrlAllowlist() {
+        // 기본값을 "전부 허용"으로 두면 설정을 깜빡한 환경이 조용히 무방비가 된다.
+        assertThatThrownBy(() -> new AgentServerEventDecoder(new ObjectMapper(), " "))
+                .isInstanceOf(IllegalStateException.class)
+                .hasMessageContaining("agent.external-url.allowed-origins");
+    }
+
+    @Test
+    void stillRequiresTargetScreenForInAppActions() {
+        // targetScreen을 종류별로 갈랐으니, 화면으로 가는 종류에서 필수가 풀리지 않았는지 확인한다.
+        assertThatThrownBy(() -> decoder.decode("done", """
+                {"answer":"등록했습니다.","action":{"type":"NAVIGATE","label":"할 일 보기"}}
+                """.strip().replace("\n", "")))
+                .isInstanceOf(AgentServerEventDecodingException.class)
+                .hasMessageContaining("targetScreen");
     }
 
     @Test

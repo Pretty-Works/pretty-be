@@ -69,4 +69,14 @@ final class PreviewFields {
     static String money(long amount) {
         return NumberFormat.getNumberInstance(Locale.KOREA).format(amount) + "원";
     }
+
+    // 본문처럼 긴 값을 카드에 실을 때 쓴다. 줄바꿈을 남기면 "- 항목" 구조가 무너져
+    // 어디까지가 본문인지 알 수 없고, 길이를 두면 카드 하나가 화면을 삼킨다.
+    static String shorten(String text, int maxLength) {
+        String singleLine = text.replaceAll("\\s+", " ").trim();
+        if (singleLine.length() <= maxLength) {
+            return singleLine;
+        }
+        return singleLine.substring(0, maxLength - 1) + "…";
+    }
 }

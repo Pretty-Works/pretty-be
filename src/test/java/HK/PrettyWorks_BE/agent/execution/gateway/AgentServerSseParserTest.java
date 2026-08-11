@@ -16,7 +16,7 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 
 class AgentServerSseParserTest {
     private final AgentServerSseParser parser = new AgentServerSseParser(
-            new AgentServerEventDecoder(new ObjectMapper()));
+            new AgentServerEventDecoder(new ObjectMapper(), "https://agent.example.com"));
 
     @Test
     void relaysStepsAndStopsAtDone() throws Exception {

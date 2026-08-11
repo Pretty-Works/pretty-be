@@ -25,15 +25,7 @@ public class PostCreatePreviewRenderer implements ApprovalPreviewRenderer {
                 + "\n- 제목: " + PreviewFields.requiredText(body, "title")
                 + "\n- 중요도: " + PreviewFields.requiredText(body, "priority")
                 + "\n- 프로젝트 #" + PreviewFields.requiredNumber(body, "projectId")
-                + "\n- 내용: " + shorten(PreviewFields.requiredText(body, "content"));
-    }
-
-    // 본문의 줄바꿈을 그대로 두면 카드의 "- 항목" 구조가 무너져 어디까지가 본문인지 알 수 없다.
-    private String shorten(String content) {
-        String singleLine = content.replaceAll("\\s+", " ").trim();
-        if (singleLine.length() <= MAX_PREVIEW_CONTENT) {
-            return singleLine;
-        }
-        return singleLine.substring(0, MAX_PREVIEW_CONTENT - 1) + "…";
+                + "\n- 내용: " + PreviewFields.shorten(
+                        PreviewFields.requiredText(body, "content"), MAX_PREVIEW_CONTENT);
     }
 }

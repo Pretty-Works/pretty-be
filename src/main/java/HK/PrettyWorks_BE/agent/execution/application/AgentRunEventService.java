@@ -33,6 +33,7 @@ import tools.jackson.databind.JsonNode;
 import tools.jackson.databind.node.ArrayNode;
 import tools.jackson.databind.node.ObjectNode;
 
+import java.net.URI;
 import java.time.LocalDateTime;
 import java.util.EnumSet;
 import java.util.Objects;
@@ -371,6 +372,7 @@ public class AgentRunEventService {
         String actionType = action == null ? null : action.type();
         String actionJson = action == null || rawPayload.get("action") == null
                 ? null : toJson(rawPayload.get("action"));
+        logExternalLink(run, action);
         AgentMessageEntity message = messageRepository.save(AgentMessageEntity.builder()
                 .conversationId(run.getConversationId())
                 .runId(run.getId())
@@ -383,6 +385,18 @@ public class AgentRunEventService {
                 .build());
         messageStepService.copyFromRun(message.getId(), run.getId());
         conversation.touch(LocalDateTime.now());
+    }
+
+    // 채팅에 외부 링크 버튼이 그려진 사실을 남긴다. "이상한 링크가 떴다"는 신고가 들어왔을 때
+    // 어느 실행에서 어디로 가는 버튼이 나갔는지 알 방법이 이 줄뿐이다(URL 전체는 남기지 않는다 —
+    // 쿼리에 일회용 토큰이 실린다).
+    private void logExternalLink(AgentRunEntity run, AgentServerEvent.Action action) {
+        if (action == null || !"OPEN_EXTERNAL_URL".equals(action.type())) {
+            return;
+        }
+        JsonNode url = action.params() == null ? null : action.params().get("url");
+        log.info("[에이전트 외부 링크] runId={}, url={}", run.getRunId(),
+                url == null ? null : URI.create(url.textValue()).getHost());
     }
 
     private AppliedEvent append(Long internalRunId, String eventType, ObjectNode payload,
