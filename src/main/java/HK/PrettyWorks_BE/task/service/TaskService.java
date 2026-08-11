@@ -179,7 +179,7 @@ public class TaskService {
             notificationPublisher.publish(NotificationType.TASK_DUE_DATE_CHANGED,
                     List.of(task.getAssigneeId()), userId,
                     NotificationTargetType.PROJECT, task.getProjectId(),
-                    task.getContent(), task.getDueDate());
+                    projectNameOf(task.getProjectId()), task.getDueDate(), task.getContent());
         }
 
         return TaskResponse.builder()
@@ -206,7 +206,8 @@ public class TaskService {
         if (task.getProjectId() != null) {
             notificationPublisher.publish(NotificationType.TASK_DELETED,
                     List.of(task.getAssigneeId()), userId,
-                    NotificationTargetType.PROJECT, task.getProjectId(), task.getContent());
+                    NotificationTargetType.PROJECT, task.getProjectId(),
+                    projectNameOf(task.getProjectId()), task.getContent());
         }
 
         // 5) hard delete (참조 자식 테이블 없어 안전)
@@ -482,7 +483,18 @@ public class TaskService {
         notificationPublisher.publish(NotificationType.TASK_ASSIGNED,
                 List.of(task.getAssigneeId()), task.getCreatorId(),
                 NotificationTargetType.PROJECT, task.getProjectId(),
-                task.getContent(), task.getDueDate());
+                projectNameOf(task.getProjectId()), task.getContent());
+    }
+
+    // 알림 문구의 첫 인자로 쓸 프로젝트 이름. 호출부는 모두 projectId != null을 확인한 뒤 부른다
+    // (개인 할 일은 프로젝트가 없어 알림 자체를 발행하지 않는다).
+    //
+    // 같은 트랜잭션에서 이미 읽은 프로젝트는 영속성 컨텍스트가 돌려주므로 대개 추가 쿼리가 나가지 않는다.
+    // 실제로 SELECT가 한 번 더 나가는 건 프로젝트를 읽지 않는 삭제 경로뿐이다.
+    private String projectNameOf(Long projectId) {
+        return projectRepository.findById(projectId)
+                .map(ProjectEntity::getName)
+                .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
     }
 
     private void validateProjectForWrite(Long projectId, Long userId, LocalDate dueDate) {

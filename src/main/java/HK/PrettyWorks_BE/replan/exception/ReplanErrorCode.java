@@ -17,7 +17,9 @@ public enum ReplanErrorCode implements ErrorCode {
     SCENARIO_NOT_FOUND(HttpStatus.NOT_FOUND, "REPLAN_002", "선택한 시나리오를 찾을 수 없습니다."),
 
     // 403 — 재계획 적용은 프로젝트 계획을 다시 짜는 일이라 프로젝트 수정과 같은 권한을 요구한다
-    // (오너이거나 프로젝트 내 역할이 PM인 참여자).
+    // (오너이거나 부서가 PM인 참여자 — ProjectPolicy.canUpdate).
+    // 프로젝트 내 역할(project_members.role)이 아니라 회사 부서(users.department) 기준이다.
+    // role은 자유 문자열이라 판정에 쓰지 않는다.
     NO_APPLY_PERMISSION(HttpStatus.FORBIDDEN, "REPLAN_003", "재계획을 적용할 권한이 없습니다."),
 
     // 409 — 계획을 세운 뒤 누군가 먼저 값을 바꿨다. 그대로 적용하면 남의 변경을 조용히 덮어쓴다.

@@ -123,9 +123,14 @@ public class MeetingService {
                 .orElseThrow(() -> BaseException.type(MeetingErrorCode.AUTHOR_NOT_FOUND));
         saveAttendees(savedMeeting.getId(), author, attendees);
 
-        // 참석자 전원에게 알림. 작성자 본인은 NotificationPublisher가 걸러낸다.
+        // 참석자 전원 + 이 프로젝트를 관리하는 사람(오너·PM)에게 알림.
+        // 관리자는 자기가 참석하지 않은 회의도 알아야 한다는 팀 결정이다.
+        // 작성자 본인·중복은 NotificationPublisher가 걸러낸다.
+        List<Long> recipients = new ArrayList<>(request.attendeeIds());
+        recipients.addAll(projectMemberService.getManagerIds(projectId));
+
         notificationPublisher.publish(NotificationType.MEETING_CREATED,
-                request.attendeeIds(), authorId, NotificationTargetType.PROJECT, projectId,
+                recipients, authorId, NotificationTargetType.PROJECT, projectId,
                 project.getName(), savedMeeting.getTitle());
 
         return savedMeeting.getId();
@@ -265,13 +270,8 @@ public class MeetingService {
         // 참석자 명단 동기화 (바뀐 사람만 반영)
         syncAttendees(meetingId, attendees);
 
-        // 작성자 + 참석자 전원에게 알림. 참석자가 수정했으면 작성자도 받아야 하므로 둘 다 후보에 넣는다.
-        // 행위자 본인은 NotificationPublisher가 걸러낸다.
-        List<Long> recipients = new ArrayList<>(request.attendeeIds());
-        recipients.add(meeting.getAuthorId());
-        notificationPublisher.publish(NotificationType.MEETING_UPDATED,
-                recipients, userId, NotificationTargetType.PROJECT, projectId,
-                meeting.getTitle());
+        // 수정 알림은 발행하지 않는다 — 오타 하나만 고쳐도 참석자 전원에게 알림이 가 팀 결정으로 폐기했다.
+        // NotificationType에서 상수도 함께 지웠으니 되살리지 말 것(사유는 그쪽 주석 참고).
 
         // 수정된 최신 상세를 반환
         return toDetailResponse(meeting);
