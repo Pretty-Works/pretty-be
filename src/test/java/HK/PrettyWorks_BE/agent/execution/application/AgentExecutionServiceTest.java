@@ -10,6 +10,7 @@ import HK.PrettyWorks_BE.agent.execution.domain.AgentRunEntity;
 import HK.PrettyWorks_BE.agent.execution.gateway.dto.AgentRunRequest;
 import HK.PrettyWorks_BE.agent.execution.streaming.AgentStartedStream;
 import HK.PrettyWorks_BE.agent.execution.streaming.AgentStreamService;
+import HK.PrettyWorks_BE.agent.shared.attachment.AgentAttachmentCarryCache;
 import HK.PrettyWorks_BE.agent.shared.attachment.AgentAttachmentIntake;
 import HK.PrettyWorks_BE.agent.shared.attachment.AgentFileEncoding;
 import HK.PrettyWorks_BE.global.exception.BaseException;
@@ -33,6 +34,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
@@ -49,12 +51,14 @@ class AgentExecutionServiceTest {
     private final AgentAttachmentIntake attachmentIntake =
             new AgentAttachmentIntake(new String[]{"txt"}, 3, 1024, 2048);
 
+    private final AgentAttachmentCarryCache carryCache = mock(AgentAttachmentCarryCache.class);
+
     private AgentExecutionService service;
 
     @BeforeEach
     void setUp() {
         service = new AgentExecutionService(runFactory, messageRepository, streamService,
-                segmentExecutor, attachmentIntake, objectMapper, 20, 4_096);
+                segmentExecutor, attachmentIntake, carryCache, objectMapper, 20, 4_096);
     }
 
     @Test
@@ -119,6 +123,31 @@ class AgentExecutionServiceTest {
             assertThat(file.encoding()).isEqualTo(AgentFileEncoding.TEXT);
             assertThat(file.content()).isEqualTo("회의 내용입니다");
         });
+    }
+
+    // 에이전트가 되묻고 사용자가 텍스트로만 답한 턴. 첨부는 없지만 직전에 올린 파일을 이어받아야
+    // "파일을 다시 첨부해 주세요"로 되돌아가지 않는다. 말풍선에 남는 첨부는 여전히 없다.
+    @Test
+    void reusesTheAttachmentUploadedEarlierInTheSameConversation() {
+        AgentRunFactory.StartedRun started = startedRun();
+        when(runFactory.start(eq(1L), eq(10L), eq("다온증권에다가 해줘"),
+                anyString(), eq("session-1"), eq(List.of()))).thenReturn(started);
+        when(messageRepository.findRecentContextBeforeMessage(eq(10L), eq(30L), any()))
+                .thenReturn(List.of());
+        when(streamService.connect(1L, "run-public-1", null)).thenReturn(new SseEmitter());
+        when(carryCache.find(10L)).thenReturn(List.of(new AgentRunRequest.AttachedFile(
+                "회의록.txt", "text/plain", 12L, AgentFileEncoding.TEXT, "회의 내용입니다")));
+        AgentMessageRequest request = new AgentMessageRequest(10L, "다온증권에다가 해줘",
+                objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"));
+
+        service.start(1L, "session-1", request, List.of());
+
+        ArgumentCaptor<AgentRunRequest> sent = ArgumentCaptor.forClass(AgentRunRequest.class);
+        verify(segmentExecutor).submitStart(eq(20L), eq("run-public-1"), sent.capture());
+        assertThat(sent.getValue().files()).singleElement()
+                .satisfies(file -> assertThat(file.content()).isEqualTo("회의 내용입니다"));
+        // 이번 턴에 올린 것이 없으니 보관할 것도 없다 — 옛 파일의 수명을 연장하지 않는다.
+        verify(carryCache, never()).put(any(), any());
     }
 
     // 파일만 보낸 경우. 저장·전달 계약이 전부 goal 을 필수로 보므로 여기서 문구가 채워져야 한다.

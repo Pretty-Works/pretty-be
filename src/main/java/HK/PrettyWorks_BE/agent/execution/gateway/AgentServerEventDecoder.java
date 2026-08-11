@@ -31,6 +31,7 @@ import java.nio.charset.StandardCharsets;
 @Component
 public class AgentServerEventDecoder {
     private static final Pattern AGENT_ERROR_CODE = Pattern.compile("AGENT_\\d{3}");
+    private static final Pattern WHITESPACE = Pattern.compile("\\s+");
 
     // done.action 종류. 앞의 둘은 사내 화면으로 가고, OPEN_EXTERNAL_URL은 새 창으로 나간다
     // (외부 인증 진입점 — Gmail OAuth 등). 종류마다 필수 필드가 달라 아래 decodeAction에서 갈린다.
@@ -121,7 +122,7 @@ public class AgentServerEventDecoder {
     }
 
     private AgentServerEvent decodeStep(JsonNode payload) {
-        return new AgentServerEvent.Step(requiredSingleLineText(payload, "text", 100));
+        return new AgentServerEvent.Step(displayText(payload, "text", 100));
     }
 
     private AgentServerEvent decodeApproval(JsonNode payload) {
@@ -137,8 +138,10 @@ public class AgentServerEventDecoder {
                 requiredText(payload, "toolCallId", 64),
                 requiredText(payload, "tool", 50),
                 access,
-                requiredSingleLineText(payload, "summary", 60),
-                requiredText(payload, "previewText", null),
+                displayText(payload, "summary", 60),
+                // 미리보기는 params를 줄줄이 적은 값이라 params가 비면 함께 빈다.
+                // 그 자체로 승인 카드를 못 만들 이유는 없으므로 빈 문자열을 허용한다.
+                optionalTextOrEmpty(payload, "previewText"),
                 params,
                 alternatives
         );
@@ -174,7 +177,7 @@ public class AgentServerEventDecoder {
                 throw invalid("alternative ids must be unique");
             }
             alternatives.add(new AgentServerEvent.Alternative(
-                    id, requiredSingleLineText(alternative, "label", 30)));
+                    id, displayText(alternative, "label", 30)));
         }
         return alternatives;
     }
@@ -197,7 +200,7 @@ public class AgentServerEventDecoder {
             }
             options.add(new AgentServerEvent.QuestionOption(
                     optionId,
-                    requiredSingleLineText(option, "label", 60),
+                    displayText(option, "label", 60),
                     optionalText(option, "description")
             ));
         }
@@ -206,8 +209,9 @@ public class AgentServerEventDecoder {
             throw invalid("question must provide an answer path");
         }
         return new AgentServerEvent.Question(
-                requiredSingleLineText(payload, "label", 60),
-                requiredText(payload, "text", 200),
+                displayText(payload, "label", 60),
+                // 질문 본문은 여러 줄일 수 있어 줄바꿈은 남기고 길이만 맞춘다.
+                truncate(requiredText(payload, "text", null), 200),
                 options,
                 optionalBoolean(payload, "multiple", false),
                 allowFreeText
@@ -219,7 +223,9 @@ public class AgentServerEventDecoder {
         AgentServerEvent.Action action = actionNode == null || actionNode.isNull()
                 ? null
                 : decodeAction(actionNode);
-        return new AgentServerEvent.Done(requiredText(payload, "answer", null), action);
+        // answer가 빈 문자열인 done도 정상 종료로 받는다. 여기서 거절하면 종료 이벤트가
+        // 사라져 실행이 AGENT_017(도중에 끊김)로 끝난다 — 빈 답보다 나쁜 결과다.
+        return new AgentServerEvent.Done(requiredString(payload, "answer"), action);
     }
 
     private AgentServerEvent.Action decodeAction(JsonNode action) {
@@ -245,7 +251,7 @@ public class AgentServerEventDecoder {
         }
         return new AgentServerEvent.Action(
                 type,
-                requiredSingleLineText(action, "label", 30),
+                displayText(action, "label", 30),
                 targetScreen(action, type),
                 params,
                 formData
@@ -318,6 +324,39 @@ public class AgentServerEventDecoder {
             throw invalid(field + " is too long");
         }
         return value.textValue();
+    }
+
+    /**
+     * 값이 있어야 하지만 비어 있어도 되는 문자열입니다(예: {@code done.answer}).
+     */
+    private String requiredString(JsonNode object, String field) {
+        JsonNode value = object.get(field);
+        if (value == null || !value.isTextual()) {
+            throw invalid(field + " must be a string");
+        }
+        return value.textValue();
+    }
+
+    private String optionalTextOrEmpty(JsonNode object, String field) {
+        String value = optionalText(object, field);
+        return value == null ? "" : value;
+    }
+
+    /**
+     * 화면에 그대로 그려지는 문자열입니다. 줄바꿈·길이 위반을 거절하지 않고 다듬습니다.
+     *
+     * <p>이 값들은 의미가 아니라 표시용이라, 한 줄 규칙을 어겼다고 이벤트를 버리면
+     * 승인 카드나 진행 문구가 통째로 사라지고 실행은 AGENT_017로 끝납니다. 규칙을
+     * 지키게 만드는 비용을 사용자가 치르게 하지 않고 여기서 접습니다. 반면 식별자와
+     * 권한 경계(toolCallId·tool·access·option.id·error.code 등)는 그대로 엄격합니다.</p>
+     */
+    private String displayText(JsonNode object, String field, int maxLength) {
+        String value = requiredText(object, field, null);
+        return truncate(WHITESPACE.matcher(value).replaceAll(" ").trim(), maxLength);
+    }
+
+    private String truncate(String value, int maxLength) {
+        return value.length() <= maxLength ? value : value.substring(0, maxLength);
     }
 
     private String optionalText(JsonNode object, String field) {

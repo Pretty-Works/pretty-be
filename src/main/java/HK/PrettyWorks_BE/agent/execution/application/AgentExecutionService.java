@@ -7,6 +7,7 @@ import HK.PrettyWorks_BE.agent.execution.domain.AgentRunEntity;
 import HK.PrettyWorks_BE.agent.execution.gateway.dto.AgentRunRequest;
 import HK.PrettyWorks_BE.agent.execution.streaming.AgentStartedStream;
 import HK.PrettyWorks_BE.agent.execution.streaming.AgentStreamService;
+import HK.PrettyWorks_BE.agent.shared.attachment.AgentAttachmentCarryCache;
 import HK.PrettyWorks_BE.agent.shared.attachment.AgentAttachmentIntake;
 import HK.PrettyWorks_BE.agent.shared.exception.AgentErrorCode;
 import HK.PrettyWorks_BE.global.exception.BaseException;
@@ -50,6 +51,7 @@ public class AgentExecutionService {
     private final AgentStreamService streamService;
     private final AgentSegmentExecutor segmentExecutor;
     private final AgentAttachmentIntake attachmentIntake;
+    private final AgentAttachmentCarryCache carryCache;
     private final ObjectMapper objectMapper;
     private final int maxContextMessages;
     private final int maxScreenContextBytes;
@@ -60,6 +62,7 @@ public class AgentExecutionService {
             AgentStreamService streamService,
             AgentSegmentExecutor segmentExecutor,
             AgentAttachmentIntake attachmentIntake,
+            AgentAttachmentCarryCache carryCache,
             ObjectMapper objectMapper,
             @Value("${agent.context.max-messages}") int maxContextMessages,
             @Value("${agent.context.max-screen-bytes}") int maxScreenContextBytes
@@ -72,6 +75,7 @@ public class AgentExecutionService {
         this.streamService = streamService;
         this.segmentExecutor = segmentExecutor;
         this.attachmentIntake = attachmentIntake;
+        this.carryCache = carryCache;
         this.objectMapper = objectMapper;
         this.maxContextMessages = maxContextMessages;
         this.maxScreenContextBytes = maxScreenContextBytes;
@@ -94,6 +98,10 @@ public class AgentExecutionService {
         AgentRunFactory.StartedRun started = runFactory.start(
                 userId, request.conversationId(), goal, screenContextJson, sessionId, attachments);
         AgentRunEntity run = started.run();
+        // 말풍선·실행 기록에 남는 첨부는 이번 턴에 실제로 올린 것뿐이다(위 runFactory 인자).
+        // 아래에서 갈리는 것은 "에이전트에게 무엇을 보여줄 것인가"뿐이다.
+        List<AgentRunRequest.AttachedFile> relayed =
+                relayedAttachments(started.conversation().getId(), attachments);
 
         final AgentRunRequest serverRequest;
         try {
@@ -105,7 +113,8 @@ public class AgentExecutionService {
                     .screenContext(screenContext)
                     .requestSource(REQUEST_SOURCE_WEB)
                     .locale(LOCALE_KO)
-                    .files(attachments)
+                    .files(relayed)
+                    .autoApprove(started.conversation().isAutoApprove())
                     .build();
         } catch (RuntimeException failure) {
             segmentExecutor.failRun(run.getId(), failure);
@@ -147,6 +156,25 @@ public class AgentExecutionService {
             throw BaseException.type(GlobalErrorCode.VALIDATION_ERROR);
         }
         return attachmentOnlyGoal(attachments);
+    }
+
+    /**
+     * 에이전트에게 실어 보낼 첨부를 정합니다.
+     *
+     * <p>이번 턴에 올린 파일이 있으면 그것이고, 없으면 이 대화에서 직전에 올린 파일입니다.
+     * 에이전트가 되묻는 순간 첨부가 사라져 "파일을 다시 첨부해 주세요"로 되돌아가는 것을
+     * 막는 것이 전부이며, 이어 주는 시간은 {@code agent.upload.carry-ttl-minutes}로 짧게 끊습니다.</p>
+     *
+     * <p>이어받은 첨부로 "파일만 보내기"가 성립하지는 않습니다 — {@code resolveGoal}은 이번 턴에
+     * 실제로 올린 파일만 봅니다. 빈 메시지를 허용하는 근거는 사용자의 이번 행동이어야 합니다.</p>
+     */
+    private List<AgentRunRequest.AttachedFile> relayedAttachments(
+            Long conversationId, List<AgentRunRequest.AttachedFile> uploaded) {
+        if (!uploaded.isEmpty()) {
+            carryCache.put(conversationId, uploaded);
+            return uploaded;
+        }
+        return carryCache.find(conversationId);
     }
 
     private String attachmentOnlyGoal(List<AgentRunRequest.AttachedFile> attachments) {

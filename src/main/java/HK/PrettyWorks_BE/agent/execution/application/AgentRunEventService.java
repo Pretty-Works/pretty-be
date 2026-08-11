@@ -304,7 +304,8 @@ public class AgentRunEventService {
             ApprovalTokenService.IssuedToken issued = tokenService.issue(interaction.getId());
             interaction.replaceDisplayPayload(toJson(payload));
             AutoApprovalResume resume = new AutoApprovalResume(
-                    interaction.getId(), issued.token(), interaction.getParamsCanonical());
+                    interaction.getId(), interaction.getToolCallId(),
+                    issued.token(), interaction.getParamsCanonical());
             return append(run.getId(), "approval_request", payload,
                     HandlingResult.autoApproval(resume));
         }
@@ -531,17 +532,24 @@ public class AgentRunEventService {
     /** Resume credentials are intentionally redacted from logs and debugger-friendly toString output. */
     public static final class AutoApprovalResume {
         private final Long approvalId;
+        private final String toolCallId;
         private final String approvalToken;
         private final String paramsCanonical;
 
-        private AutoApprovalResume(Long approvalId, String approvalToken, String paramsCanonical) {
+        private AutoApprovalResume(Long approvalId, String toolCallId,
+                                   String approvalToken, String paramsCanonical) {
             this.approvalId = approvalId;
+            this.toolCallId = toolCallId;
             this.approvalToken = approvalToken;
             this.paramsCanonical = paramsCanonical;
         }
 
         public Long approvalId() {
             return approvalId;
+        }
+
+        public String toolCallId() {
+            return toolCallId;
         }
 
         public String approvalToken() {

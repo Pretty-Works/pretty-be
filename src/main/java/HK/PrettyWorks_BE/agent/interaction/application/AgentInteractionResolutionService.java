@@ -87,10 +87,12 @@ public class AgentInteractionResolutionService {
         }
 
         boolean tokenRequired = persistedDecision == AgentDecision.APPROVED;
+        // toolCallId 는 FastAPI 가 "어느 대기를 푸는지" 대조하는 값이라 재개 요청에 반드시 실린다.
         return new PreparedApproval(locked.run().getId(), locked.run().getRunId(), approvalId,
+                locked.interaction().getToolCallId(),
                 persistedDecision, always ? null : alternativeId, reason,
                 tokenRequired, tokenRequired ? locked.interaction().getParamsCanonical() : null,
-                locked.run().getLastEventSeq());
+                autoApproveOf(locked.run()), locked.run().getLastEventSeq());
     }
 
     @Transactional
@@ -105,7 +107,8 @@ public class AgentInteractionResolutionService {
                 objectMapper.writeValueAsString(response), null));
         transitionToRunning(locked.run(), AgentRunStatus.WAITING_INPUT);
         return new PreparedQuestion(locked.run().getId(), locked.run().getRunId(),
-                questionId, response, locked.run().getLastEventSeq());
+                questionId, response, autoApproveOf(locked.run()),
+                locked.run().getLastEventSeq());
     }
 
     private LockedInteraction lockOwnedInteraction(Long userId, Long interactionId,
@@ -128,6 +131,14 @@ public class AgentInteractionResolutionService {
             throw BaseException.type(AgentErrorCode.INTERACTION_ALREADY_RESOLVED);
         }
         return new LockedInteraction(run, interaction);
+    }
+
+    // FastAPI 재개 요청에 함께 싣는 정보용 값. 대화가 지워졌다면 굳이 실행을 깨뜨리지 않고
+    // 기본값(false)으로 둔다 — 이 값으로 동작이 갈리지 않는다.
+    private boolean autoApproveOf(AgentRunEntity run) {
+        return conversationRepository.findById(run.getConversationId())
+                .map(AgentConversationEntity::isAutoApprove)
+                .orElse(false);
     }
 
     private void transitionToRunning(AgentRunEntity run, AgentRunStatus expected) {
@@ -201,13 +212,15 @@ public class AgentInteractionResolutionService {
     }
 
     public record PreparedApproval(Long internalRunId, String publicRunId, Long approvalId,
-                                   AgentDecision decision, String alternativeId, String reason,
+                                   String toolCallId, AgentDecision decision,
+                                   String alternativeId, String reason,
                                    boolean tokenRequired, String paramsCanonical,
-                                   long lastEventSequence) {
+                                   boolean autoApprove, long lastEventSequence) {
     }
 
     public record PreparedQuestion(Long internalRunId, String publicRunId, Long questionId,
-                                   JsonNode response, long lastEventSequence) {
+                                   JsonNode response, boolean autoApprove,
+                                   long lastEventSequence) {
         public PreparedQuestion {
             response = response.deepCopy();
         }

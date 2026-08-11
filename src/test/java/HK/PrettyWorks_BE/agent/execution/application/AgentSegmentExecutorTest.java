@@ -66,13 +66,14 @@ class AgentSegmentExecutorTest {
 
         AgentRunRequest request = new AgentRunRequest("run-public-1", 10L, "업무 처리",
                 java.util.List.of(), objectMapper.readTree("{\"screen\":\"TASK_LIST\"}"),
-                "WEB", "ko-KR", java.util.List.of());
+                "WEB", "ko-KR", java.util.List.of(), false);
         executor.submitStart(10L, "run-public-1", request);
 
         assertThat(resumed.await(2, TimeUnit.SECONDS)).isTrue();
         ArgumentCaptor<AgentResumeRequest> resume =
                 ArgumentCaptor.forClass(AgentResumeRequest.class);
         verify(serverClient).resumeRun(eq("run-public-1"), resume.capture(), any());
+        assertThat(resume.getValue().toolCallId()).isEqualTo("call-1");
         assertThat(resume.getValue().approvalToken()).isEqualTo("secret-token");
         assertThat(resume.getValue().paramsCanonical()).isEqualTo("{\"taskId\":7}");
     }
@@ -80,9 +81,9 @@ class AgentSegmentExecutorTest {
     private AgentRunEventService.AutoApprovalResume autoApprovalCredentials() throws Exception {
         Constructor<AgentRunEventService.AutoApprovalResume> constructor =
                 AgentRunEventService.AutoApprovalResume.class.getDeclaredConstructor(
-                        Long.class, String.class, String.class);
+                        Long.class, String.class, String.class, String.class);
         constructor.setAccessible(true);
-        return constructor.newInstance(30L, "secret-token", "{\"taskId\":7}");
+        return constructor.newInstance(30L, "call-1", "secret-token", "{\"taskId\":7}");
     }
 
     private DecodedAgentServerEvent approvalEvent() {

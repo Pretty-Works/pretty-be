@@ -31,6 +31,13 @@ import java.util.Optional;
 public class AgentSuggestionCache {
 
     private static final String KEY_PREFIX = "agent:suggestions:";
+    private static final String VERSION_PREFIX = "agent:suggestions:ver:";
+
+    /**
+     * 세대 번호의 보관 기간. 칩 TTL보다 훨씬 길어야 합니다 — 세대가 먼저 사라지면 번호가 0으로
+     * 돌아가고, 아직 살아 있는 예전 세대의 칩을 다시 집게 됩니다.
+     */
+    private static final Duration VERSION_TTL = Duration.ofDays(1);
 
     private final StringRedisTemplate redisTemplate;
     private final ObjectMapper objectMapper;
@@ -105,6 +112,31 @@ public class AgentSuggestionCache {
         }
     }
 
+    /**
+     * 이 사용자의 보관된 칩을 전부 버립니다. 다음 조회는 새로 만듭니다.
+     *
+     * <p>추천의 재료(할 일·회의·연차)가 바뀐 순간에 부릅니다. TTL이 지나기를 기다리면
+     * "할 일을 방금 끝냈는데 아직도 밀렸다고 한다"가 그 시간만큼 남습니다.</p>
+     *
+     * <p>키를 찾아 지우지 않고 세대 번호를 올립니다. 화면 이름은 프론트가 정하는 값이라
+     * BE가 목록을 갖고 있지 않고({@link AgentSuggestionService}의 화면 처리 주석 참고),
+     * 그렇다고 {@code SCAN}으로 훑으면 무효화 한 번이 키 공간 전체를 도는 일이 됩니다.
+     * 번호가 바뀌면 예전 세대의 키는 아무도 찾지 않고 TTL로 알아서 사라집니다.</p>
+     */
+    public void evict(Long userId) {
+        if (userId == null || disabled()) {
+            return;
+        }
+        try {
+            String versionKey = versionKey(userId);
+            redisTemplate.opsForValue().increment(versionKey);
+            redisTemplate.expire(versionKey, VERSION_TTL);
+        } catch (RuntimeException failure) {
+            // 무효화 실패의 최악은 "TTL이 지날 때까지 낡은 칩을 본다"이다. 쓰기 자체를 깨뜨리지 않는다.
+            log.warn("[에이전트 추천] 캐시를 버리지 못했습니다. userId={}", userId, failure);
+        }
+    }
+
     // 0분이면 캐시를 끈다. LLM 출력 자체를 확인해야 하는 로컬 디버깅용 스위치다.
     private boolean disabled() {
         return ttl.isZero();
@@ -112,7 +144,25 @@ public class AgentSuggestionCache {
 
     // 화면까지 키에 넣는다. 같은 사용자라도 HOME과 PROJECT는 고를 후보가 달라
     // 한 키로 합치면 다른 화면의 칩이 걸린다.
+    //
+    // 세대 번호가 앞에 붙는다. evict()가 이 번호를 올리면 이전 키는 조회 대상에서 사라진다.
     private String key(Long userId, String screen) {
-        return KEY_PREFIX + userId + ":" + screen;
+        return KEY_PREFIX + userId + ":" + version(userId) + ":" + screen;
+    }
+
+    // 읽기 실패는 0세대로 본다. 캐시 미스가 되거나 예전 세대에 덮어쓰는 정도이고,
+    // 둘 다 "LLM을 한 번 더 부른다"로 끝난다.
+    private String version(Long userId) {
+        try {
+            String stored = redisTemplate.opsForValue().get(versionKey(userId));
+            return stored == null ? "0" : stored;
+        } catch (RuntimeException failure) {
+            log.warn("[에이전트 추천] 캐시 세대를 읽지 못했습니다. userId={}", userId, failure);
+            return "0";
+        }
+    }
+
+    private String versionKey(Long userId) {
+        return VERSION_PREFIX + userId;
     }
 }

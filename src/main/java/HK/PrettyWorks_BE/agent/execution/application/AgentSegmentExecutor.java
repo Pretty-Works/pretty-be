@@ -131,9 +131,10 @@ public class AgentSegmentExecutor {
                 }
 
                 AgentRunEventService.AutoApprovalResume approval = applied.autoApproval();
+                // 이 경로 자체가 대화의 자동 승인이 켜져 있다는 뜻이라 autoApprove=true다.
                 AgentResumeRequest resume = AgentResumeRequest.approval(
-                        approval.approvalId(), AgentDecision.APPROVED, null, null,
-                        approval.approvalToken(), approval.paramsCanonical());
+                        approval.approvalId(), approval.toolCallId(), AgentDecision.APPROVED,
+                        null, null, approval.approvalToken(), approval.paramsCanonical(), true);
                 call = consumer -> serverClient.resumeRun(publicRunId, resume, consumer);
             }
         } catch (BaseException failure) {

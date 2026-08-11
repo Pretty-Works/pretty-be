@@ -6,6 +6,7 @@ import HK.PrettyWorks_BE.agent.interaction.domain.AgentInteractionStatus;
 import HK.PrettyWorks_BE.agent.interaction.persistence.AgentInteractionRepository;
 import HK.PrettyWorks_BE.agent.shared.exception.AgentErrorCode;
 import HK.PrettyWorks_BE.agent.shared.json.ParamsCanonicalizer;
+import HK.PrettyWorks_BE.agent.suggestion.application.AgentSuggestionCache;
 import HK.PrettyWorks_BE.agent.tool.security.InternalAgentAttributes;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
@@ -35,6 +36,7 @@ public class AgentWriteExecutor {
     private final ObjectMapper objectMapper;
     private final Validator validator;
     private final TransactionTemplate transactionTemplate;
+    private final AgentSuggestionCache suggestionCache;
 
     public AgentWriteExecutor(HttpServletRequest request,
                               AgentInteractionRepository interactionRepository,
@@ -42,7 +44,8 @@ public class AgentWriteExecutor {
                               ParamsCanonicalizer canonicalizer,
                               ObjectMapper objectMapper,
                               Validator validator,
-                              PlatformTransactionManager transactionManager) {
+                              PlatformTransactionManager transactionManager,
+                              AgentSuggestionCache suggestionCache) {
         this.request = request;
         this.interactionRepository = interactionRepository;
         this.approvalTokenService = approvalTokenService;
@@ -50,6 +53,7 @@ public class AgentWriteExecutor {
         this.objectMapper = objectMapper;
         this.validator = validator;
         this.transactionTemplate = new TransactionTemplate(transactionManager);
+        this.suggestionCache = suggestionCache;
     }
 
     /**
@@ -126,7 +130,7 @@ public class AgentWriteExecutor {
         byte[] rawBody = rawBody();
         boolean[] businessStarted = {false};
         try {
-            return transactionTemplate.execute(status -> {
+            T committed = transactionTemplate.execute(status -> {
                 AgentInteractionEntity interaction = interactionRepository
                         .findByIdForUpdate(inspection.interactionId())
                         .orElseThrow(() -> BaseException.type(AgentErrorCode.INVALID_APPROVAL_TOKEN));
@@ -144,6 +148,12 @@ public class AgentWriteExecutor {
                         LocalDateTime.now());
                 return result;
             });
+            // 커밋된 뒤에 버린다. 트랜잭션 안에서 버리면 롤백된 쓰기까지 캐시를 날린다.
+            // 재실행(replay)은 이미 지난 실행이라 그때 버렸다 — 다시 버릴 이유가 없다.
+            if (businessStarted[0]) {
+                suggestionCache.evict(userId());
+            }
+            return committed;
         } catch (BaseException exception) {
             // 승인 토큰 폐기는 이 메서드가 단독으로 소유한다. 필터는 HTTP 상태 코드로 업무 의미를
             // 추론하지 않는다 — 그렇게 하면 응답을 이미 내보낸 뒤 폐기가 실패했을 때
@@ -240,6 +250,13 @@ public class AgentWriteExecutor {
                 }
             }
         }
+    }
+
+    // 추천 캐시를 버릴 대상. 필터가 넣어 둔 값이라 여기까지 왔으면 반드시 있지만,
+    // 없다고 이미 커밋된 쓰기를 실패로 만들 수는 없다.
+    private Long userId() {
+        Object value = request.getAttribute(InternalAgentAttributes.USER_ID);
+        return value instanceof Long userId ? userId : null;
     }
 
     private Long internalRunId() {

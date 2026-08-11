@@ -40,8 +40,8 @@ class AgentResumeServiceTest {
                 AgentDecision.APPROVED, null, null);
         when(resolutionService.resolveApproval(1L, 30L, request)).thenReturn(
                 new AgentInteractionResolutionService.PreparedApproval(
-                        10L, "run-public-1", 30L, AgentDecision.APPROVED,
-                        null, null, true, "{\"taskId\":7}", 5L));
+                        10L, "run-public-1", 30L, "call-1", AgentDecision.APPROVED,
+                        null, null, true, "{\"taskId\":7}", false, 5L));
         when(tokenService.issue(30L)).thenReturn(
                 new ApprovalTokenService.IssuedToken(
                         "secret-token", LocalDateTime.now().plusMinutes(10)));
@@ -58,6 +58,7 @@ class AgentResumeServiceTest {
         verify(segmentExecutor).submitResume(eq(10L), eq("run-public-1"), supplier.capture());
         AgentResumeRequest resume = supplier.getValue().get();
         assertThat(resume.decision()).isEqualTo(AgentDecision.APPROVED);
+        assertThat(resume.toolCallId()).isEqualTo("call-1");
         assertThat(resume.approvalToken()).isEqualTo("secret-token");
         assertThat(resume.paramsCanonical()).isEqualTo("{\"taskId\":7}");
         assertThat(resume.toString()).doesNotContain("secret-token", "taskId");

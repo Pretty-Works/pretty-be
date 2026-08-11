@@ -55,6 +55,38 @@ class AgentServerEventDecoderTest {
                 .isEqualTo("additive-change");
     }
 
+    // 표시용 문자열의 줄바꿈·길이 위반은 이벤트를 버릴 이유가 아니다. 버리면 승인 카드가
+    // 통째로 사라지고, 사용자에게는 AGENT_017(답변이 도중에 끊김)로 보인다.
+    @Test
+    void tidiesDisplayTextInsteadOfDiscardingTheEvent() {
+        AgentServerEvent.ApprovalRequest approval =
+                (AgentServerEvent.ApprovalRequest) decoder.decode("approval_request", """
+                        {"toolCallId":"tc_1","tool":"leave.create","access":"WRITE",
+                         "summary":"연차 3일을 신청합니다.\\n2026-08-12 ~ 2026-08-14",
+                         "previewText":"","params":{"leaveType":"ANNUAL"}}
+                        """.strip().replace("\n", "")).event();
+
+        assertThat(approval.summary()).isEqualTo("연차 3일을 신청합니다. 2026-08-12 ~ 2026-08-14");
+        assertThat(approval.previewText()).isEmpty();
+
+        AgentServerEvent.Step step = (AgentServerEvent.Step) decoder.decode(
+                "step", "{\"text\":\"" + "가".repeat(150) + "\"}").event();
+        assertThat(step.text()).hasSize(100);
+    }
+
+    // 빈 답으로 끝나는 실행도 정상 종료다. done을 버리면 종료 이벤트가 사라져
+    // 실행 전체가 실패로 끝난다.
+    @Test
+    void acceptsDoneWithEmptyAnswer() {
+        AgentServerEvent.Done done = (AgentServerEvent.Done) decoder.decode(
+                "done", "{\"answer\":\"\",\"action\":null}").event();
+
+        assertThat(done.answer()).isEmpty();
+        assertThatThrownBy(() -> decoder.decode("done", "{\"action\":null}"))
+                .isInstanceOf(AgentServerEventDecodingException.class)
+                .hasMessageContaining("answer");
+    }
+
     @Test
     void approvalRejectsReadAccessAndServerOwnedId() {
         String readApproval = """
