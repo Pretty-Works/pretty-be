@@ -4,6 +4,7 @@ import HK.PrettyWorks_BE.calendar.schedule.dto.req.ScheduleCreateRequest;
 import HK.PrettyWorks_BE.calendar.schedule.dto.req.ScheduleUpdateRequest;
 import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleCreateResponse;
 import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleListResponse;
+import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleListResponse.ScheduleItem;
 import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleUpdateResponse;
 import io.swagger.v3.oas.annotations.Operation;
 import io.swagger.v3.oas.annotations.Parameter;
@@ -143,6 +144,61 @@ public interface ScheduleApi {
     );
 
     @Operation(
+            summary = "일정 단건 조회",
+            description = """
+                    일정 하나를 id로 조회합니다. 알림·딥링크처럼 scheduleId만 아는 진입점을 위한 API입니다.
+
+                    [응답] result는 목록(GET /calendar/schedules)의 항목 한 개와 **완전히 같은 구조**입니다.
+                    - owner·participants·isLeave·leaveId·leaveType·reason·days 모두 목록과 동일
+                    - 따라서 편집 모달 프리필 코드를 목록과 그대로 공유할 수 있습니다
+                    [에러]
+                    - 없는 일정 404(SCHEDULE_001)
+                    [권한]
+                    - 접근 제한 없음: 목록과 동일한 완전공개 정책(팀 투명성)
+                    """
+    )
+    @ApiResponses({
+            @ApiResponse(responseCode = "200", description = "일정 단건 조회 성공",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    {
+                                      "errorCode": null,
+                                      "message": "SUCCESS",
+                                      "result": {
+                                        "id": 51,
+                                        "title": "연차",
+                                        "startAt": "2026-08-10T00:00:00",
+                                        "endAt": "2026-08-12T23:59:59",
+                                        "allDay": true,
+                                        "type": "PERSONAL",
+                                        "isLeave": true,
+                                        "leaveId": 39,
+                                        "leaveType": "ANNUAL",
+                                        "reason": "개인 사정",
+                                        "days": 3,
+                                        "owner": { "userId": 3, "name": "김피엠" },
+                                        "participants": [
+                                          { "userId": 3, "name": "김피엠", "role": "WRITER" }
+                                        ]
+                                      }
+                                    }
+                                    """))),
+            @ApiResponse(responseCode = "404", description = "존재하지 않는 일정",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    { "errorCode": "SCHEDULE_001", "message": "존재하지 않는 일정입니다.", "result": null }
+                                    """))),
+            @ApiResponse(responseCode = "500", description = "서버 내부 오류",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    { "errorCode": "RESPONSE_001", "message": "서버와의 연결에 실패했습니다.", "result": null }
+                                    """)))
+    })
+    ResponseEntity<ScheduleItem> get(
+            @Parameter(description = "조회할 일정 id") Long scheduleId
+    );
+
+    @Operation(
             summary = "일정 삭제",
             description = """
                     본인이 작성한 일정을 삭제합니다(하드 삭제, 복구 불가).
@@ -150,6 +206,7 @@ public interface ScheduleApi {
                     - 작성자만 가능(SCHEDULE_003). 참가자로서 참여만 빼려면 '나가기'(DELETE .../{scheduleId}/me) 사용
                     - 없는 일정 404(SCHEDULE_001)
                     - 참가자·휴가 상세는 함께 정리됨. 성공 응답 result는 null
+                    - 삭제 시점의 참가자에게 알림(SCHEDULE_DELETED) 발송. 일정이 사라져 이동 대상이 없으므로 target은 null
                     """
     )
     @ApiResponses({

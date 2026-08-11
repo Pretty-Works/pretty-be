@@ -577,8 +577,11 @@ public class ProjectService {
         // PM이 자기 자신을 참여자 목록에서 빼는 경우가 있어, 제외 알림도 행위자를 걸러야 한다(발행기가 처리).
         notificationPublisher.publish(NotificationType.PROJECT_MEMBER_ADDED,
                 added, actorId, NotificationTargetType.PROJECT, projectId, project.getName());
+
+        // 제외 알림만 target이 null이다. 프로젝트 상세는 참여중 멤버만 볼 수 있어(MEMBER_001),
+        // PROJECT로 보내면 방금 제외된 사람이 눌렀을 때 못 들어가는 곳으로 안내하게 된다.
         notificationPublisher.publish(NotificationType.PROJECT_MEMBER_REMOVED,
-                removed, actorId, NotificationTargetType.PROJECT, projectId, project.getName());
+                removed, actorId, null, null, project.getName());
     }
 
     // 마일스톤 동기화(diff) — 요청 목록을 최종 상태로 맞춘다. 참여자 diff(updateParticipants)와 같은 패턴.
