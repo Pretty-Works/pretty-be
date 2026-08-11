@@ -8,10 +8,13 @@ import HK.PrettyWorks_BE.project.member.dto.res.ProjectMemberResponse;
 import HK.PrettyWorks_BE.global.base.PageRequests;
 import HK.PrettyWorks_BE.project.member.repository.ProjectMemberRepository;
 import HK.PrettyWorks_BE.project.project.exception.ProjectErrorCode;
+import HK.PrettyWorks_BE.project.project.policy.ProjectPolicy;
 import HK.PrettyWorks_BE.project.project.repository.ProjectRepository;
+import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.policy.UserPolicy;
 import HK.PrettyWorks_BE.user.service.CurrentUserService;
 import HK.PrettyWorks_BE.user.service.UserSearchCondition;
+import HK.PrettyWorks_BE.user.service.UserService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -19,6 +22,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.Collection;
 import java.util.LinkedHashSet;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
 
@@ -29,6 +33,7 @@ public class ProjectMemberService {
     private final ProjectMemberRepository projectMemberRepository;
     private final ProjectRepository projectRepository;
     private final CurrentUserService currentUserService;
+    private final UserService userService;
 
     // 참여중(ACTIVE) 멤버인지 여부만 판정합니다.
     private boolean isActiveMember(Long projectId, Long userId) {
@@ -101,6 +106,34 @@ public class ProjectMemberService {
     @Transactional(readOnly = true)
     public Optional<Long> getOwnerId(Long projectId) {
         return projectMemberRepository.findOwner(projectId).map(ProjectMemberEntity::getUserId);
+    }
+
+    /**
+     * 알림 수신자용: 이 프로젝트를 관리하는 참여자(오너 또는 PM 부서) 전원.
+     *
+     * <p>회사 전체 PM이 아니라 <b>이 프로젝트에 참여중(ACTIVE)인</b> 사람만 나온다.
+     * 탈퇴 멤버(LEFT)는 빠지고, 행위자·퇴사자 제외는 NotificationPublisher가 한다.
+     *
+     * <p>판정은 {@link ProjectPolicy#canUpdate}를 그대로 쓴다 — "프로젝트를 관리할 수 있는 사람이
+     * 프로젝트 알림도 받는다". 같은 규칙을 JPQL 조건으로 다시 적으면 나중에 권한 기준이 바뀔 때
+     * 한쪽만 고쳐져 "수정은 되는데 알림은 안 오는" 상태가 된다.
+     * 참여자는 프로젝트당 한 자릿수라 전원을 읽어 거르는 비용은 문제되지 않는다.
+     */
+    @Transactional(readOnly = true)
+    public List<Long> getManagerIds(Long projectId) {
+        List<ProjectMemberEntity> members = projectMemberRepository
+                .findByProjectIdAndStatusOrderByIdAsc(projectId, ProjectMemberStatus.ACTIVE);
+
+        Map<Long, UserEntity> users = userService.getUserMap(
+                members.stream().map(ProjectMemberEntity::getUserId).toList());
+
+        return members.stream()
+                .filter(member -> {
+                    UserEntity user = users.get(member.getUserId());
+                    return user != null && ProjectPolicy.canUpdate(member, user);
+                })
+                .map(ProjectMemberEntity::getUserId)
+                .toList();
     }
 
     /**

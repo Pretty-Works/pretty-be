@@ -4,6 +4,7 @@ import HK.PrettyWorks_BE.calendar.schedule.dto.req.ScheduleCreateRequest;
 import HK.PrettyWorks_BE.calendar.schedule.dto.req.ScheduleUpdateRequest;
 import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleCreateResponse;
 import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleListResponse;
+import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleListResponse.ScheduleItem;
 import HK.PrettyWorks_BE.calendar.schedule.dto.res.ScheduleUpdateResponse;
 import HK.PrettyWorks_BE.calendar.schedule.service.ScheduleService;
 import jakarta.validation.Valid;
@@ -53,6 +54,18 @@ public class ScheduleController implements ScheduleApi {
             @RequestParam(required = false) List<Long> userIds
     ) {
         ScheduleListResponse response = scheduleService.list(userId, from, to, userIds);
+
+        return ResponseEntity.ok(response);
+    }
+
+    // 조회는 완전공개라 @AuthenticationPrincipal을 받지 않는다 — 쓰지도 않을 값을 시그니처에 두면
+    // 권한 판정이 있는 것처럼 읽힌다.
+    @Override
+    @GetMapping("/api/v1/calendar/schedules/{scheduleId}")
+    public ResponseEntity<ScheduleItem> get(
+            @PathVariable Long scheduleId
+    ) {
+        ScheduleItem response = scheduleService.get(scheduleId);
 
         return ResponseEntity.ok(response);
     }

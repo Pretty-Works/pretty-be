@@ -140,48 +140,48 @@ public class ScheduleService {
         Map<Long, List<ScheduleParticipantEntity>> participantsByScheduleId = participants.stream()
                 .collect(Collectors.groupingBy(ScheduleParticipantEntity::getScheduleId));
 
-        // 8) 조립 — 일정마다 owner(WRITER)와 참가자 목록(이름 포함)을 만든다.
-        List<ScheduleItem> items = new ArrayList<>();
-        for (ScheduleEntity schedule : schedules) {
-            List<ScheduleParticipantEntity> scheduleParticipants =
-                    participantsByScheduleId.getOrDefault(schedule.getId(), List.of());
-
-            Owner owner = null;
-            List<Participant> participantDtos = new ArrayList<>();
-            for (ScheduleParticipantEntity p : scheduleParticipants) {
-                String name = nameById.get(p.getUserId());
-                participantDtos.add(Participant.builder()
-                        .userId(p.getUserId())
-                        .name(name)
-                        .role(p.getRole().name())
-                        .build());
-                if (p.getRole() == ParticipantRole.WRITER) {
-                    owner = Owner.builder().userId(p.getUserId()).name(name).build();
-                }
-            }
-
-            // 휴가면 schedule_leaves 행이 존재. 완전공개 정책이라 leaveId/유형/사유/일수를 그대로 노출(마스킹 없음).
-            ScheduleLeaveEntity leave = leaveByScheduleId.get(schedule.getId());
-            boolean isLeave = leave != null;
-
-            items.add(ScheduleItem.builder()
-                    .id(schedule.getId())
-                    .title(schedule.getTitle())
-                    .startAt(schedule.getStartAt())
-                    .endAt(schedule.getEndAt())
-                    .allDay(schedule.isAllDay())
-                    .type(schedule.getType().name())
-                    .isLeave(isLeave)
-                    .leaveId(isLeave ? leave.getId() : null)
-                    .leaveType(isLeave ? leave.getLeaveType().name() : null)
-                    .reason(isLeave ? leave.getReason() : null)
-                    .days(isLeave ? leave.getDays() : null)
-                    .owner(owner)
-                    .participants(participantDtos)
-                    .build());
-        }
+        // 8) 조립 — 일정마다 owner(WRITER)와 참가자 목록(이름 포함)을 만든다. 조립 규칙은 단건 조회와 공유한다.
+        List<ScheduleItem> items = schedules.stream()
+                .map(schedule -> toItem(schedule,
+                        participantsByScheduleId.getOrDefault(schedule.getId(), List.of()),
+                        nameById,
+                        leaveByScheduleId.get(schedule.getId())))
+                .toList();
 
         return ScheduleListResponse.builder().schedules(items).build();
+    }
+
+    /**
+     * 일정 단건 조회.
+     *
+     * <p>알림·딥링크처럼 scheduleId만 아는 진입점을 위해 둔다. 이게 없으면 호출자가
+     * "그 일정이 몇 월인지" 모른 채 기간 조회로 넓게 훑어 한 건을 골라내야 한다.
+     *
+     * <p>권한 검증이 없는 것은 의도다 — 캘린더 조회 완전공개가 팀 결정이라 목록과 기준이 같아야 한다.
+     * 목록에는 보이는 일정이 단건에서 403이면 같은 데이터에 규칙이 두 개가 된다.
+     *
+     * <p>응답은 목록 항목(ScheduleItem)을 그대로 쓴다. 화면이 목록 데이터로 편집 모달을 프리필하므로
+     * 단건용 DTO를 따로 만들면 두 응답의 필드가 갈라진다.
+     */
+    @Transactional(readOnly = true)
+    public ScheduleItem get(Long scheduleId) {
+        ScheduleEntity schedule = scheduleRepository.findById(scheduleId)
+                .orElseThrow(() -> BaseException.type(ScheduleErrorCode.SCHEDULE_NOT_FOUND));
+
+        List<ScheduleParticipantEntity> participants = scheduleParticipantRepository
+                .findByScheduleIdInAndLeftAtIsNull(List.of(scheduleId));
+
+        Map<Long, String> nameById = userService.getNameMap(participants.stream()
+                .map(ScheduleParticipantEntity::getUserId)
+                .collect(Collectors.toSet()));
+
+        // schedule_id에 UNIQUE가 걸려 있어 있어도 한 행이다. 없으면 휴가가 아닌 일반 일정.
+        ScheduleLeaveEntity leave = scheduleLeaveRepository.findByScheduleIdIn(List.of(scheduleId))
+                .stream()
+                .findFirst()
+                .orElse(null);
+
+        return toItem(schedule, participants, nameById, leave);
     }
 
     @Transactional
@@ -253,8 +253,20 @@ public class ScheduleService {
         // 1) 일정 로드 + 소유권 검증(SCHEDULE_001/003). 수정·삭제 공용 가드.
         ScheduleEntity schedule = loadOwnedSchedule(scheduleId, userId);
 
-        // 2) 하드 삭제. schedule_participants·schedule_leaves는 FK ON DELETE CASCADE로 DB가 함께 정리한다.
+        // 2) 수신자와 제목을 삭제 '전에' 확보한다. 하드 삭제 + CASCADE라 지운 뒤에는 참가자를 알 방법이 없다.
+        List<Long> recipients = scheduleParticipantRepository
+                .findByScheduleIdInAndLeftAtIsNull(List.of(scheduleId)).stream()
+                .map(ScheduleParticipantEntity::getUserId)
+                .toList();
+        String title = schedule.getTitle();
+
+        // 3) 하드 삭제. schedule_participants·schedule_leaves는 FK ON DELETE CASCADE로 DB가 함께 정리한다.
         scheduleRepository.delete(schedule);
+
+        // 4) 남아 있던 참가자에게 알린다. 삭제한 오너 본인은 NotificationPublisher가 걸러낸다.
+        //    target은 null — 열 일정이 사라졌으므로 이동시킬 곳이 없다.
+        notificationPublisher.publish(NotificationType.SCHEDULE_DELETED,
+                recipients, userId, null, null, title);
     }
 
     @Transactional
@@ -286,6 +298,49 @@ public class ScheduleService {
     }
 
     // ================================= 내부 헬퍼 =================================
+
+    // --- 조회 ---
+
+    // 목록·단건이 공유하는 ScheduleItem 조립. 재료(참가자·이름·휴가)는 호출부가 모아서 넘긴다 —
+    // 목록은 IN 절로 한 번에 읽고 단건은 자기 것만 읽으므로 '읽는 방법'은 다르고 '조립 규칙'만 같다.
+    // 규칙이 두 벌이면 목록에는 실리는 필드가 단건에는 빠지는 식으로 갈린다.
+    private ScheduleItem toItem(ScheduleEntity schedule,
+                                List<ScheduleParticipantEntity> scheduleParticipants,
+                                Map<Long, String> nameById,
+                                ScheduleLeaveEntity leave) {
+        Owner owner = null;
+        List<Participant> participantDtos = new ArrayList<>();
+        for (ScheduleParticipantEntity p : scheduleParticipants) {
+            String name = nameById.get(p.getUserId());
+            participantDtos.add(Participant.builder()
+                    .userId(p.getUserId())
+                    .name(name)
+                    .role(p.getRole().name())
+                    .build());
+            if (p.getRole() == ParticipantRole.WRITER) {
+                owner = Owner.builder().userId(p.getUserId()).name(name).build();
+            }
+        }
+
+        // 휴가면 schedule_leaves 행이 존재. 완전공개 정책이라 leaveId/유형/사유/일수를 그대로 노출(마스킹 없음).
+        boolean isLeave = leave != null;
+
+        return ScheduleItem.builder()
+                .id(schedule.getId())
+                .title(schedule.getTitle())
+                .startAt(schedule.getStartAt())
+                .endAt(schedule.getEndAt())
+                .allDay(schedule.isAllDay())
+                .type(schedule.getType().name())
+                .isLeave(isLeave)
+                .leaveId(isLeave ? leave.getId() : null)
+                .leaveType(isLeave ? leave.getLeaveType().name() : null)
+                .reason(isLeave ? leave.getReason() : null)
+                .days(isLeave ? leave.getDays() : null)
+                .owner(owner)
+                .participants(participantDtos)
+                .build();
+    }
 
     // --- 생성 ---
 
