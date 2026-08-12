@@ -5,7 +5,7 @@ import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.global.lock.VersionGuard;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
-import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationTarget;
 import HK.PrettyWorks_BE.notification.constant.NotificationType;
 import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.member.constant.ProjectMemberStatus;
@@ -158,7 +158,7 @@ public class ProjectService {
         //    바깥에 두면 프로젝트는 하나인데 알림만 여러 번 나간다.
         //    participants는 collectParticipants가 오너를 이미 빼둔 목록이다.
         notificationPublisher.publish(NotificationType.PROJECT_MEMBER_ADDED,
-                participants.keySet(), ownerId, NotificationTargetType.PROJECT, project.getId(),
+                participants.keySet(), ownerId, NotificationTarget.project(project.getId()),
                 project.getName());
 
         // 7) 생성된 프로젝트 id 반환
@@ -234,7 +234,7 @@ public class ProjectService {
         // 14) 기간 변경 알림. 12)에서 방금 빠진 사람은 이미 ACTIVE가 아니라 대상에서 자연히 제외된다.
         if (periodChanged) {
             notificationPublisher.publish(NotificationType.PROJECT_PERIOD_CHANGED,
-                    projectMemberService.getActiveMemberIds(projectId), userId, NotificationTargetType.PROJECT, projectId,
+                    projectMemberService.getActiveMemberIds(projectId), userId, NotificationTarget.project(projectId),
                     project.getName(), startDate, endDate);
         }
 
@@ -432,7 +432,7 @@ public class ProjectService {
 
         // 6) 참여중 멤버 전원에게 알림. 탈퇴 멤버는 ACTIVE 조회로 빠지고, 변경자·퇴사자는 발행기가 걸러낸다.
         notificationPublisher.publish(NotificationType.PROJECT_STATUS_CHANGED,
-                projectMemberService.getActiveMemberIds(projectId), userId, NotificationTargetType.PROJECT, projectId,
+                projectMemberService.getActiveMemberIds(projectId), userId, NotificationTarget.project(projectId),
                 project.getName(), target.getDescription());
 
         return ProjectStatusResponse.builder()
@@ -576,12 +576,12 @@ public class ProjectService {
 
         // PM이 자기 자신을 참여자 목록에서 빼는 경우가 있어, 제외 알림도 행위자를 걸러야 한다(발행기가 처리).
         notificationPublisher.publish(NotificationType.PROJECT_MEMBER_ADDED,
-                added, actorId, NotificationTargetType.PROJECT, projectId, project.getName());
+                added, actorId, NotificationTarget.project(projectId), project.getName());
 
-        // 제외 알림만 target이 null이다. 프로젝트 상세는 참여중 멤버만 볼 수 있어(MEMBER_001),
+        // 제외 알림만 이동할 곳이 없다. 프로젝트 상세는 참여중 멤버만 볼 수 있어(MEMBER_001),
         // PROJECT로 보내면 방금 제외된 사람이 눌렀을 때 못 들어가는 곳으로 안내하게 된다.
         notificationPublisher.publish(NotificationType.PROJECT_MEMBER_REMOVED,
-                removed, actorId, null, null, project.getName());
+                removed, actorId, NotificationTarget.none(), project.getName());
     }
 
     // 마일스톤 동기화(diff) — 요청 목록을 최종 상태로 맞춘다. 참여자 diff(updateParticipants)와 같은 패턴.

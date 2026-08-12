@@ -50,8 +50,7 @@ public class NotificationService {
                         .type(event.type())
                         .title(event.title())
                         .actorId(event.actorId())
-                        .targetType(event.targetType())
-                        .targetId(event.targetId())
+                        .target(event.target())
                         .build())
                 .toList();
 

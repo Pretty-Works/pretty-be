@@ -1,6 +1,6 @@
 package HK.PrettyWorks_BE.notification.event;
 
-import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationTarget;
 import HK.PrettyWorks_BE.notification.constant.NotificationType;
 
 import java.util.Arrays;
@@ -16,8 +16,7 @@ public record NotificationEvent(
         List<Long> recipientIds,
         String title,
         Long actorId,
-        NotificationTargetType targetType,
-        Long targetId
+        NotificationTarget target
 ) {
 
     // notifications.title 칼럼 길이. 넘기면 저장이 깨지면서 업무 트랜잭션까지 함께 롤백된다.
@@ -25,9 +24,12 @@ public record NotificationEvent(
 
     // 문구에 끼워 넣는 문자열 인자 하나의 상한.
     //
-    // 70인 근거: 고정 문구가 가장 긴 TASK_DUE_DATE_CHANGED(29자)에 문자열 인자 2개와 날짜 1개가
-    // 모두 최대로 들어와도 29 + 70 + 70 + 10 = 179자로 MAX_TITLE_LENGTH 안에 들어온다.
-    // 인자가 늘어나는 알림을 새로 만들 때는 이 계산을 다시 해야 한다.
+    // 70인 근거: 문자열 인자가 2개 들어가는 문구 중 고정 부분이 가장 긴
+    // TASK_DUE_DATE_CHANGED("'%s' 할일 [%s]의 마감일이 %s 로 변경되었습니다", 고정 25자)에
+    // 프로젝트명·할 일 내용이 각각 최대(70)로, 날짜가 10자로 들어와도
+    // 25 + 70 + 70 + 10 = 175자라 MAX_TITLE_LENGTH 안에 들어온다.
+    // 인자가 늘어나거나 고정 문구가 길어지는 알림을 만들 때는 이 계산을 다시 해야 한다.
+    // (조사는 인자가 아니라 템플릿 마커라 이 계산에 들어가지 않는다 — NotificationType 참고)
     private static final int MAX_ARG_LENGTH = 70;
 
     // 문구를 호출부가 직접 넘기지 않고 type에서 뽑는다. 둘을 따로 받으면 엉뚱한 문구가 붙은
@@ -35,11 +37,10 @@ public record NotificationEvent(
     public static NotificationEvent of(NotificationType type,
                                        List<Long> recipientIds,
                                        Long actorId,
-                                       NotificationTargetType targetType,
-                                       Long targetId,
+                                       NotificationTarget target,
                                        Object... titleArgs) {
         return new NotificationEvent(
-                type, recipientIds, fitTitle(type.title(cutArgs(titleArgs))), actorId, targetType, targetId);
+                type, recipientIds, fitTitle(type.title(cutArgs(titleArgs))), actorId, target);
     }
 
     /**

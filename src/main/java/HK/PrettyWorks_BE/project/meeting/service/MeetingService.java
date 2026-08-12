@@ -3,7 +3,7 @@ package HK.PrettyWorks_BE.project.meeting.service;
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
-import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationTarget;
 import HK.PrettyWorks_BE.notification.constant.NotificationType;
 import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.meeting.constant.MeetingRole;
@@ -129,8 +129,9 @@ public class MeetingService {
         List<Long> recipients = new ArrayList<>(request.attendeeIds());
         recipients.addAll(projectMemberService.getManagerIds(projectId));
 
+        // 회의록 목록이 아니라 그 회의록 상세로 보낸다(게시글과 같은 이유).
         notificationPublisher.publish(NotificationType.MEETING_CREATED,
-                recipients, authorId, NotificationTargetType.PROJECT, projectId,
+                recipients, authorId, NotificationTarget.meeting(projectId, savedMeeting.getId()),
                 project.getName(), savedMeeting.getTitle());
 
         return savedMeeting.getId();

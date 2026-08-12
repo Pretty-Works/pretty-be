@@ -444,7 +444,10 @@ CREATE TABLE IF NOT EXISTS agent_messages (
 --   - 수신자 1명당 1행. 읽음 여부가 사람마다 달라 이벤트를 공유할 수 없다.
 --   - title은 발생 시점 문구를 그대로 저장한다. 프로젝트명이 나중에 바뀌어도 그때의 기록이 남고,
 --     조회할 때마다 원본을 조인하지 않아도 된다.
---   - target_type/target_id 는 클릭 시 이동할 대상. URL은 화면 구조가 소유하므로 서버는 조립하지 않는다.
+--   - target_* 는 클릭 시 이동할 대상. URL은 화면 구조가 소유하므로 서버는 조립하지 않는다.
+--     (type, id) 한 쌍으로는 중첩 리소스(게시글·회의록)와 날짜 이동(일정 제외·삭제)을 표현할 수 없어
+--     target_project_id / target_date를 따로 둔다. 넷 다 NULL이면 이동할 곳이 없는 알림이다.
+--     인덱스는 두지 않는다 — 목록 조회는 (user_id, id)만 쓰고 이 컬럼들은 응답 조립 때만 읽는다.
 --   - 목록은 id 기준 커서 페이지네이션. 계속 쌓이는 목록이라 offset은 경계가 밀린다.
 --   - 외부 발송(이메일·푸시)이 생기면 delivered_at 컬럼을 추가해 이 테이블을 그대로 아웃박스로 쓴다.
 -- =============================================================================
@@ -456,6 +459,12 @@ CREATE TABLE IF NOT EXISTS notifications (
     actor_id    BIGINT       NULL              COMMENT '행위자. 시간이 원인인 알림(마감 임박 등)은 NULL',
     target_type VARCHAR(20)  NULL              COMMENT '이동 대상 종류 (NotificationTargetType, STRING)',
     target_id   BIGINT       NULL              COMMENT '이동 대상 ID',
+    -- 게시글·회의록은 상세 경로가 /projects/{projectId}/posts/{postId} 처럼 중첩이라 id 하나로는 못 간다.
+    -- target_id에 자식 id를 담고 부모 projectId를 여기 둔다. 프로젝트 자체가 대상이면 NULL(target_id가 곧 projectId).
+    target_project_id BIGINT NULL              COMMENT '중첩 리소스의 프로젝트 ID. 게시글·회의록 상세 경로 조립용',
+    -- 일정 제외·삭제는 그 일정을 열 수 없다(내 것이 아니거나 이미 사라짐). 대신 그 날짜의 캘린더로 보낸다.
+    -- 화면이 /calendar?date=YYYY-MM-DD 로 날짜만 쓰므로 DATETIME이 아니라 DATE다.
+    target_date DATE         NULL              COMMENT '이동할 캘린더 날짜. 일정 제외·삭제 알림에서 사용',
     read_at     DATETIME(6)  NULL              COMMENT '읽은 시각. NULL이면 안 읽음',
     created_at  DATETIME(6)  NULL              COMMENT '생성 시각',
     modified_at DATETIME(6)  NULL              COMMENT '수정 시각',

@@ -1,6 +1,6 @@
 package HK.PrettyWorks_BE.notification.event;
 
-import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationTarget;
 import HK.PrettyWorks_BE.notification.constant.NotificationType;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
 import HK.PrettyWorks_BE.user.policy.UserPolicy;
@@ -28,14 +28,16 @@ public class NotificationPublisher {
      * 남는 수신자가 없으면 이벤트를 만들지 않는다 — 참여자 변경 없이 이름만 고치는 수정처럼
      * 아무도 받지 않는 경우가 흔하다.
      *
+     * @param target    클릭 시 이동할 곳. {@link NotificationTarget}의 팩토리로만 만든다 —
+     *                  종류·id·부모 projectId·날짜를 따로 받으면 전부 nullable에 타입까지 겹쳐
+     *                  순서를 바꿔 넣어도 컴파일이 통과한다. 이동할 곳이 없으면 {@code none()}.
      * @param titleArgs {@code type}의 문구 템플릿에 채울 인자. 문구를 호출부가 직접 넘기지 않게 해
      *                  type과 어긋난 문장이 저장되는 길을 막는다.
      */
     public void publish(NotificationType type,
                         Collection<Long> recipientCandidates,
                         Long actorId,
-                        NotificationTargetType targetType,
-                        Long targetId,
+                        NotificationTarget target,
                         Object... titleArgs) {
         List<Long> recipientIds = filterRecipients(recipientCandidates, actorId);
         if (recipientIds.isEmpty()) {
@@ -43,7 +45,7 @@ public class NotificationPublisher {
         }
 
         eventPublisher.publishEvent(NotificationEvent.of(
-                type, recipientIds, actorId, targetType, targetId, titleArgs));
+                type, recipientIds, actorId, target, titleArgs));
     }
 
     // 본인 제외: 내가 한 행동은 나에게 알리지 않는다.
