@@ -3,7 +3,7 @@ package HK.PrettyWorks_BE.project.post.service;
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
-import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationTarget;
 import HK.PrettyWorks_BE.notification.constant.NotificationType;
 import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.member.service.ProjectMemberService;
@@ -94,9 +94,11 @@ public class PostService {
         postRepository.save(post);
 
         // HIGH 우선순위 게시글만 프로젝트 멤버 전원에게 알림(전체 발행하면 스팸이라 팀 결정으로 제한).
+        // 게시판 목록이 아니라 그 글 상세로 보낸다 — "중요하니 알려줬다"고 해놓고 직접 찾게 하면 앞뒤가 안 맞는다.
         if (post.getPriority() == PostPriority.HIGH) {
             notificationPublisher.publish(NotificationType.POST_CREATED,
-                    projectMemberService.getActiveMemberIds(projectId), authorId, NotificationTargetType.PROJECT, projectId,
+                    projectMemberService.getActiveMemberIds(projectId), authorId,
+                    NotificationTarget.post(projectId, post.getId()),
                     project.getName(), post.getTitle());
         }
 
@@ -190,8 +192,9 @@ public class PostService {
         // HIGH 우선순위 게시글만 프로젝트 멤버 전원에게 알림(생성과 동일 기준 — 스팸 방지).
         if (post.getPriority() == PostPriority.HIGH) {
             notificationPublisher.publish(NotificationType.POST_UPDATED,
-                    projectMemberService.getActiveMemberIds(projectId), userId, NotificationTargetType.PROJECT, projectId,
-                    post.getTitle());
+                    projectMemberService.getActiveMemberIds(projectId), userId,
+                    NotificationTarget.post(projectId, post.getId()),
+                    project.getName(), post.getTitle());
         }
 
         return toDetailResponse(post);

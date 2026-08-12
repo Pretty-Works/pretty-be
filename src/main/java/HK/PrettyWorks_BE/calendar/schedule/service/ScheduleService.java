@@ -20,7 +20,7 @@ import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleParticipantReposit
 import HK.PrettyWorks_BE.calendar.schedule.repository.ScheduleRepository;
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
-import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationTarget;
 import HK.PrettyWorks_BE.notification.constant.NotificationType;
 import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.user.domain.UserEntity;
@@ -215,15 +215,21 @@ public class ScheduleService {
         // 3-3) 시간 변경 여부는 갱신 '전에' 판정한다. schedule.update 이후엔 이전 값을 알 수 없다.
         boolean timeChanged = !startAt.equals(schedule.getStartAt()) || !endAt.equals(schedule.getEndAt());
 
+        // 3-4) 제외 알림이 보낼 날짜도 여기서 붙잡는다. 제외된 사람 캘린더에 남아 있던 건 '옛' 날짜이고,
+        //      바뀐 새 시간은 그 사람과 아무 상관이 없다. 시간 변경과 참가자 제외가 한 요청에 같이 오면
+        //      갱신 후에 읽은 값은 새 날짜라, 그걸 보내면 엉뚱한 달로 안내하게 된다.
+        LocalDate removedNoticeDate = schedule.getStartAt().toLocalDate();
+
         // 4) 일정 필드 갱신 — 더티 체킹으로 커밋 시 UPDATE (save 불필요)
         schedule.update(title, startAt, endAt, allDay, type);
 
         // 5) 참가자 교체(diff) — participantUserIds가 '전달된 경우에만'. null이면 기존 참가자 그대로 유지(빈 diff).
+        //    추가된 사람은 일정을 열어야 하니 일정 자체를, 제외된 사람은 열 수 없으니 그 날짜의 캘린더를 준다.
         ParticipantDiff diff = syncParticipants(scheduleId, userId, request.participantUserIds());
         notificationPublisher.publish(NotificationType.SCHEDULE_PARTICIPANT_ADDED,
-                diff.added(), userId, NotificationTargetType.SCHEDULE, scheduleId, title);
+                diff.added(), userId, NotificationTarget.schedule(scheduleId), title);
         notificationPublisher.publish(NotificationType.SCHEDULE_PARTICIPANT_REMOVED,
-                diff.removed(), userId, NotificationTargetType.SCHEDULE, scheduleId, title);
+                diff.removed(), userId, NotificationTarget.date(removedNoticeDate), title);
 
         // 5-1) 시간이 바뀌었으면 남아 있는 참가자에게 알린다.
         //      방금 추가된 사람은 제외 — 추가 알림에서 이미 현재 시간을 보게 되므로 두 번 받을 이유가 없다.
@@ -234,7 +240,7 @@ public class ScheduleService {
                     .filter(id -> !diff.added().contains(id))
                     .toList();
             notificationPublisher.publish(NotificationType.SCHEDULE_TIME_CHANGED,
-                    timeChangeRecipients, userId, NotificationTargetType.SCHEDULE, scheduleId,
+                    timeChangeRecipients, userId, NotificationTarget.schedule(scheduleId),
                     title, formatWhen(startAt, allDay), formatWhen(endAt, allDay));
         }
 
@@ -253,20 +259,21 @@ public class ScheduleService {
         // 1) 일정 로드 + 소유권 검증(SCHEDULE_001/003). 수정·삭제 공용 가드.
         ScheduleEntity schedule = loadOwnedSchedule(scheduleId, userId);
 
-        // 2) 수신자와 제목을 삭제 '전에' 확보한다. 하드 삭제 + CASCADE라 지운 뒤에는 참가자를 알 방법이 없다.
+        // 2) 수신자·제목·날짜를 삭제 '전에' 확보한다. 하드 삭제 + CASCADE라 지운 뒤에는 아무것도 읽을 수 없다.
         List<Long> recipients = scheduleParticipantRepository
                 .findByScheduleIdInAndLeftAtIsNull(List.of(scheduleId)).stream()
                 .map(ScheduleParticipantEntity::getUserId)
                 .toList();
         String title = schedule.getTitle();
+        LocalDate scheduleDate = schedule.getStartAt().toLocalDate();
 
         // 3) 하드 삭제. schedule_participants·schedule_leaves는 FK ON DELETE CASCADE로 DB가 함께 정리한다.
         scheduleRepository.delete(schedule);
 
         // 4) 남아 있던 참가자에게 알린다. 삭제한 오너 본인은 NotificationPublisher가 걸러낸다.
-        //    target은 null — 열 일정이 사라졌으므로 이동시킬 곳이 없다.
+        //    일정은 사라졌지만 "그 시간이 어떻게 됐는지"는 궁금하므로 그 날짜의 캘린더로 보낸다.
         notificationPublisher.publish(NotificationType.SCHEDULE_DELETED,
-                recipients, userId, null, null, title);
+                recipients, userId, NotificationTarget.date(scheduleDate), title);
     }
 
     @Transactional
@@ -395,7 +402,7 @@ public class ScheduleService {
         //    멱등 재시도는 저장을 건너뛰고 첫 응답을 재생하므로 이 안에 둔다 — 바깥이면 일정은 하나인데 알림만 여러 번 나간다.
         //    participantIds는 resolveValidParticipantIds가 작성자를 이미 빼둔 목록이다.
         notificationPublisher.publish(NotificationType.SCHEDULE_PARTICIPANT_ADDED,
-                participantIds, writerId, NotificationTargetType.SCHEDULE, schedule.getId(),
+                participantIds, writerId, NotificationTarget.schedule(schedule.getId()),
                 schedule.getTitle());
 
         // 7) 생성된 일정 id 반환

@@ -4,7 +4,7 @@ import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.global.util.Percent;
 import HK.PrettyWorks_BE.global.util.WeekRange;
-import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationTarget;
 import HK.PrettyWorks_BE.notification.constant.NotificationType;
 import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
@@ -178,8 +178,8 @@ public class TaskService {
         if (!previousDueDate.equals(task.getDueDate()) && task.getProjectId() != null) {
             notificationPublisher.publish(NotificationType.TASK_DUE_DATE_CHANGED,
                     List.of(task.getAssigneeId()), userId,
-                    NotificationTargetType.PROJECT, task.getProjectId(),
-                    projectNameOf(task.getProjectId()), task.getDueDate(), task.getContent());
+                    NotificationTarget.project(task.getProjectId()),
+                    projectNameOf(task.getProjectId()), task.getContent(), task.getDueDate());
         }
 
         return TaskResponse.builder()
@@ -206,7 +206,7 @@ public class TaskService {
         if (task.getProjectId() != null) {
             notificationPublisher.publish(NotificationType.TASK_DELETED,
                     List.of(task.getAssigneeId()), userId,
-                    NotificationTargetType.PROJECT, task.getProjectId(),
+                    NotificationTarget.project(task.getProjectId()),
                     projectNameOf(task.getProjectId()), task.getContent());
         }
 
@@ -482,7 +482,7 @@ public class TaskService {
 
         notificationPublisher.publish(NotificationType.TASK_ASSIGNED,
                 List.of(task.getAssigneeId()), task.getCreatorId(),
-                NotificationTargetType.PROJECT, task.getProjectId(),
+                NotificationTarget.project(task.getProjectId()),
                 projectNameOf(task.getProjectId()), task.getContent());
     }
 

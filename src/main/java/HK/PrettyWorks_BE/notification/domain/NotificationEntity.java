@@ -1,6 +1,7 @@
 package HK.PrettyWorks_BE.notification.domain;
 
 import HK.PrettyWorks_BE.global.domain.BaseTimeEntity;
+import HK.PrettyWorks_BE.notification.constant.NotificationTarget;
 import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
 import HK.PrettyWorks_BE.notification.constant.NotificationType;
 import jakarta.persistence.*;
@@ -9,6 +10,7 @@ import lombok.Builder;
 import lombok.Getter;
 import lombok.NoArgsConstructor;
 
+import java.time.LocalDate;
 import java.time.LocalDateTime;
 
 @Entity
@@ -45,18 +47,33 @@ public class NotificationEntity extends BaseTimeEntity {
     @Column(name = "target_id")
     private Long targetId;
 
+    // 게시글·회의록처럼 상세 경로가 중첩(/projects/{projectId}/posts/{postId})인 대상의 부모 id.
+    // 프로젝트 자체가 대상이면 null이다 — 그때는 targetId가 곧 projectId다.
+    @Column(name = "target_project_id")
+    private Long targetProjectId;
+
+    // 특정 리소스가 아니라 날짜로 보내는 알림(일정 제외·삭제)이 쓴다. 화면이 날짜만 쓰므로 LocalDate.
+    @Column(name = "target_date")
+    private LocalDate targetDate;
+
     @Column(name = "read_at")
     private LocalDateTime readAt;
 
+    // target은 값 4개를 따로 받지 않고 NotificationTarget으로 묶어 받는다 — 전부 nullable에
+    // 타입까지 겹쳐서, 따로 받으면 순서를 바꿔 넣어도 컴파일이 통과한다.
     @Builder
     public NotificationEntity(Long userId, NotificationType type, String title, Long actorId,
-                              NotificationTargetType targetType, Long targetId) {
+                              NotificationTarget target) {
         this.userId = userId;
         this.type = type;
         this.title = title;
         this.actorId = actorId;
-        this.targetType = targetType;
-        this.targetId = targetId;
+
+        NotificationTarget resolved = target == null ? NotificationTarget.none() : target;
+        this.targetType = resolved.type();
+        this.targetId = resolved.id();
+        this.targetProjectId = resolved.projectId();
+        this.targetDate = resolved.date();
     }
 
     public boolean isRead() {

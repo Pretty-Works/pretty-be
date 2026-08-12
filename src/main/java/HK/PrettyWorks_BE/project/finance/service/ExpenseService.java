@@ -6,7 +6,7 @@ import HK.PrettyWorks_BE.global.exception.GlobalErrorCode;
 import HK.PrettyWorks_BE.global.util.Percent;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
 import HK.PrettyWorks_BE.project.finance.constant.ExpenseCategory;
-import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationTarget;
 import HK.PrettyWorks_BE.notification.constant.NotificationType;
 import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.finance.constant.ExpenseStatus;
@@ -111,7 +111,7 @@ public class ExpenseService {
         //    바깥에 두면 같은 지출로 알림만 여러 번 나간다.
         projectMemberService.getOwnerId(projectId).ifPresent(ownerId ->
                 notificationPublisher.publish(NotificationType.EXPENSE_CREATED,
-                        List.of(ownerId), spenderId, NotificationTargetType.PROJECT, projectId,
+                        List.of(ownerId), spenderId, NotificationTarget.project(projectId),
                         project.getName(), String.format("%,d", request.amount())));
 
         return expense.getId();

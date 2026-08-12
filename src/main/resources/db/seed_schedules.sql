@@ -73270,3 +73270,27 @@ INSERT INTO schedule_participants (schedule_id, user_id, is_writer, created_at, 
 (23446, (SELECT id FROM users WHERE employee_no='DT23-0008'), TRUE, '2026-08-18 09:00:00', '2026-08-18 09:00:00'),
 (23447, (SELECT id FROM users WHERE employee_no='DT23-0008'), TRUE, '2026-08-25 09:00:00', '2026-08-25 09:00:00'),
 (23448, (SELECT id FROM users WHERE employee_no='DT23-0008'), TRUE, '2026-09-01 09:00:00', '2026-09-01 09:00:00');
+
+-- #154 보강: SCHEDULE_TIME_CHANGED/PARTICIPANT_REMOVED 신규 알림의 근거 편집 이벤트
+UPDATE schedule_participants SET left_at = '2026-06-01 10:30:00' WHERE schedule_id = 41 AND user_id = (SELECT id FROM users WHERE employee_no='DT22-0094');
+UPDATE schedule_participants SET left_at = '2026-07-13 14:30:00' WHERE schedule_id = 43 AND user_id = (SELECT id FROM users WHERE employee_no='DT24-0010');
+UPDATE schedule_participants SET left_at = '2026-05-20 14:30:00' WHERE schedule_id = 48 AND user_id = (SELECT id FROM users WHERE employee_no='DT22-0104');
+UPDATE schedule_participants SET left_at = '2026-08-05 10:30:00' WHERE schedule_id = 51 AND user_id = (SELECT id FROM users WHERE employee_no='DT22-0106');
+UPDATE schedule_participants SET left_at = '2026-07-03 13:30:00' WHERE schedule_id = 57 AND user_id = (SELECT id FROM users WHERE employee_no='DT22-0109');
+UPDATE schedule_participants SET left_at = '2026-07-24 10:30:00' WHERE schedule_id = 61 AND user_id = (SELECT id FROM users WHERE employee_no='DT22-0041');
+UPDATE schedule_participants SET left_at = '2026-07-20 14:30:00' WHERE schedule_id = 68 AND user_id = (SELECT id FROM users WHERE employee_no='DT22-0065');
+UPDATE schedules SET modified_at = '2026-05-28 10:20:00' WHERE id = 11;
+UPDATE schedules SET modified_at = '2026-06-25 14:20:00' WHERE id = 13;
+UPDATE schedules SET modified_at = '2026-08-04 10:20:00' WHERE id = 16;
+UPDATE schedules SET modified_at = '2026-06-11 15:20:00' WHERE id = 24;
+UPDATE schedules SET modified_at = '2026-07-23 13:20:00' WHERE id = 27;
+UPDATE schedules SET modified_at = '2026-06-01 09:20:00' WHERE id = 30;
+UPDATE schedules SET modified_at = '2026-08-04 14:20:00' WHERE id = 33;
+UPDATE schedules SET modified_at = '2026-06-29 09:20:00' WHERE id = 35;
+UPDATE schedules SET modified_at = '2026-06-01 10:30:00' WHERE id = 41;
+UPDATE schedules SET modified_at = '2026-07-13 14:30:00' WHERE id = 43;
+UPDATE schedules SET modified_at = '2026-05-20 14:30:00' WHERE id = 48;
+UPDATE schedules SET modified_at = '2026-08-05 10:30:00' WHERE id = 51;
+UPDATE schedules SET modified_at = '2026-07-03 13:30:00' WHERE id = 57;
+UPDATE schedules SET modified_at = '2026-07-24 10:30:00' WHERE id = 61;
+UPDATE schedules SET modified_at = '2026-07-20 14:30:00' WHERE id = 68;

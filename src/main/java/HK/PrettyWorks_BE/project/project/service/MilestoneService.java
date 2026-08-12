@@ -2,7 +2,7 @@ package HK.PrettyWorks_BE.project.project.service;
 
 import HK.PrettyWorks_BE.global.exception.BaseException;
 import HK.PrettyWorks_BE.global.util.Percent;
-import HK.PrettyWorks_BE.notification.constant.NotificationTargetType;
+import HK.PrettyWorks_BE.notification.constant.NotificationTarget;
 import HK.PrettyWorks_BE.notification.constant.NotificationType;
 import HK.PrettyWorks_BE.notification.event.NotificationPublisher;
 import HK.PrettyWorks_BE.project.member.domain.ProjectMemberEntity;
@@ -129,7 +129,7 @@ public class MilestoneService {
         if (done) {
             notificationPublisher.publish(NotificationType.MILESTONE_COMPLETED,
                     projectMemberService.getActiveMemberIds(projectId), userId,
-                    NotificationTargetType.PROJECT, projectId, milestone.getGoal());
+                    NotificationTarget.project(projectId), project.getName(), milestone.getGoal());
         }
 
         return statusOf(milestone, true);
