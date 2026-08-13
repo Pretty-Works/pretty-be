@@ -343,14 +343,20 @@ INSERT INTO project_members (project_id, user_id, is_owner, role, status, left_a
 (23, (SELECT id FROM users WHERE employee_no='DT22-0179'), 0, NULL, 'ACTIVE', NULL, '2025-05-01 09:00:00', '2025-05-01 09:00:00'),
 (23, (SELECT id FROM users WHERE employee_no='DT22-0200'), 0, NULL, 'ACTIVE', NULL, '2025-05-01 09:00:00', '2025-05-01 09:00:00'),
 (23, (SELECT id FROM users WHERE employee_no='DT24-0052'), 0, NULL, 'ACTIVE', NULL, '2025-05-01 09:00:00', '2025-05-01 09:00:00'),
-(24, (SELECT id FROM users WHERE employee_no='DT22-0198'), 1, NULL, 'ACTIVE', NULL, '2025-06-02 09:00:00', '2025-06-02 09:00:00'),
+-- 시연용 계정 보강(2026-08-13): 24번 오너를 DT22-0198(PART_LEADER)→DT22-0190(같은 팀 PART_LEADER)로 이관.
+-- "DT22-0198은 프로젝트 생성 권한이 없다(ProjectPolicy.canCreate — TEAM_LEADER 미만·PM 아님)"는
+-- 시연 시나리오와, 그가 과거에 이미 프로젝트를 생성(is_owner=1)한 이력이 남아있던 게 모순이라 옮김.
+-- 단, Tier2 배경 프로젝트 전반(id 16~107)이 애초에 canCreate 기준 없이 배정돼 SENIOR/STAFF
+-- 오너가 흔하다 — 이건 이 시드가 원래 갖고 있던 더 큰 패턴이라 이번 범위에서 전수 정정하지 않았고,
+-- 시연 계정(0198)에 걸린 이 한 건만 좁게 고쳤다.
+(24, (SELECT id FROM users WHERE employee_no='DT22-0198'), 0, NULL, 'ACTIVE', NULL, '2025-06-02 09:00:00', '2025-06-02 09:00:00'),
 (24, (SELECT id FROM users WHERE employee_no='DT23-0042'), 0, NULL, 'ACTIVE', NULL, '2025-06-02 09:00:00', '2025-06-02 09:00:00'),
 (24, (SELECT id FROM users WHERE employee_no='DT22-0199'), 0, NULL, 'ACTIVE', NULL, '2025-06-02 09:00:00', '2025-06-02 09:00:00'),
 (24, (SELECT id FROM users WHERE employee_no='DT22-0192'), 0, NULL, 'ACTIVE', NULL, '2025-06-02 09:00:00', '2025-06-02 09:00:00'),
 (24, (SELECT id FROM users WHERE employee_no='DT22-0178'), 0, NULL, 'ACTIVE', NULL, '2025-06-02 09:00:00', '2025-06-02 09:00:00'),
 (24, (SELECT id FROM users WHERE employee_no='DT22-0193'), 0, NULL, 'ACTIVE', NULL, '2025-06-02 09:00:00', '2025-06-02 09:00:00'),
 (24, (SELECT id FROM users WHERE employee_no='DT22-0173'), 0, NULL, 'ACTIVE', NULL, '2025-06-02 09:00:00', '2025-06-02 09:00:00'),
-(24, (SELECT id FROM users WHERE employee_no='DT22-0190'), 0, NULL, 'ACTIVE', NULL, '2025-06-02 09:00:00', '2025-06-02 09:00:00'),
+(24, (SELECT id FROM users WHERE employee_no='DT22-0190'), 1, NULL, 'ACTIVE', NULL, '2025-06-02 09:00:00', '2025-06-02 09:00:00'),
 (25, (SELECT id FROM users WHERE employee_no='DT22-0188'), 1, NULL, 'ACTIVE', NULL, '2025-09-01 09:00:00', '2025-09-01 09:00:00'),
 (25, (SELECT id FROM users WHERE employee_no='DT22-0164'), 0, NULL, 'ACTIVE', NULL, '2025-09-01 09:00:00', '2025-09-01 09:00:00'),
 (25, (SELECT id FROM users WHERE employee_no='DT22-0195'), 0, NULL, 'ACTIVE', NULL, '2025-09-01 09:00:00', '2025-09-01 09:00:00'),
@@ -921,6 +927,37 @@ INSERT INTO project_members (project_id, user_id, is_owner, role, status, left_a
 (107, (SELECT id FROM users WHERE employee_no='DT22-0026'), 0, '경영지원 협조', 'ACTIVE', NULL, '2025-07-01 09:00:00', '2025-07-01 09:00:00'),
 (107, (SELECT id FROM users WHERE employee_no='DT22-0025'), 0, '경영지원 협조', 'ACTIVE', NULL, '2025-07-01 09:00:00', '2025-07-01 09:00:00');
 
+-- =============================================================================
+-- 시연용 계정 보강 (2026-08-13) — 8건
+--   홈 화면이 풍성해 보이는 시연 계정을 여러 개 만들기 위해, 이미 ONGOING 프로젝트에
+--   소속된 팀장/파트장급 4명을 각자 부서가 실제로 걸쳐 있는 다른 ONGOING 프로젝트에
+--   "협조" 역할로 추가 배정했다(무작위 배정 금지 원칙 — DEMO_DATA_GUIDE 5단계).
+--   - DT22-0017(구본재·PM/TEAM_LEADER): PM 부서가 있는 프로젝트 2·3에 'PM 협조'로 추가
+--     (이미 1의 DRI, 5의 'PM 공동 관리'로 PM 부서가 여러 ONGOING 프로젝트에 걸쳐 있음)
+--   - DT22-0018(임다혜·FRONTEND/TEAM_LEADER): FRONTEND가 있는 프로젝트 1·5에 'FE 협조'로 추가
+--     (이미 2에 'FE 협조'로 참여 중이던 패턴을 그대로 재사용)
+--   - DT22-0142(남시우·FRONTEND/PART_LEADER): FRONTEND가 있는 프로젝트 2·5에 'FE 협조'로 추가
+--     (이미 1에 '뱅킹FE파트장'으로 참여 중)
+--   - DT22-0198(조태현·BACKEND/PART_LEADER): BACKEND가 있는 프로젝트 1·2에 'BE 협조'로 추가
+--     (이미 3에 '배치·정산·코어공통파트장'으로 참여 중)
+--   DT22-0016(CONSULTING)·DT22-0023(DATA)는 두 부서 모두 ONGOING 프로젝트가 2개뿐이라
+--   (한빛저축·서일캐피탈 / 마이데이터3.0·FDS) 이미 그 2개에 다 들어가 있어 더 늘리면
+--   부서-프로젝트 연관성이 깨지므로 제외했다 — 시연 계정 후보에서는 BACKEND인 DT22-0198로 대체.
+--   created_at은 "최근에 지원 인력으로 합류"한 시점으로 2026-08-14(시나리오 기준일=데모 당일)
+--   오전으로 맞췄다 — seed_notifications.sql의 기존 알림이 이미 그 날 15:00까지 차 있어서,
+--   더 이른 날짜로 넣으면 PROJECT_MEMBER_ADDED 알림을 뒤에 이어붙일 때 id 오름차순과
+--   created_at 오름차순이 어긋난다(#153에서 한 번 고쳤던 문제와 동일 패턴이라 재현하지 않음).
+-- =============================================================================
+INSERT INTO project_members (project_id, user_id, is_owner, role, status, left_at, created_at, modified_at) VALUES
+(2, (SELECT id FROM users WHERE employee_no='DT22-0017'), 0, 'PM 협조', 'ACTIVE', NULL, '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(3, (SELECT id FROM users WHERE employee_no='DT22-0017'), 0, 'PM 협조', 'ACTIVE', NULL, '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(1, (SELECT id FROM users WHERE employee_no='DT22-0018'), 0, 'FE 협조', 'ACTIVE', NULL, '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(5, (SELECT id FROM users WHERE employee_no='DT22-0018'), 0, 'FE 협조', 'ACTIVE', NULL, '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(2, (SELECT id FROM users WHERE employee_no='DT22-0142'), 0, 'FE 협조', 'ACTIVE', NULL, '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(5, (SELECT id FROM users WHERE employee_no='DT22-0142'), 0, 'FE 협조', 'ACTIVE', NULL, '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(1, (SELECT id FROM users WHERE employee_no='DT22-0198'), 0, 'BE 협조', 'ACTIVE', NULL, '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(2, (SELECT id FROM users WHERE employee_no='DT22-0198'), 0, 'BE 협조', 'ACTIVE', NULL, '2026-08-14 09:00:00', '2026-08-14 09:00:00');
+
 INSERT INTO milestones (project_id, target_date, goal, completed_at, created_at, modified_at) VALUES
 (102, '2024-12-13', '프로젝트 완료', '2024-12-13 18:00:00', '2024-12-13 09:00:00', '2024-12-13 09:00:00'),
 (103, '2025-03-14', '프로젝트 완료', '2025-03-14 18:00:00', '2025-03-14 09:00:00', '2025-03-14 09:00:00'),
@@ -933,6 +970,8 @@ INSERT INTO milestones (project_id, target_date, goal, completed_at, created_at,
 -- =============================================================================
 -- SELECT COUNT(*) FROM projects;                                    -- 107
 -- SELECT status, COUNT(*) FROM projects GROUP BY status;             -- ONGOING 9 / COMPLETED 85 / DROPPED 7 / HOLDING 6 / ARCHIVED 1
--- SELECT COUNT(*) FROM project_members;                              -- 567 (171 Tier1 + 396 Tier2)
+-- SELECT COUNT(*) FROM project_members;                              -- 577 (원본 569 + 8 시연 계정 보강)
+-- ※ 원본 기준이 "567(171+396)"이라고 적혀 있었으나 실측(리셋 직후 COUNT)은 569였다 — 이 문서
+--   갱신 이전부터 있던 오차라 여기서만 바로잡는다. 171/396 세부 내역까지는 재검증하지 않았다.
 -- SELECT COUNT(*) FROM milestones;                                   -- 153 (61 Tier1 + 92 Tier2)
 -- SELECT p.id, p.name, COUNT(*) member_count FROM project_members pm JOIN projects p ON p.id=pm.project_id GROUP BY p.id ORDER BY p.id;
