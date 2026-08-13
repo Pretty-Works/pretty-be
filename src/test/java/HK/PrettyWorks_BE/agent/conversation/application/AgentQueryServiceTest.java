@@ -239,6 +239,8 @@ class AgentQueryServiceTest {
             assertThat(item.requestedAt()).isEqualTo(now);
             assertThat(item.options()).extracting("id")
                     .containsExactly("APPROVE", "FILL_FORM", "REJECT");
+            assertThat(item.options()).allSatisfy(option ->
+                    assertThat(option.description()).isNull());
         });
     }
 
@@ -252,8 +254,10 @@ class AgentQueryServiceTest {
                 new AgentPendingInteractionRow(51L, AgentInteractionKind.QUESTION,
                         "휴가 날짜 선택",
                         "{\"questionId\":51,\"multiple\":true,\"options\":["
-                                + "{\"id\":\"2026-03-02\",\"label\":\"3/2 (화)\"},"
-                                + "{\"id\":\"__FREE__\",\"label\":\"직접 입력\"}]}",
+                                + "{\"id\":\"2026-03-02\",\"label\":\"3/2 (화)\","
+                                + "\"description\":\"마감일을 이틀 미룹니다. 리스크: 낮음\"},"
+                                + "{\"id\":\"__FREE__\",\"label\":\"직접 입력\","
+                                + "\"description\":42}]}",
                         "run-public-2", 15L, "8월 휴가 일정 추천", now.plusMinutes(30), now)));
 
         var response = service.getPendingInteractions(1L);
@@ -263,6 +267,8 @@ class AgentQueryServiceTest {
             assertThat(item.previewText()).isNull();
             assertThat(item.options()).extracting("id")
                     .containsExactly("2026-03-02", "__FREE__");
+            assertThat(item.options()).extracting("description")
+                    .containsExactly("마감일을 이틀 미룹니다. 리스크: 낮음", null);
         });
     }
 

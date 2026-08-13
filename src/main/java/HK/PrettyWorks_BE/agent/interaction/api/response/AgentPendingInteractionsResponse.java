@@ -78,7 +78,12 @@ public record AgentPendingInteractionsResponse(
             String id,
 
             @Schema(description = "버튼에 찍을 문구", example = "저장")
-            String label
+            String label,
+
+            @Schema(description = "이름표만으로 차이를 알 수 없는 보기의 부가 설명. 없으면 null",
+                    nullable = true,
+                    example = "마일스톤 목표일을 2주 뒤로 미루고 작업 3건의 마감일도 함께 조정합니다. 리스크: 낮음")
+            String description
     ) {
     }
 }

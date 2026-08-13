@@ -283,10 +283,10 @@ public class AgentQueryService {
 
         List<AgentPendingInteractionsResponse.Option> options = new ArrayList<>();
         options.add(new AgentPendingInteractionsResponse.Option(
-                APPROVE_OPTION_ID, APPROVE_OPTION_LABEL));
+                APPROVE_OPTION_ID, APPROVE_OPTION_LABEL, null));
         options.addAll(readOptions(payload.get("alternatives")));
         options.add(new AgentPendingInteractionsResponse.Option(
-                REJECT_OPTION_ID, REJECT_OPTION_LABEL));
+                REJECT_OPTION_ID, REJECT_OPTION_LABEL, null));
         return List.copyOf(options);
     }
 
@@ -302,8 +302,11 @@ public class AgentQueryService {
                 continue;
             }
             JsonNode label = option.get("label");
+            JsonNode description = option.get("description");
             options.add(new AgentPendingInteractionsResponse.Option(id.textValue(),
-                    label != null && label.isTextual() ? label.textValue() : null));
+                    label != null && label.isTextual() ? label.textValue() : null,
+                    description != null && description.isTextual()
+                            ? description.textValue() : null));
         }
         return List.copyOf(options);
     }
