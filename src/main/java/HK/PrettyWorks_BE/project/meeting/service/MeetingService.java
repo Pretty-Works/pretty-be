@@ -2,6 +2,7 @@ package HK.PrettyWorks_BE.project.meeting.service;
 
 import HK.PrettyWorks_BE.global.base.PageResponse;
 import HK.PrettyWorks_BE.global.exception.BaseException;
+import HK.PrettyWorks_BE.global.lock.VersionGuard;
 import HK.PrettyWorks_BE.idempotency.service.IdempotencyService;
 import HK.PrettyWorks_BE.notification.constant.NotificationTarget;
 import HK.PrettyWorks_BE.notification.constant.NotificationType;
@@ -213,16 +214,17 @@ public class MeetingService {
 
     // 회의록 수정
     @Transactional
-    public MeetingDetailResponse updateMeeting
-    (Long projectId, Long meetingId, Long userId, MeetingUpdateRequest request) {
+    public void updateMeeting
+    (Long projectId, Long meetingId, Long userId, Long version, MeetingUpdateRequest request) {
 
         // 프로젝트 존재를 멤버십보다 먼저 판정해 없는 프로젝트가 403으로 가려지지 않게 한다.
         ProjectEntity project = projectRepository.findById(projectId)
                 .orElseThrow(() -> BaseException.type(ProjectErrorCode.PROJECT_NOT_FOUND));
         projectMemberService.validateActiveMember(projectId, userId);
 
-        // 회의록 찾기
-        MeetingEntity meeting = meetingRepository.findById(meetingId)
+        // 회의록 찾기. 참석자 명단만 바뀌는 수정도 회의록 전체의 동시 변경으로 잡기 위해
+        // 커밋 시 version을 강제로 올리는 낙관적 락으로 조회한다.
+        MeetingEntity meeting = meetingRepository.findByIdWithOptimisticLock(meetingId)
                 .orElseThrow(() -> BaseException.type(MeetingErrorCode.MEETING_NOT_FOUND));
 
         // 이 회의록이 그 프로젝트 소속인지 검증
@@ -243,6 +245,10 @@ public class MeetingService {
         if (!ProjectPolicy.isOpenForContent(project)) {
             throw BaseException.type(MeetingErrorCode.PROJECT_CLOSED);
         }
+
+        // 상세 조회에서 받은 version과 현재 version이 다르면, 수정 화면을 연 뒤
+        // 다른 사용자가 먼저 저장한 것이므로 최신 내용을 다시 읽도록 409로 차단한다.
+        VersionGuard.validate(meeting.getVersion(), version);
 
         // 회의 일자가 프로젝트 기간(startDate ~ targetDate) 안인지
         validateMeetingDate(project, request.meetingDate());
@@ -274,8 +280,6 @@ public class MeetingService {
         // 수정 알림은 발행하지 않는다 — 오타 하나만 고쳐도 참석자 전원에게 알림이 가 팀 결정으로 폐기했다.
         // NotificationType에서 상수도 함께 지웠으니 되살리지 말 것(사유는 그쪽 주석 참고).
 
-        // 수정된 최신 상세를 반환
-        return toDetailResponse(meeting);
     }
 
     // 회의록 삭제
@@ -454,6 +458,7 @@ public class MeetingService {
 
         return MeetingDetailResponse.builder()
                 .meetingId(meeting.getId())
+                .version(meeting.getVersion())
                 .documentNumber(meeting.getDocumentNo())
                 .title(meeting.getTitle())
                 .meetingDate(meeting.getMeetingDate())

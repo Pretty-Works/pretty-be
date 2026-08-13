@@ -36,7 +36,7 @@ public class AgentRunFactory {
 
     // 총량은 실제로 도는 것만 셉니다. 대기 중인 실행은 스레드도 커넥션도 FastAPI도 쓰지 않아
     // 함께 세면, 승인을 미룬 몇 사람이 전사 에이전트를 막습니다.
-    @Value("${agent.run.max-running-total}")
+    @Value("${agent.run.max-active-total}")
     private long maxRunningTotal;
 
     private final CurrentUserService currentUserService;

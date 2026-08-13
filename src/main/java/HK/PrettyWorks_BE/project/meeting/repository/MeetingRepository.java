@@ -1,16 +1,25 @@
 package HK.PrettyWorks_BE.project.meeting.repository;
 
 import HK.PrettyWorks_BE.project.meeting.domain.MeetingEntity;
+import jakarta.persistence.LockModeType;
 import org.springframework.data.repository.query.Param;
 import org.springframework.data.domain.Page;
 import org.springframework.data.jpa.repository.JpaRepository;
+import org.springframework.data.jpa.repository.Lock;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.domain.Pageable;
 
 import java.time.LocalDate;
 import java.util.List;
+import java.util.Optional;
 
 public interface MeetingRepository extends JpaRepository<MeetingEntity, Long> {
+    // 수정 API용 조회. 본문이 그대로고 참석자 명단만 바뀌어도 회의록 전체의 version을 올려
+    // 동시에 들어온 다른 수정 요청이 커밋 시점에 충돌하도록 합니다.
+    @Lock(LockModeType.OPTIMISTIC_FORCE_INCREMENT)
+    @Query("select m from MeetingEntity m where m.id = :id")
+    Optional<MeetingEntity> findByIdWithOptimisticLock(@Param("id") Long id);
+
     // 문서 번호 생성
     @Query(value = "SELECT COUNT(*) FROM meetings", nativeQuery = true)
     long countAllIncludingDeleted();

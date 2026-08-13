@@ -16,7 +16,7 @@ import java.time.LocalDateTime;
 @Entity
 @Table(name = "meetings")
 @SQLDelete(
-        sql = "UPDATE meetings SET deleted_at = NOW() WHERE id = ? AND deleted_at IS NULL",
+        sql = "UPDATE meetings SET deleted_at = NOW() WHERE id = ? AND version = ? AND deleted_at IS NULL",
         verify = Expectation.RowCount.class
 )
 @SQLRestriction("deleted_at IS NULL")
@@ -71,6 +71,12 @@ public class MeetingEntity extends BaseTimeEntity {
     // 삭제 시각
     @Column(name = "deleted_at")
     private LocalDateTime deletedAt;
+
+    // 낙관적 락 버전. 회의록 본문과 참석자 명단을 동시에 수정할 때
+    // 먼저 커밋된 변경을 나중 요청이 덮어쓰지 못하게 합니다.
+    @Version
+    @Column(name = "version", nullable = false)
+    private Long version;
 
     @Builder
     public MeetingEntity(Long projectId, Long authorId, String documentNo, String title,
