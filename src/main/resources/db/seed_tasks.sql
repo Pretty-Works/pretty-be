@@ -1,4 +1,4 @@
--- PrettyWorks 데모 시드 — tasks (할 일) 28,840건
+-- PrettyWorks 데모 시드 — tasks (할 일) 28,861건 (원본 28,840 + 시연 계정 보강 16 + DT22-0018 추가보강 5)
 -- seed_users.sql, seed_projects.sql 을 먼저 로드해야 한다.
 --
 -- 2026-08-08 데모일(8/14) 기준 재정리 — 아래는 원본 32,981건 생성 로직이고, 그 위에
@@ -28962,3 +28962,52 @@ INSERT INTO tasks (project_id, assignee_id, creator_id, content, completed_at, d
 (NULL, (SELECT id FROM users WHERE employee_no='DT25-0018'), (SELECT id FROM users WHERE employee_no='DT25-0018'), '배포 로그 대응', '2026-06-23 09:00:00', '2026-06-23', '2026-06-17 09:00:00', '2026-06-23 09:00:00'),
 (NULL, (SELECT id FROM users WHERE employee_no='DT25-0018'), (SELECT id FROM users WHERE employee_no='DT25-0018'), '모니터링 대시보드 점검', '2025-10-03 17:00:00', '2025-10-02', '2025-09-27 09:00:00', '2025-10-03 17:00:00'),
 (NULL, (SELECT id FROM users WHERE employee_no='DT25-0018'), (SELECT id FROM users WHERE employee_no='DT25-0018'), 'CI 빌드 로그 발송', '2026-03-09 14:00:00', '2026-03-08', '2026-03-06 09:00:00', '2026-03-09 14:00:00');
+
+-- =============================================================================
+-- 시연용 계정 보강 (2026-08-13) — 16건
+--   seed_projects.sql에서 새로 추가한 8개 project_members(구본재/임다혜/남시우/조태현이
+--   각자 부서가 걸쳐 있는 다른 ONGOING 프로젝트에 '협조'로 합류, created_at=2026-08-14
+--   09:00)에 대응해, 그 프로젝트에서 실제로 담당했을 법한 할 일을 자기 자신에게 배정
+--   (assignee=creator, 위임 아님 — 위임엔 is_owner/PM 권한이 필요하므로 자기 배정으로
+--   단순화)했다. 프로젝트별 실제 사용 중인 content 키워드 풀(예: 2번 프로젝트는 '주문 처리
+--   로직'/'주문 플로우'/'환율 연동'/'환율 표시 화면')에서만 조합했다.
+--   created_at은 project_members 합류 시각(08-14 09:00) 이후로만 존재할 수 있어 전부
+--   합류 당일(2026-08-14 09:00)로 맞췄다 — 합류 전 날짜로 두면 "가입도 안 한 프로젝트에서
+--   이미 할 일을 만든" 순서 모순이 생긴다. due_date는 2026-08-15~08-27로 잡아 "아직 안
+--   끝난 최근 할 일"만 미완료(completed_at NULL)로 남게 했다 — 4-1단계 원칙(오래된
+--   미완료는 부자연스러움)을 지켰다.
+-- =============================================================================
+INSERT INTO tasks (project_id, assignee_id, creator_id, content, completed_at, due_date, created_at, modified_at) VALUES
+(2, (SELECT id FROM users WHERE employee_no='DT22-0017'), (SELECT id FROM users WHERE employee_no='DT22-0017'), '주문 처리 로직 일정 조율', NULL, '2026-08-18', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(2, (SELECT id FROM users WHERE employee_no='DT22-0017'), (SELECT id FROM users WHERE employee_no='DT22-0017'), '주문 플로우 이슈 트래킹', NULL, '2026-08-23', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(3, (SELECT id FROM users WHERE employee_no='DT22-0017'), (SELECT id FROM users WHERE employee_no='DT22-0017'), '레거시 배치 코드 일정 조율', NULL, '2026-08-19', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(3, (SELECT id FROM users WHERE employee_no='DT22-0017'), (SELECT id FROM users WHERE employee_no='DT22-0017'), '신규 로직 설계 보고', NULL, '2026-08-26', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(1, (SELECT id FROM users WHERE employee_no='DT22-0018'), (SELECT id FROM users WHERE employee_no='DT22-0018'), '여신 화면 UI 검토', NULL, '2026-08-17', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(1, (SELECT id FROM users WHERE employee_no='DT22-0018'), (SELECT id FROM users WHERE employee_no='DT22-0018'), '스프린트 산출물 반영', NULL, '2026-08-21', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(5, (SELECT id FROM users WHERE employee_no='DT22-0018'), (SELECT id FROM users WHERE employee_no='DT22-0018'), '아키텍처 설계서 문서화', NULL, '2026-08-20', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(5, (SELECT id FROM users WHERE employee_no='DT22-0018'), (SELECT id FROM users WHERE employee_no='DT22-0018'), '대외연계 API 테스트', NULL, '2026-08-27', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(2, (SELECT id FROM users WHERE employee_no='DT22-0142'), (SELECT id FROM users WHERE employee_no='DT22-0142'), '환율 표시 화면 검토', NULL, '2026-08-16', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(2, (SELECT id FROM users WHERE employee_no='DT22-0142'), (SELECT id FROM users WHERE employee_no='DT22-0142'), '주문 플로우 반영', NULL, '2026-08-22', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(5, (SELECT id FROM users WHERE employee_no='DT22-0142'), (SELECT id FROM users WHERE employee_no='DT22-0142'), '여신심사 프로세스 검토', NULL, '2026-08-19', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(5, (SELECT id FROM users WHERE employee_no='DT22-0142'), (SELECT id FROM users WHERE employee_no='DT22-0142'), '데이터 이관 계획 문서화', NULL, '2026-08-24', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(1, (SELECT id FROM users WHERE employee_no='DT22-0198'), (SELECT id FROM users WHERE employee_no='DT22-0198'), '자동 심사 규칙 점검', NULL, '2026-08-15', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(1, (SELECT id FROM users WHERE employee_no='DT22-0198'), (SELECT id FROM users WHERE employee_no='DT22-0198'), '여신 심사 로직 오류 수정', NULL, '2026-08-21', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(2, (SELECT id FROM users WHERE employee_no='DT22-0198'), (SELECT id FROM users WHERE employee_no='DT22-0198'), '주문 처리 로직 테스트', NULL, '2026-08-18', '2026-08-14 09:00:00', '2026-08-14 09:00:00'),
+(2, (SELECT id FROM users WHERE employee_no='DT22-0198'), (SELECT id FROM users WHERE employee_no='DT22-0198'), '환율 연동 반영', NULL, '2026-08-25', '2026-08-14 09:00:00', '2026-08-14 09:00:00');
+
+-- =============================================================================
+-- DT22-0018 추가 보강 (2026-08-13) — 5건
+--   시연 계정 3개(0018 FE 팀장 / 0198 BE 파트장 / 0019 BE 팀장) 중 0017을 빼고 0018을
+--   메인으로 쓰기로 해서, 0018의 "원래" 소속 프로젝트인 2번(다온증권)에 미완료 할 일을
+--   더 채웠다 — 2번은 seed_projects.sql 기준 0018이 2026-03-02부터 있던 원 소속(FE 협조)
+--   이라 위 보강분(1번·5번, 합류일 2026-08-14)과 달리 created_at을 그 재직 기간 아무
+--   시점(08-05~08-13)으로 잡아도 "가입 전에 할 일이 있었다" 모순이 없다. 이 5건까지 더하면
+--   0018의 미완료 할 일 분포가 2번(5)·1번(2)·5번(2) 총 9건 3개 그룹으로, 0019(6·1·1 총 8건
+--   3그룹)와 규모가 비슷해진다.
+-- =============================================================================
+INSERT INTO tasks (project_id, assignee_id, creator_id, content, completed_at, due_date, created_at, modified_at) VALUES
+(2, (SELECT id FROM users WHERE employee_no='DT22-0018'), (SELECT id FROM users WHERE employee_no='DT22-0018'), '환율 표시 화면 반영', NULL, '2026-08-15', '2026-08-05 09:00:00', '2026-08-05 09:00:00'),
+(2, (SELECT id FROM users WHERE employee_no='DT22-0018'), (SELECT id FROM users WHERE employee_no='DT22-0018'), '주문 플로우 검토', NULL, '2026-08-16', '2026-08-06 09:00:00', '2026-08-06 09:00:00'),
+(2, (SELECT id FROM users WHERE employee_no='DT22-0018'), (SELECT id FROM users WHERE employee_no='DT22-0018'), '환율 연동 테스트', NULL, '2026-08-19', '2026-08-09 09:00:00', '2026-08-09 09:00:00'),
+(2, (SELECT id FROM users WHERE employee_no='DT22-0018'), (SELECT id FROM users WHERE employee_no='DT22-0018'), '주문 처리 로직 문서화', NULL, '2026-08-22', '2026-08-12 09:00:00', '2026-08-12 09:00:00'),
+(2, (SELECT id FROM users WHERE employee_no='DT22-0018'), (SELECT id FROM users WHERE employee_no='DT22-0018'), '환율 표시 화면 오류 수정', NULL, '2026-08-26', '2026-08-13 09:00:00', '2026-08-13 09:00:00');

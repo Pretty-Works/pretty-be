@@ -1,4 +1,4 @@
--- PrettyWorks 데모 시드 — notifications(2,354건) + last_seen_notification_id UPDATE(95명)
+-- PrettyWorks 데모 시드 — notifications(2,362건: 원본 2,354 + 시연 계정 보강 8) + last_seen_notification_id UPDATE(95명)
 -- seed_users.sql, seed_projects.sql, seed_tasks.sql, seed_expenses.sql, seed_posts.sql,
 -- seed_meetings.sql, seed_schedules.sql 를 먼저 로드해야 한다.
 --
@@ -2519,3 +2519,28 @@ UPDATE users SET last_seen_notification_id = 1610 WHERE employee_no = 'DT25-0057
 
 -- #154 보강: 확인 안 되던 3종(SCHEDULE_TIME_CHANGED/추가 SCHEDULE_PARTICIPANT_REMOVED/
 -- TASK_DELETED) 90일 창 안 실제 사건으로 신규 생성 — rework_notifications_154.pl
+
+-- =============================================================================
+-- 시연용 계정 보강 (2026-08-13) — 8건, id 2355~2362
+--   seed_projects.sql에서 새로 추가한 project_members 8건(구본재/임다혜/남시우/조태현이
+--   각자 부서가 걸쳐 있는 다른 ONGOING 프로젝트에 '협조'로 합류, created_at=2026-08-14
+--   09:00)의 파생 알림이다. ProjectService.updateParticipants()는 참여자 추가 시
+--   행위자 필터 없이 항상 PROJECT_MEMBER_ADDED를 보내므로(본인 배정만 걸러내는
+--   TaskService.publishAssigned()와 다름) 8건 전부 필요하다 — actor_id는 그 프로젝트의
+--   실제 오너(구본재=1, 서강우=2·3, 안세희=5)로 맞췄다.
+--   created_at은 기존 데이터의 마지막 알림(id 2354, 2026-08-14 15:00)보다 뒤로 잡아
+--   id 오름차순=created_at 오름차순 불변식을 유지했다(resequence_notifications_by_time.pl이
+--   맞춰둔 전제 — 더 이른 날짜로 끝에 붙이면 다시 깨진다). 4명 모두 last_seen_notification_id가
+--   2355보다 작아(0017=2278, 0018/0198=NULL, 0142=2155) 별도 UPDATE 없이 자동으로 안 읽음
+--   상태로 뜬다. TASK_ASSIGNED는 새로 만든 tasks 16건이 전부 자기 배정(assignee=creator)이라
+--   publishAssigned()의 self-assigned 필터에 걸려 실제로도 알림이 안 나가므로 추가하지 않았다.
+-- =============================================================================
+INSERT INTO notifications (id, user_id, type, title, actor_id, target_type, target_id, target_project_id, target_date, read_at, created_at, modified_at) VALUES
+(2355, (SELECT id FROM users WHERE employee_no='DT22-0017'), 'PROJECT_MEMBER_ADDED', '''다온증권 해외주식 주문 개선'' 프로젝트에 참여자로 추가되었습니다', (SELECT id FROM users WHERE employee_no='DT22-0019'), 'PROJECT', 2, NULL, NULL, NULL, '2026-08-14 16:00:00', '2026-08-14 16:00:00'),
+(2356, (SELECT id FROM users WHERE employee_no='DT22-0017'), 'PROJECT_MEMBER_ADDED', '''다온페이 정산 배치 재구축'' 프로젝트에 참여자로 추가되었습니다', (SELECT id FROM users WHERE employee_no='DT22-0019'), 'PROJECT', 3, NULL, NULL, NULL, '2026-08-14 16:01:00', '2026-08-14 16:01:00'),
+(2357, (SELECT id FROM users WHERE employee_no='DT22-0018'), 'PROJECT_MEMBER_ADDED', '''다온뱅크 여신 시스템 고도화'' 프로젝트에 참여자로 추가되었습니다', (SELECT id FROM users WHERE employee_no='DT22-0017'), 'PROJECT', 1, NULL, NULL, NULL, '2026-08-14 16:02:00', '2026-08-14 16:02:00'),
+(2358, (SELECT id FROM users WHERE employee_no='DT22-0018'), 'PROJECT_MEMBER_ADDED', '''서일캐피탈 여신심사 시스템 구축'' 프로젝트에 참여자로 추가되었습니다', (SELECT id FROM users WHERE employee_no='DT22-0016'), 'PROJECT', 5, NULL, NULL, NULL, '2026-08-14 16:03:00', '2026-08-14 16:03:00'),
+(2359, (SELECT id FROM users WHERE employee_no='DT22-0142'), 'PROJECT_MEMBER_ADDED', '''다온증권 해외주식 주문 개선'' 프로젝트에 참여자로 추가되었습니다', (SELECT id FROM users WHERE employee_no='DT22-0019'), 'PROJECT', 2, NULL, NULL, NULL, '2026-08-14 16:04:00', '2026-08-14 16:04:00'),
+(2360, (SELECT id FROM users WHERE employee_no='DT22-0142'), 'PROJECT_MEMBER_ADDED', '''서일캐피탈 여신심사 시스템 구축'' 프로젝트에 참여자로 추가되었습니다', (SELECT id FROM users WHERE employee_no='DT22-0016'), 'PROJECT', 5, NULL, NULL, NULL, '2026-08-14 16:05:00', '2026-08-14 16:05:00'),
+(2361, (SELECT id FROM users WHERE employee_no='DT22-0198'), 'PROJECT_MEMBER_ADDED', '''다온뱅크 여신 시스템 고도화'' 프로젝트에 참여자로 추가되었습니다', (SELECT id FROM users WHERE employee_no='DT22-0017'), 'PROJECT', 1, NULL, NULL, NULL, '2026-08-14 16:06:00', '2026-08-14 16:06:00'),
+(2362, (SELECT id FROM users WHERE employee_no='DT22-0198'), 'PROJECT_MEMBER_ADDED', '''다온증권 해외주식 주문 개선'' 프로젝트에 참여자로 추가되었습니다', (SELECT id FROM users WHERE employee_no='DT22-0019'), 'PROJECT', 2, NULL, NULL, NULL, '2026-08-14 16:07:00', '2026-08-14 16:07:00');
