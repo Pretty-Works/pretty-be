@@ -23,18 +23,21 @@ import org.springframework.transaction.annotation.Transactional;
 import java.time.LocalDateTime;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Set;
 import java.util.UUID;
 
 @Service
 @RequiredArgsConstructor
 public class AgentRunFactory {
 
-    // 한 사람이 한도를 안 넘어도 여럿이 겹치면 FastAPI·LLM 쪽이 먼저 무너져 총량도 함께 막습니다.
+    // 개인 한도는 대기(WAITING_*)까지 셉니다 — 한 사람이 답하지 않은 카드를 무한정 쌓는 걸 막아야 합니다.
     @Value("${agent.run.max-active-per-user}")
     private long maxActiveRunsPerUser;
 
-    @Value("${agent.run.max-active-total}")
-    private long maxActiveRunsTotal;
+    // 총량은 실제로 도는 것만 셉니다. 대기 중인 실행은 스레드도 커넥션도 FastAPI도 쓰지 않아
+    // 함께 세면, 승인을 미룬 몇 사람이 전사 에이전트를 막습니다.
+    @Value("${agent.run.max-running-total}")
+    private long maxRunningTotal;
 
     private final CurrentUserService currentUserService;
     private final AgentConversationRepository conversationRepository;
@@ -78,8 +81,8 @@ public class AgentRunFactory {
                 >= maxActiveRunsPerUser) {
             throw BaseException.type(AgentErrorCode.TOO_MANY_RUNS);
         }
-        if (runRepository.countByStatusIn(AgentRunStatus.activeStatuses())
-                >= maxActiveRunsTotal) {
+        if (runRepository.countByStatusIn(Set.of(AgentRunStatus.RUNNING))
+                >= maxRunningTotal) {
             throw BaseException.type(AgentErrorCode.SERVER_BUSY);
         }
 
