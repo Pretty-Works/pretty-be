@@ -38,6 +38,10 @@ public interface AgentExecutionApi {
             data: {"approvalId": 41, "toolCallId": "tc_1", "tool": "task.create", "access": "WRITE", "summary": "할 일 2건 추가", "previewText": "· 첫 번째 / · 두 번째", "params": {"tasks": [{"title": "첫 번째"}, {"title": "두 번째"}]}, "alternatives": [{"id": "FILL_FORM", "label": "직접 고칠래요"}, {"id": "ALWAYS", "label": "항상 허용"}], "autoApproved": false}
 
             id: 3
+            event: question
+            data: {"questionId": 88, "label": "재계획 선택", "text": "재계획 방안 중 하나를 선택해 주세요", "options": [{"id": "1", "label": "일정 연장", "description": "마일스톤 목표일을 2주 뒤로 미루고 작업 3건의 마감일도 함께 조정합니다. 리스크: 낮음"}, {"id": "2", "label": "인력 재배치 (추천)", "description": "담당자를 재배치해 목표일을 유지합니다. 리스크: 중간"}], "multiple": false, "allowFreeText": true}
+
+            id: 4
             event: done
             data: {"answer": "등록했습니다.", "action": {"type": "NAVIGATE", "label": "할 일 보기", "targetScreen": "TASK_LIST", "params": {"projectId": 3}}}
             """;
