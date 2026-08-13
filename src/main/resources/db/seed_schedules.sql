@@ -8,7 +8,7 @@
 -- 휴가는 별도 type이 없고 PERSONAL + schedule_leaves 1:1 확장으로 표현되며, LeaveService가 title을
 -- '연차'/'공가'로 강제 고정한다(자유 작성 불가) — 그래서 이 시드에서 휴가 계열 title은 전부 고정값.
 --
--- A) 회의 미러(288건): seed_meetings.sql의 288개 회의 + meeting_attendees 929건을 그대로 옮겼다.
+-- A) 회의 미러(334건): seed_meetings.sql의 334개 회의 + meeting_attendees 1,092건을 그대로 옮겼다.
 --    meeting_attendees에 employee_no가 서브쿼리로 이미 박혀있어 이름 대조 없이 바로 매핑했다.
 --    시간대는 meeting_date + 10~17시 중 (id 기반 결정적) 배치, '킥오프/착수/점검/완료/회고/검증/
 --    마무리/승인/보고'가 제목에 있으면 60분, 나머지는 30분(회사 문화상 기본 30분 회의 — 00번 문서

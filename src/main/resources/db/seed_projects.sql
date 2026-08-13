@@ -157,6 +157,7 @@ INSERT INTO project_members (project_id, user_id, is_owner, role, status, left_a
 (1, (SELECT id FROM users WHERE employee_no='DT22-0135'), 0, NULL, 'ACTIVE', NULL, '2026-01-06 09:00:00', '2026-01-06 09:00:00'),
 (1, (SELECT id FROM users WHERE employee_no='DT25-0050'), 0, NULL, 'ACTIVE', NULL, '2026-01-06 09:00:00', '2026-01-06 09:00:00'),
 (1, (SELECT id FROM users WHERE employee_no='DT23-0034'), 0, NULL, 'ACTIVE', NULL, '2026-01-06 09:00:00', '2026-01-06 09:00:00'),
+(1, (SELECT id FROM users WHERE employee_no='DT23-0035'), 0, NULL, 'ACTIVE', NULL, '2026-01-06 09:00:00', '2026-01-06 09:00:00'),
 (1, (SELECT id FROM users WHERE employee_no='DT23-0015'), 0, '성능 모니터링', 'ACTIVE', NULL, '2026-01-06 09:00:00', '2026-01-06 09:00:00'),
 (1, (SELECT id FROM users WHERE employee_no='DT22-0085'), 0, '후속 계약 조건 협의', 'ACTIVE', NULL, '2026-01-06 09:00:00', '2026-01-06 09:00:00'),
 (2, (SELECT id FROM users WHERE employee_no='DT22-0019'), 1, NULL, 'ACTIVE', NULL, '2026-03-02 09:00:00', '2026-03-02 09:00:00'),
@@ -668,6 +669,39 @@ INSERT INTO project_members (project_id, user_id, is_owner, role, status, left_a
 (93, (SELECT id FROM users WHERE employee_no='DT24-0008'), 0, NULL, 'ACTIVE', NULL, '2026-02-02 09:00:00', '2026-02-02 09:00:00'),
 (93, (SELECT id FROM users WHERE employee_no='DT23-0008'), 0, NULL, 'ACTIVE', NULL, '2026-02-02 09:00:00', '2026-02-02 09:00:00');
 
+-- 2026-08-14 화면 정합성 보정: 재직자 전원에게 부서 주간회의가 배정되므로,
+-- 진행 프로젝트가 하나도 없는 재직자는 기존 프로젝트별 부서 구성에 맞춰 배치한다.
+-- 이 보정으로 홈의 '진행 중 프로젝트' 공백과 캘린더의 현재 팀 일정·참여자 레일 간 모순을 제거한다.
+INSERT INTO project_members (project_id, user_id, is_owner, role, status, left_at, created_at, modified_at)
+SELECT CASE u.department
+           WHEN 'BACKEND' THEN 1
+           WHEN 'QA' THEN 1
+           WHEN 'FRONTEND' THEN 2
+           WHEN 'PM' THEN 1
+           WHEN 'SALES' THEN 5
+           WHEN 'DEVOPS' THEN 9
+           WHEN 'CONSULTING' THEN 4
+           WHEN 'FINANCE' THEN 3
+           WHEN 'DATA' THEN 6
+           WHEN 'PLANNING' THEN 7
+           WHEN 'SECURITY' THEN 8
+           WHEN 'MANAGEMENT_SUPPORT' THEN 8
+           WHEN 'HR' THEN 8
+           WHEN 'INFRA' THEN 9
+       END,
+       u.id, 0, NULL, 'ACTIVE', NULL, '2026-08-14 09:00:00', '2026-08-14 09:00:00'
+FROM users u
+WHERE u.status IN ('ACTIVE', 'ON_LEAVE')
+  AND NOT EXISTS (
+      SELECT 1
+      FROM project_members pm
+      JOIN projects p ON p.id = pm.project_id
+      WHERE pm.user_id = u.id
+        AND pm.status = 'ACTIVE'
+        AND pm.left_at IS NULL
+        AND p.status = 'ONGOING'
+  );
+
 -- =============================================================================
 -- milestones — Tier1
 -- =============================================================================
@@ -970,8 +1004,8 @@ INSERT INTO milestones (project_id, target_date, goal, completed_at, created_at,
 -- =============================================================================
 -- SELECT COUNT(*) FROM projects;                                    -- 107
 -- SELECT status, COUNT(*) FROM projects GROUP BY status;             -- ONGOING 9 / COMPLETED 85 / DROPPED 7 / HOLDING 6 / ARCHIVED 1
--- SELECT COUNT(*) FROM project_members;                              -- 577 (원본 569 + 8 시연 계정 보강)
+-- SELECT COUNT(*) FROM project_members;                              -- 721 (명시적 행 578 + 현재 프로젝트 배치 보정 143)
 -- ※ 원본 기준이 "567(171+396)"이라고 적혀 있었으나 실측(리셋 직후 COUNT)은 569였다 — 이 문서
 --   갱신 이전부터 있던 오차라 여기서만 바로잡는다. 171/396 세부 내역까지는 재검증하지 않았다.
--- SELECT COUNT(*) FROM milestones;                                   -- 153 (61 Tier1 + 92 Tier2)
+-- SELECT COUNT(*) FROM milestones;                                   -- 184 (61 Tier1 + 123 Tier2)
 -- SELECT p.id, p.name, COUNT(*) member_count FROM project_members pm JOIN projects p ON p.id=pm.project_id GROUP BY p.id ORDER BY p.id;

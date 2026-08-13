@@ -8,6 +8,18 @@
 
 ---
 
+## Seed consistency audit
+
+Run this check before reloading the database:
+
+```powershell
+node src/main/resources/db/audit_seed_consistency.js
+```
+
+The expected result is `errors=0` and `warnings=0`. It checks references,
+unique keys, dates, membership, schedules, leave, expenses, meetings, tasks,
+posts, notifications, and ongoing-project coverage for active employees.
+
 
 ## 0) 컨테이너 이름 확인
 
