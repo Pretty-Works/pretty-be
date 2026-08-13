@@ -204,6 +204,7 @@ CREATE TABLE IF NOT EXISTS meetings (
     created_at    DATETIME(6)  NULL              COMMENT '생성 시각',
     modified_at   DATETIME(6)  NULL              COMMENT '수정 시각',
     deleted_at    DATETIME(6)  NULL              COMMENT '삭제 시각',
+    version       BIGINT       NOT NULL DEFAULT 0 COMMENT '낙관적 락 버전',
     PRIMARY KEY (id),
     UNIQUE KEY uk_meetings_document_no (document_no),
     CONSTRAINT fk_meetings_project FOREIGN KEY (project_id) REFERENCES projects (id),

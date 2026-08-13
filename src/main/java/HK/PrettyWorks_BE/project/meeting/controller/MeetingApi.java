@@ -124,6 +124,7 @@ public interface MeetingApi {
                     
                     - 참석자를 작성자(author)와 참석자(attendees)로 나누어 반환하며, 각 인원의 userId를 함께 내려줍니다. (수정 화면 프리필용)
                     - URL의 projectId와 회의록의 소속 프로젝트가 일치하는지 검증합니다.
+                    - 응답의 version은 수정 요청의 X-Resource-Version 헤더로 그대로 보내야 합니다.
                     """
     )
     @ApiResponses({
@@ -135,6 +136,7 @@ public interface MeetingApi {
                                       "message": "SUCCESS",
                                       "result": {
                                         "meetingId": 1,
+                                        "version": 0,
                                         "documentNumber": "MTG-2026-06-05-1",
                                         "title": "검색 고도화 킥오프",
                                         "meetingDate": "2026-06-05",
@@ -183,6 +185,7 @@ public interface MeetingApi {
                     - 참석자는 기존 명단을 지우고 attendeeIds로 새로 저장합니다. (작성자는 WRITER로 유지)
                     - 문서번호·작성자·소속 프로젝트는 변경되지 않습니다.
                     - 참석자 본인이 수정할 때 자기 자신을 참석자 명단에서 제외할 수 없습니다.
+                    - X-Resource-Version 헤더에 상세 조회에서 받은 version을 보내야 하며, 다른 사용자가 먼저 수정했다면 409로 거부됩니다.
                     """
     )
     @ApiResponses({
@@ -194,6 +197,7 @@ public interface MeetingApi {
                                       "message": "SUCCESS",
                                       "result": {
                                         "meetingId": 1,
+                                        "version": 1,
                                         "documentNumber": "MTG-2026-06-05-1",
                                         "title": "검색 고도화 킥오프(수정)",
                                         "meetingDate": "2026-06-08",
@@ -225,6 +229,11 @@ public interface MeetingApi {
                             examples = @ExampleObject(value = """
                                     { "errorCode": "MEETING_005", "message": "존재하지 않는 회의록입니다.", "result": null }
                                     """))),
+            @ApiResponse(responseCode = "409", description = "다른 사용자가 먼저 회의록을 수정함",
+                    content = @Content(mediaType = "application/json",
+                            examples = @ExampleObject(value = """
+                                    { "errorCode": "REQUEST_029", "message": "다른 사용자가 먼저 수정했습니다. 최신 내용을 다시 불러온 뒤 시도해 주세요.", "result": null }
+                                    """))),
             @ApiResponse(responseCode = "500", description = "서버 내부 오류",
                     content = @Content(mediaType = "application/json",
                             examples = @ExampleObject(value = """
@@ -235,6 +244,7 @@ public interface MeetingApi {
             Long projectId,
             Long meetingId,
             Long userId,
+            Long version,
             @Valid MeetingUpdateRequest request
     );
 

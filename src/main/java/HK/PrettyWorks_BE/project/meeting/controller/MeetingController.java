@@ -9,6 +9,7 @@ import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingDeleteResponse;
 import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingDetailResponse;
 import HK.PrettyWorks_BE.project.meeting.dto.res.MeetingListResponse;
 import HK.PrettyWorks_BE.project.meeting.service.MeetingService;
+import io.swagger.v3.oas.annotations.Parameter;
 import lombok.RequiredArgsConstructor;
 import org.springframework.data.domain.Pageable;
 import org.springframework.http.HttpStatus;
@@ -77,11 +78,15 @@ public class MeetingController implements MeetingApi {
             @PathVariable Long projectId,
             @PathVariable Long meetingId,
             @AuthenticationPrincipal Long userId,
+            @Parameter(description = "상세 조회(GET)에서 받은 version. 그 사이 다른 사용자가 먼저 수정했다면 409로 차단됩니다.",
+                    example = "3", required = true)
+            @RequestHeader("X-Resource-Version") Long version,
             @RequestBody MeetingUpdateRequest request) {
 
-        return ResponseEntity.ok(
-                meetingService.updateMeeting(projectId, meetingId, userId, request)
-        );
+        // 수정 트랜잭션이 커밋된 뒤 다시 조회해야 OPTIMISTIC_FORCE_INCREMENT로 올라간
+        // 최종 version을 응답에 정확히 담을 수 있다.
+        meetingService.updateMeeting(projectId, meetingId, userId, version, request);
+        return ResponseEntity.ok(meetingService.getMeetingDetail(projectId, meetingId, userId));
     }
 
     @Override
