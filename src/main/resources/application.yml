@@ -181,5 +181,11 @@ jwt:
   # refresh는 회전(RTR)되며 DB에서 폐기할 수 있어 상대적으로 길게 둡니다.
   refresh-token-expire-period: 1209600000   # 14일
 
+springdoc:
+  # 내부 도구 API는 FastAPI만 호출하므로 공개 문서에서 제외합니다.
+  # Swagger UI가 인증 없이 열려 있어(AuthConstant.PERMIT_ALL) 두면 내부 경로와
+  # 인증 헤더 규격이 그대로 공개됩니다. 목록은 README에서 관리합니다.
+  paths-to-exclude: /api/internal/**
+
 server:
   forward-headers-strategy: framework
