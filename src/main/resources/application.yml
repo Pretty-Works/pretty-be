@@ -5,6 +5,9 @@
 # optional: 이라 파일이 없어도(Docker 환경 등) 그대로 뜬다.
 
 spring:
+  application:
+    name: PrettyWorks_BE
+
   config:
     import: optional:file:.env[.properties]
 
@@ -100,6 +103,10 @@ cleanup:
   # 로컬에서 동작을 확인할 때는 "*/10 * * * * *" 처럼 짧게 두면 됩니다.
   cron: "0 0 4 * * *"
 
+notification:
+  # 정리 배치가 이 기간이 지난 알림을 삭제합니다. 프론트 알림함 문구와 같은 값이어야 합니다.
+  retention-days: 90
+
 idempotency:
   # 멱등 키 보관 시간. 이 시간이 지난 키는 정리 배치가 삭제하며, 삭제 후 같은 키로 요청하면 새로 생성됩니다.
   # (재시도 창 자체는 분 단위면 충분하지만, 중복 등록 신고 시 추적할 수 있도록 여유를 둡니다)
@@ -113,6 +120,13 @@ agent:
     connect-timeout: 3000
     # 회의록 초안 생성(/api/agent/meeting-draft) 전용. 녹취록 30,000자를 요약하면 60초를 넘길 수 있습니다.
     draft-timeout: 120000
+
+    # 아래 넷은 코드 기본값과 같은 값을 적어둔 것입니다. 적어두지 않으면 조정 가능한 값인지 알 수 없습니다.
+    # stream.segment-timeout-millis 와 이름이 같지만 다른 키입니다 — 이쪽은 FastAPI 응답 대기입니다.
+    event-timeout-millis: 90000
+    segment-timeout-millis: 600000
+    suggestion-timeout-millis: 15000
+    summary-timeout-millis: 60000
   internal:
     # FastAPI → BE 내부 도구 API(/api/internal/agent/**)의 호출자 인증 키.
     api-key: ${AGENT_INTERNAL_API_KEY}
@@ -170,6 +184,12 @@ agent:
     max-files: ${AGENT_UPLOAD_MAX_FILES:5}
     max-file-bytes: ${AGENT_UPLOAD_MAX_FILE_BYTES:10485760}
     max-total-bytes: ${AGENT_UPLOAD_MAX_TOTAL_BYTES:26214400}
+    # 승인 대기 중 첨부를 붙들고 있는 시간.
+    carry-ttl-minutes: 10
+  suggestion:
+    cache-ttl-minutes: 5
+  summary:
+    min-refresh-interval-minutes: 10
   external-url:
     # 에이전트가 사용자를 보낼 수 있는 외부 도메인 화이트리스트.
     allowed-origins: ${AGENT_EXTERNAL_URL_ALLOWED_ORIGINS:https://accounts.google.com}

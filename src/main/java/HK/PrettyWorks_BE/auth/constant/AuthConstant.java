@@ -32,8 +32,6 @@ public class AuthConstant {
             "/swagger-ui/**",
             "/swagger-ui.html",
             "/v3/api-docs/**",
-            // 테스트 페이지 (WebConfig에서 정적 매핑) — 테스트 종료 후 함께 제거
-            "/test.html",
             "/actuator/health",
             // 예외 처리 중 forward 되는 경로. 막아두면 실제 에러 대신 401이 나갑니다.
             "/error"
