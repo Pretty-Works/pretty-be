@@ -4,22 +4,20 @@
 `ddl-auto: validate` 라서 스키마가 엔티티와 어긋나면 앱이 안 뜨므로, 스키마가 바뀌었거나 데이터를
 깨끗이 다시 넣고 싶을 때 이 순서대로 실행하세요.
 
-> 실행 위치: **PowerShell**, 프로젝트 루트 `C:\Users\tnals\Desktop\PrettyWorks_BE`
+> 실행 위치: 프로젝트 루트. 아래 명령은 **PowerShell** 기준입니다.
 
 ---
 
 ## Seed consistency audit
 
-Run this check before reloading the database:
+리로드 전에 시드 정합성을 검사합니다.
 
 ```powershell
 node src/main/resources/db/audit_seed_consistency.js
 ```
 
-The expected result is `errors=0` and `warnings=0`. It checks references,
-unique keys, dates, membership, schedules, leave, expenses, meetings, tasks,
-posts, notifications, and ongoing-project coverage for active employees.
-
+기대 결과는 `errors=0`, `warnings=0` 입니다. 참조 무결성, 유니크 키, 날짜, 멤버십, 일정, 휴가,
+지출, 회의, 할 일, 게시글, 알림, 재직자의 진행 중 프로젝트 커버리지를 확인합니다.
 
 ## 0) 컨테이너 이름 확인
 
@@ -38,7 +36,7 @@ docker exec -i <name> sh -c "mysql -uroot -p1234 -e 'DROP DATABASE IF EXISTS pre
 <details><summary>DB는 유지하고 테이블만 지우려면 (대안)</summary>
 
 ```powershell
-docker exec -i <name> sh -c "mysql -uroot -p1234 prettyworks_test -e 'SET FOREIGN_KEY_CHECKS=0; DROP TABLE IF EXISTS agent_interactions, agent_events, agent_runs, agent_message_steps, agent_message_attachments, agent_messages, agent_conversations, notifications, idempotency_keys, expenses, schedule_participants, schedule_leaves, schedules, meeting_attendees, meetings, project_posts, tasks, milestones, project_members, refresh_tokens, leave_balances, projects, users; SET FOREIGN_KEY_CHECKS=1;'"
+docker exec -i <name> sh -c "mysql -uroot -p1234 prettyworks_test -e 'SET FOREIGN_KEY_CHECKS=0; DROP TABLE IF EXISTS replan_scenarios, replans, project_summaries, agent_interactions, agent_events, agent_runs, agent_message_steps, agent_message_attachments, agent_messages, agent_conversations, notifications, idempotency_keys, expenses, schedule_participants, schedule_leaves, schedules, meeting_attendees, meetings, project_posts, tasks, milestones, project_members, refresh_tokens, leave_balances, projects, users; SET FOREIGN_KEY_CHECKS=1;'"
 ```
 FK 때문에 `SET FOREIGN_KEY_CHECKS=0` 없이는 부모 테이블을 못 지웁니다.
 
@@ -54,11 +52,41 @@ docker cp src\main\resources\db\init.sql <name>:/tmp/init.sql
 docker exec -i <name> sh -c "mysql -uroot -p1234 --default-character-set=utf8mb4 prettyworks_test < /tmp/init.sql"
 ```
 
-## 3) 시드 로드 (seed.sql)
+## 3) 시드 로드
+
+시드는 도메인별 파일로 나뉘어 있습니다. **FK 의존 관계가 있어 아래 순서를 지켜야 합니다.**
+
+| 순서 | 파일 | 채우는 테이블 |
+|---|---|---|
+| 1 | `seed_users.sql` | `users` |
+| 2 | `seed_projects.sql` | `projects` `project_members` `milestones` |
+| 3 | `seed_tasks.sql` | `tasks` |
+| 4 | `seed_meetings.sql` | `meetings` `meeting_attendees` |
+| 5 | `seed_posts.sql` | `project_posts` |
+| 6 | `seed_schedules.sql` | `schedules` `schedule_participants` `schedule_leaves` `leave_balances` |
+| 7 | `seed_expenses.sql` | `expenses` |
+| 8 | `seed_notifications.sql` | `notifications` |
+
+`seed_users`(1)와 `seed_projects`(2)가 나머지 전부의 부모이고, `seed_notifications`(8)는 할 일 ·
+회의 · 게시글을 참조하므로 **반드시 마지막**입니다. 3~7 사이의 순서는 서로 독립적입니다.
 
 ```powershell
-docker cp src\main\resources\db\seed.sql <name>:/tmp/seed.sql
-docker exec -i <name> sh -c "mysql -uroot -p1234 --default-character-set=utf8mb4 prettyworks_test < /tmp/seed.sql"
+$name = "<name>"
+$files = @(
+  "seed_users.sql",
+  "seed_projects.sql",
+  "seed_tasks.sql",
+  "seed_meetings.sql",
+  "seed_posts.sql",
+  "seed_schedules.sql",
+  "seed_expenses.sql",
+  "seed_notifications.sql"
+)
+foreach ($f in $files) {
+  docker cp "src\main\resources\db\$f" "${name}:/tmp/$f"
+  docker exec -i $name sh -c "mysql -uroot -p1234 --default-character-set=utf8mb4 prettyworks_test < /tmp/$f"
+  Write-Host "loaded $f"
+}
 ```
 
 ## 4) 확인
@@ -82,9 +110,10 @@ docker exec -i <name> sh -c "mysql -uroot -p1234 --default-character-set=utf8mb4
 
 ## 참고
 
-- 비밀번호: 시드의 전 사용자 비밀번호는 `Test1234!` (BCrypt 해시).
-- 순서: 반드시 **init.sql(스키마) → seed.sql(데이터)** 순. seed.sql은 빈 테이블 기준으로 id가
+- 비밀번호: 시드의 전 사용자 비밀번호는 `Test1234!` (BCrypt 해시). 계정 목록은 [`DEMO_ACCOUNTS.md`](./DEMO_ACCOUNTS.md).
+- 순서: 반드시 **init.sql(스키마) → 시드 8개(3번 표 순서)** 순. 시드는 빈 테이블 기준으로 id가
   `users 1~10`, `projects 1~5` … 순서대로 부여되는 것을 전제로 FK를 참조합니다.
-- 날짜: seed의 모든 날짜는 `CURDATE()` 기준 **상대값**(`DATE_SUB(CURDATE(), INTERVAL n DAY)` 등)이라
+- 날짜: 시드의 모든 날짜는 `CURDATE()` 기준 **상대값**(`DATE_SUB(CURDATE(), INTERVAL n DAY)` 등)이라
   언제 로드해도 "진행 중 프로젝트", "이번 주 할 일" 같은 상태가 그대로 재현됩니다. 고정 날짜를 새로
   넣지 마세요 — 시간이 지나면 시드가 낡아 테스트가 어긋납니다.
+- 생성 기준: 가상 회사 설정을 따라 데이터를 만드는 절차는 [`DEMO_DATA_GUIDE.md`](./DEMO_DATA_GUIDE.md)에 있습니다.

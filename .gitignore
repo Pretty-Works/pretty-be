@@ -26,7 +26,6 @@ out/
 !**/src/main/**/out/
 !**/src/test/**/out/
 compose.yaml
-src/main/resources/application.yml
 logs/
 
 ### NetBeans ###
@@ -38,6 +37,9 @@ logs/
 
 ### VS Code ###
 .vscode/
+
+### Secrets ###
+.env
 
 ### AI ###
 docs/guide/
