@@ -1,0 +1,28 @@
+services:
+  mysql:
+    image: 'mysql:8.0'
+    environment:
+      - 'MYSQL_DATABASE=prettyworks_test'
+      - 'MYSQL_ROOT_PASSWORD=${DB_PASSWORD:-1234}'
+    ports:
+      - '3306:3306'
+    volumes:
+      - 'mysql-data:/var/lib/mysql'
+    healthcheck:
+      test: [ 'CMD', 'mysqladmin', 'ping', '-h', 'localhost', '-uroot', '-p${DB_PASSWORD:-1234}' ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+  redis:
+    image: 'redis:7-alpine'
+    # AOF를 켜서 재시작에도 데이터를 보존합니다. 세션 무효화(블랙리스트) 키가 날아가면
+    # 로그아웃·차단된 access token이 다시 유효해지기 때문입니다.
+    command: redis-server --appendonly yes
+    ports:
+      - '6379:6379'
+    volumes:
+      - 'redis-data:/data'
+
+volumes:
+  mysql-data:
+  redis-data:
