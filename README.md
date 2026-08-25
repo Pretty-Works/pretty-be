@@ -4,14 +4,12 @@
 Agent는 데이터를 직접 바꾸지 않고 **변경안**을 만들며, 사용자 승인을 거쳐야 반영됩니다.
 이 저장소는 인증 · 도메인 데이터 · Agent 게이트웨이를 담당합니다.
 
-REST 92개 · 26 테이블 · 테스트 35개
+REST 92개 · 테이블 26개 · 테스트 35개
 
-| | |
-|---|---|
-| 프로젝트 전체 소개 | **[조직 프로필](https://github.com/Pretty-Works)** — 서비스 · 아키텍처 · 팀 |
-| 라이브 | [api.prettyworks.co.kr](https://api.prettyworks.co.kr) |
-| 형제 저장소 | [pretty-fe](https://github.com/Pretty-Works/pretty-fe) · [pretty-llm](https://github.com/Pretty-Works/pretty-llm) |
-| Backend | [김수민](https://github.com/soomink210) · [박지원](https://github.com/jiwonpark01) · [이민주](https://github.com/minju0236) |
+- **전체 소개** — [조직 프로필](https://github.com/Pretty-Works) · 서비스 · 아키텍처 · 팀
+- **라이브** — [api.prettyworks.co.kr](https://api.prettyworks.co.kr)
+- **형제 저장소** — [pretty-fe](https://github.com/Pretty-Works/pretty-fe) · [pretty-llm](https://github.com/Pretty-Works/pretty-llm)
+- **Backend** — [김수민](https://github.com/soomink210) · [박지원](https://github.com/jiwonpark01) · [이민주](https://github.com/minju0236)
 
 ---
 
@@ -50,8 +48,6 @@ agent/
 
 ---
 
----
-
 ## Agent 연동
 
 Agent 추론은 FastAPI가 담당하고, 이 서버는 그 앞단에서 인증 · 권한 · 실행 상태를 관리합니다.
@@ -68,7 +64,7 @@ FE  →  Spring  →  FastAPI  →  Spring  →  FE
 
 | 헤더 | 검증 |
 |---|---|
-| `X-Internal-Api-Key` | 호출자가 우리 AI 서버인가 |
+| `X-Internal-Api-Key` | 호출자가 등록된 AI 서버인가 |
 | `X-Run-Id` | 어떤 실행인가 — 서버가 Run을 조회해 `user_id`를 역산 |
 | `X-Approval-Token` | 사용자 승인이 있었는가 — 쓰기 요청에만 검사 |
 
@@ -89,20 +85,20 @@ FastAPI의 SSE를 소비하는 작업은 블로킹이라 톰캣 요청 스레드
 
 ### SSE
 
-| | |
+| 항목 | 값 |
 |---|---|
 | 하트비트 | 15초 |
 | 세그먼트 타임아웃 | 10분 |
 | 사용자당 동시 연결 | 5 |
 | 이벤트 보존 | 1시간 — 종료 직전 끊긴 브라우저가 `done`/`error`를 재생할 수 있도록 |
 
-**DB가 이벤트 원본이고 Redis는 다중 인스턴스에 새 시퀀스를 알리는 용도로만** 씁니다. Redis가 죽어도 이벤트가 유실되지 않고, 폴링으로 성능만 떨어집니다.
+**DB가 이벤트 원본이고 Redis는 다중 인스턴스에 새 시퀀스를 알리는 용도로만** 씁니다. Redis 발행이 실패해도 이벤트는 DB에 남아 있고, 다른 인스턴스가 다음 하트비트 때 놓친 시퀀스를 따라잡습니다. 전달이 최대 15초 늦어질 뿐 유실되지 않습니다.
 
 ### 승인 게이트
 
 데이터를 바꾸는 Agent 요청은 사용자 승인 없이 반영되지 않습니다. 승인 시 발급되는 토큰은 **원문을 DB에 저장하지 않고** HMAC으로 재계산하므로 서버가 재시작해도 같은 토큰이 유효합니다.
 
-| | |
+| 항목 | 값 |
 |---|---|
 | 승인 토큰 TTL | 10분 |
 | 승인 · 질문 응답 대기 | 12시간 — 밤새 돌려두고 아침에 승인하는 흐름 |
@@ -112,26 +108,22 @@ FastAPI의 SSE를 소비하는 작업은 블로킹이라 톰캣 요청 스레드
 
 ---
 
----
-
 ## API 명세
 
-| | |
-|---|---|
-| Swagger UI | `/swagger-ui.html` (로컬 기동 후) |
-| 명세서 | [팀 Notion](https://app.notion.com/p/API-28898c017c1683b797bf01bbadbc55c9) |
+- **Swagger UI** — `/swagger-ui.html` (로컬 기동 후)
+- **명세서** — [팀 Notion](https://app.notion.com/p/API-28898c017c1683b797bf01bbadbc55c9)
 
-외부 64개 · Agent 내부 도구 28개.
+외부 64개 · Agent 내부 도구 28개
 
-| 도메인 | 개수 | |
+| 도메인 | 개수 | 범위 |
 |---|---|---|
-| `agent` | 43 | 외부 15 · 내부 도구 28 |
-| `project` | 23 | 프로젝트 · 멤버 · 마일스톤 · 게시글 · 회의록 · 재무 |
-| `calendar` | 10 | 일정 · 휴가 · 연차 |
-| `task` | 6 | 할 일 |
-| `auth` | 4 | 로그인 · 로그아웃 · 토큰 재발급 |
-| `notification` | 4 | 알림 |
-| `user` | 2 | 사용자 |
+| agent | 43 | 외부 15 · 내부 도구 28 |
+| project | 23 | 프로젝트 · 멤버 · 마일스톤 · 게시글 · 회의록 · 재무 |
+| calendar | 10 | 일정 · 휴가 · 연차 |
+| task | 6 | 할 일 |
+| auth | 4 | 로그인 · 로그아웃 · 토큰 재발급 |
+| notification | 4 | 알림 |
+| user | 2 | 사용자 |
 
 ### 응답 형식
 
@@ -144,7 +136,7 @@ FastAPI가 호출하는 경로입니다. **공개 API 문서에서 제외**(`spr
 <details>
 <summary><b>조회 16개</b> — <code>X-Internal-Api-Key</code> + <code>X-Run-Id</code></summary>
 
-| Method | Endpoint | |
+| Method | Endpoint | 설명 |
 |---|---|---|
 | GET | `/api/internal/agent/me` | 호출자 본인 정보 |
 | GET | `/api/internal/agent/users` | 사용자 검색 |
@@ -168,7 +160,7 @@ FastAPI가 호출하는 경로입니다. **공개 API 문서에서 제외**(`spr
 <details>
 <summary><b>쓰기 12개</b> — 위 두 헤더 + <code>X-Approval-Token</code></summary>
 
-| Method | Endpoint | |
+| Method | Endpoint | 설명 |
 |---|---|---|
 | POST | `/api/internal/agent/tasks` | 할 일 생성 |
 | PATCH | `/api/internal/agent/tasks/{taskId}/status` | 할 일 상태 변경 |
@@ -184,9 +176,6 @@ FastAPI가 호출하는 경로입니다. **공개 API 문서에서 제외**(`spr
 | POST | `/api/internal/agent/projects/{projectId}/replans/{replanId}/apply` | 재계획 적용 |
 
 </details>
-
-
----
 
 ---
 
@@ -210,15 +199,13 @@ FastAPI가 호출하는 경로입니다. **공개 API 문서에서 제외**(`spr
 
 ---
 
----
-
 ## 테스트
 
 ```bash
 ./gradlew test
 ```
 
-35개 중 32개가 `agent` 패키지입니다.
+테스트 35개 중 32개가 `agent` 패키지입니다.
 
 | 대상 | 테스트 |
 |---|---|
@@ -229,8 +216,6 @@ FastAPI가 호출하는 경로입니다. **공개 API 문서에서 제외**(`spr
 | 멱등 | `ParamsCanonicalizerTest` — 파라미터 정규화 해시 |
 | 내부 도구 | `AgentTaskToolServiceTest` 등 도메인별 6종 |
 | 승인 카드 미리보기 | `TaskCreatePreviewRendererTest` 등 3종 |
-
----
 
 ---
 
@@ -249,7 +234,7 @@ FastAPI가 호출하는 경로입니다. **공개 API 문서에서 제외**(`spr
 
 ## 기술 스택
 
-| | |
+| 영역 | 기술 |
 |---|---|
 | **Language** | Java 21 |
 | **Framework** | Spring Boot 4.1.0 · Spring Security · Spring Data JPA · Validation · Actuator |
@@ -258,7 +243,7 @@ FastAPI가 호출하는 경로입니다. **공개 API 문서에서 제외**(`spr
 | **Docs** | SpringDoc OpenAPI 3.0 |
 | **Infra** | Docker Compose · Caddy · AWS EC2 · RDS |
 
----
+> 배포 구성과 CI/CD 흐름 다이어그램은 [조직 프로필](https://github.com/Pretty-Works)에 있습니다.
 
 ---
 
@@ -266,7 +251,7 @@ FastAPI가 호출하는 경로입니다. **공개 API 문서에서 제외**(`spr
 
 ### 1. 사전 요구사항
 
-| | |
+| 도구 | 요구사항 |
 |---|---|
 | JDK | 21 |
 | MySQL | 8.4 (Docker Compose 제공) |
@@ -275,13 +260,13 @@ FastAPI가 호출하는 경로입니다. **공개 API 문서에서 제외**(`spr
 
 ### 2. 설정 파일
 
-설정은 `application.yml`에 있고 **시크릿은 `.env`로 주입**합니다. `.env`만 만들면 됩니다.
+설정은 `application.yml`에 있고 **시크릿만 `.env`로 주입**합니다. `.env`만 만들면 됩니다.
 
 ```bash
 cp .env.example .env
 ```
 
-`application.yml`의 `spring.config.import`가 `.env`를 읽어 `${...}` 참조를 해결합니다. `optional:`이라 `.env`가 없는 환경(Docker 등)에서는 컨테이너 환경변수를 그대로 씁니다.
+`application.yml`의 `spring.config.import`가 `.env`를 읽어 `${...}` 참조를 해결합니다. optional 접두사라 `.env`가 없는 환경(Docker 등)에서는 컨테이너 환경변수를 그대로 씁니다.
 
 `.env`에서 값이 비어 있는 항목은 반드시 채워야 앱이 뜹니다.
 
@@ -295,7 +280,7 @@ cp .env.example .env
 openssl rand -base64 64 | tr -d '\n'
 ```
 
-> `AGENT_INTERNAL_API_KEY`는 `pretty-llm`의 `INTERNAL_API_KEY`와 **같은 값**이어야 합니다. 한쪽만 바꾸면 Agent 연동이 끊깁니다.
+> `AGENT_INTERNAL_API_KEY`는 pretty-llm의 `INTERNAL_API_KEY`와 **같은 값**이어야 합니다. 한쪽만 바꾸면 Agent 연동이 끊깁니다.
 
 ### 3. 데이터베이스
 
@@ -305,7 +290,7 @@ openssl rand -base64 64 | tr -d '\n'
 docker compose up -d mysql
 ```
 
-스키마와 시드 로드 절차는 [`src/main/resources/db/README.md`](src/main/resources/db/README.md) 참고. 시드 데이터의 모든 날짜는 `CURDATE()` 기준 상대값이라 언제 로드해도 "진행 중 프로젝트", "이번 주 할 일" 상태가 그대로 재현됩니다.
+스키마와 시드 로드 절차는 [`db/README.md`](src/main/resources/db/README.md) 참고. 시드 데이터의 모든 날짜는 `CURDATE()` 기준 상대값이라 언제 로드해도 "진행 중 프로젝트", "이번 주 할 일" 상태가 그대로 재현됩니다.
 
 ### 4. 실행
 
@@ -313,15 +298,11 @@ docker compose up -d mysql
 ./gradlew bootRun
 ```
 
-| | |
-|---|---|
-| 서버 | http://localhost:8080 |
-| Swagger UI | http://localhost:8080/swagger-ui.html |
+- 서버 — http://localhost:8080
+- Swagger UI — http://localhost:8080/swagger-ui.html
 
 ### 5. Agent 서버 없이 띄우기
 
-`pretty-llm`(FastAPI)이 없어도 BE는 정상 기동합니다. Agent 관련 요청만 실패하고 나머지 도메인 API는 모두 동작하므로, 프론트엔드 개발이나 도메인 API 확인은 BE 단독으로 가능합니다.
+pretty-llm(FastAPI)이 없어도 BE는 정상 기동합니다. Agent 관련 요청만 실패하고 나머지 도메인 API는 모두 동작하므로, 프론트엔드 개발이나 도메인 API 확인은 BE 단독으로 가능합니다.
 
-Agent 기능까지 확인하려면 [`pretty-llm`](https://github.com/Pretty-Works/pretty-llm)을 `:3002`에 띄우고 `AGENT_SERVER_URL`을 맞춥니다.
-
----
+Agent 기능까지 확인하려면 [pretty-llm](https://github.com/Pretty-Works/pretty-llm)을 3002 포트에 띄우고 `AGENT_SERVER_URL`을 맞춥니다.
